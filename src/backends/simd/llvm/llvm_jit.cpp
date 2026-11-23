@@ -23,15 +23,21 @@
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ObjectTransformLayer.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/SectionMemoryManager.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Operator.h>
 #include <llvm/IR/Verifier.h>
 #include "../../common/llvm_pass_builder.h"
 #include <llvm/Support/Error.h>
@@ -44,7 +50,6 @@
 #include <llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm/Transforms/Scalar/EarlyCSE.h>
 #include <llvm/Transforms/Scalar/SROA.h>
-#include <llvm/Transforms/Scalar/Scalarizer.h>
 #include <llvm/Transforms/Scalar/SimplifyCFG.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Vectorize/SLPVectorizer.h>
@@ -54,6 +59,7 @@
 #include <luisa/core/stl/string.h>
 
 #include "../../common/env_flag.h"
+#include "../../common/llvm_target_options.h"
 
 namespace luisa::compute::simd {
 
@@ -116,11 +122,574 @@ void run_with_compiler_stack(Fn &&fn) noexcept {
 #endif
 }
 
+// Strip <1 x T> pseudo-vectors in W=1 functions without touching <2 x T>,
+// <3 x T>, <4 x T>, or wider vectors so native vector operations (e.g. SLP,
+// W1 float2/3/4 loads, texture packets) remain intact while stack spills and
+// residual 1-lane vectors optimize cleanly under SROA.
+[[nodiscard]] bool is_v1_type(const ::llvm::Type *ty) noexcept {
+    if (ty == nullptr) { return false; }
+    if (auto *vt = ::llvm::dyn_cast<::llvm::FixedVectorType>(ty)) {
+        return vt->getNumElements() == 1u;
+    }
+    return false;
+}
+
+[[nodiscard]] ::llvm::Value *constant_v1_element(::llvm::Value *v) noexcept {
+    auto *vt = ::llvm::dyn_cast<::llvm::FixedVectorType>(v->getType());
+    if (vt == nullptr || vt->getNumElements() != 1u) { return nullptr; }
+    if (::llvm::isa<::llvm::PoisonValue>(v)) {
+        return ::llvm::PoisonValue::get(vt->getElementType());
+    }
+    if (::llvm::isa<::llvm::UndefValue>(v)) {
+        return ::llvm::UndefValue::get(vt->getElementType());
+    }
+    if (auto *c = ::llvm::dyn_cast<::llvm::Constant>(v)) {
+        if (auto *splat = c->getSplatValue()) { return splat; }
+        if (auto *agg = c->getAggregateElement(0u)) { return agg; }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] ::llvm::Value *unwrap_v1(
+    ::llvm::IRBuilder<> &b, ::llvm::Value *v) noexcept {
+    if (!is_v1_type(v->getType())) { return v; }
+    if (auto *ie = ::llvm::dyn_cast<::llvm::InsertElementInst>(v)) {
+        if (auto *idx = ::llvm::dyn_cast<::llvm::ConstantInt>(ie->getOperand(2u));
+            idx != nullptr && idx->isZero()) {
+            return ie->getOperand(1u);
+        }
+    }
+    if (auto *s = constant_v1_element(v)) { return s; }
+    return b.CreateExtractElement(v, uint64_t{0u});
+}
+
+[[nodiscard]] ::llvm::Value *wrap_v1(
+    ::llvm::IRBuilder<> &b, ::llvm::Value *s) noexcept {
+    auto *v1_ty = ::llvm::FixedVectorType::get(s->getType(), 1u);
+    return b.CreateInsertElement(
+        ::llvm::PoisonValue::get(v1_ty), s, uint64_t{0u});
+}
+
+[[nodiscard]] bool is_const_v1_true(::llvm::Value *v) noexcept {
+    if (auto *c = ::llvm::dyn_cast<::llvm::Constant>(v)) {
+        return c->isAllOnesValue();
+    }
+    if (auto *ie = ::llvm::dyn_cast<::llvm::InsertElementInst>(v)) {
+        if (auto *idx = ::llvm::dyn_cast<::llvm::ConstantInt>(ie->getOperand(2u));
+            idx != nullptr && idx->isZero()) {
+            if (auto *elem = ::llvm::dyn_cast<::llvm::ConstantInt>(ie->getOperand(1u));
+                elem != nullptr && elem->isOne()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool is_single_overloaded_elementwise_v1_intrinsic(
+    ::llvm::Intrinsic::ID id) noexcept {
+    switch (id) {
+        case ::llvm::Intrinsic::fabs:
+        case ::llvm::Intrinsic::sqrt:
+        case ::llvm::Intrinsic::fma:
+        case ::llvm::Intrinsic::fmuladd:
+        case ::llvm::Intrinsic::minnum:
+        case ::llvm::Intrinsic::maxnum:
+        case ::llvm::Intrinsic::minimum:
+        case ::llvm::Intrinsic::maximum:
+        case ::llvm::Intrinsic::floor:
+        case ::llvm::Intrinsic::ceil:
+        case ::llvm::Intrinsic::trunc:
+        case ::llvm::Intrinsic::round:
+        case ::llvm::Intrinsic::roundeven:
+        case ::llvm::Intrinsic::rint:
+        case ::llvm::Intrinsic::nearbyint:
+        case ::llvm::Intrinsic::copysign:
+        case ::llvm::Intrinsic::sin:
+        case ::llvm::Intrinsic::cos:
+        case ::llvm::Intrinsic::exp:
+        case ::llvm::Intrinsic::exp2:
+        case ::llvm::Intrinsic::log:
+        case ::llvm::Intrinsic::log2:
+        case ::llvm::Intrinsic::log10:
+        case ::llvm::Intrinsic::pow:
+        case ::llvm::Intrinsic::ctpop:
+        case ::llvm::Intrinsic::ctlz:
+        case ::llvm::Intrinsic::cttz:
+        case ::llvm::Intrinsic::bitreverse:
+        case ::llvm::Intrinsic::bswap:
+        case ::llvm::Intrinsic::fshl:
+        case ::llvm::Intrinsic::fshr:
+        case ::llvm::Intrinsic::abs:
+        case ::llvm::Intrinsic::smin:
+        case ::llvm::Intrinsic::smax:
+        case ::llvm::Intrinsic::umin:
+        case ::llvm::Intrinsic::umax:
+            return true;
+        default:
+            return false;
+    }
+}
+
+[[nodiscard]] bool is_v1_reduction_intrinsic(
+    ::llvm::Intrinsic::ID id) noexcept {
+    switch (id) {
+        case ::llvm::Intrinsic::vector_reduce_or:
+        case ::llvm::Intrinsic::vector_reduce_and:
+        case ::llvm::Intrinsic::vector_reduce_xor:
+        case ::llvm::Intrinsic::vector_reduce_add:
+        case ::llvm::Intrinsic::vector_reduce_mul:
+        case ::llvm::Intrinsic::vector_reduce_smin:
+        case ::llvm::Intrinsic::vector_reduce_smax:
+        case ::llvm::Intrinsic::vector_reduce_umin:
+        case ::llvm::Intrinsic::vector_reduce_umax:
+        case ::llvm::Intrinsic::vector_reduce_fmin:
+        case ::llvm::Intrinsic::vector_reduce_fmax:
+        case ::llvm::Intrinsic::vector_reduce_fminimum:
+        case ::llvm::Intrinsic::vector_reduce_fmaximum:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool scalarize_v1_instructions(::llvm::Function &function) noexcept {
+    bool any_changed = false;
+    auto *module = function.getParent();
+    for (unsigned pass = 0u; pass < 2u; ++pass) {
+        bool changed = false;
+
+        // Pass A: Rewrite <1 x T> PHI nodes to scalar T.
+        struct PendingPhi {
+            ::llvm::PHINode *old_phi;
+            ::llvm::PHINode *new_phi;
+        };
+        ::llvm::SmallVector<PendingPhi, 16u> pending_phis;
+        for (auto &&bb : function) {
+            if (bb.isEHPad()) { continue; }
+            for (auto &&phi : bb.phis()) {
+                if (!is_v1_type(phi.getType())) { continue; }
+                bool valid_preds = true;
+                for (unsigned i = 0u; i < phi.getNumIncomingValues(); ++i) {
+                    auto *term = phi.getIncomingBlock(i)->getTerminator();
+                    if (term == nullptr ||
+                        (!::llvm::isa<::llvm::BranchInst>(term) &&
+                         !::llvm::isa<::llvm::SwitchInst>(term))) {
+                        valid_preds = false;
+                        break;
+                    }
+                }
+                if (!valid_preds) { continue; }
+                auto *elt_ty = ::llvm::cast<::llvm::FixedVectorType>(phi.getType())
+                                   ->getElementType();
+                auto *new_phi = ::llvm::PHINode::Create(
+                    elt_ty, phi.getNumIncomingValues(), phi.getName(), &phi);
+                ::llvm::IRBuilder<> b_wrap{&bb, bb.getFirstInsertionPt()};
+                auto *wrapped = wrap_v1(b_wrap, new_phi);
+                phi.replaceAllUsesWith(wrapped);
+                pending_phis.push_back({&phi, new_phi});
+                changed = true;
+            }
+        }
+        for (auto &entry : pending_phis) {
+            for (unsigned i = 0u; i < entry.old_phi->getNumIncomingValues(); ++i) {
+                auto *pred_bb = entry.old_phi->getIncomingBlock(i);
+                ::llvm::IRBuilder<> b{pred_bb->getTerminator()};
+                entry.new_phi->addIncoming(
+                    unwrap_v1(b, entry.old_phi->getIncomingValue(i)), pred_bb);
+            }
+        }
+        for (auto &entry : pending_phis) {
+            entry.old_phi->eraseFromParent();
+        }
+
+        // Pass B: Rewrite non-PHI <1 x T> instructions to scalar T.
+        for (auto &&bb : function) {
+            for (auto &inst : ::llvm::make_early_inc_range(bb)) {
+                if (::llvm::isa<::llvm::PHINode>(&inst)) { continue; }
+
+                if (auto *ee = ::llvm::dyn_cast<::llvm::ExtractElementInst>(&inst)) {
+                    if (is_v1_type(ee->getVectorOperandType())) {
+                        if (auto *ie = ::llvm::dyn_cast<::llvm::InsertElementInst>(
+                                ee->getVectorOperand())) {
+                            if (auto *idx = ::llvm::dyn_cast<::llvm::ConstantInt>(
+                                    ie->getOperand(2u));
+                                idx != nullptr && idx->isZero()) {
+                                ee->replaceAllUsesWith(ie->getOperand(1u));
+                                ee->eraseFromParent();
+                                changed = true;
+                                continue;
+                            }
+                        }
+                        if (auto *s = constant_v1_element(ee->getVectorOperand())) {
+                            ee->replaceAllUsesWith(s);
+                            ee->eraseFromParent();
+                            changed = true;
+                        }
+                    }
+                    continue;
+                }
+
+                ::llvm::IRBuilder<> b{&inst};
+                if (auto *li = ::llvm::dyn_cast<::llvm::LoadInst>(&inst)) {
+                    if (!is_v1_type(li->getType()) || li->isAtomic()) { continue; }
+                    auto *elt_ty = ::llvm::cast<::llvm::FixedVectorType>(li->getType())
+                                       ->getElementType();
+                    auto *new_li = b.CreateAlignedLoad(
+                        elt_ty, li->getPointerOperand(), li->getAlign(),
+                        li->isVolatile());
+                    new_li->copyMetadata(*li);
+                    li->replaceAllUsesWith(wrap_v1(b, new_li));
+                    li->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *si = ::llvm::dyn_cast<::llvm::StoreInst>(&inst)) {
+                    if (!is_v1_type(si->getValueOperand()->getType()) || si->isAtomic()) {
+                        continue;
+                    }
+                    auto *scalar_val = unwrap_v1(b, si->getValueOperand());
+                    auto *new_si = b.CreateAlignedStore(
+                        scalar_val, si->getPointerOperand(), si->getAlign(),
+                        si->isVolatile());
+                    new_si->copyMetadata(*si);
+                    si->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *gep = ::llvm::dyn_cast<::llvm::GetElementPtrInst>(&inst)) {
+                    if (!is_v1_type(gep->getType())) { continue; }
+                    auto *scalar_ptr = unwrap_v1(b, gep->getPointerOperand());
+                    ::llvm::SmallVector<::llvm::Value *, 4u> indices;
+                    indices.reserve(gep->getNumIndices());
+                    for (auto &idx : gep->indices()) {
+                        indices.emplace_back(unwrap_v1(b, idx.get()));
+                    }
+#if LLVM_VERSION_MAJOR >= 19
+                    auto *scalar_gep = b.CreateGEP(
+                        gep->getSourceElementType(), scalar_ptr, indices, "",
+                        gep->getNoWrapFlags());
+#else
+                    auto *scalar_gep = b.CreateGEP(
+                        gep->getSourceElementType(), scalar_ptr, indices, "",
+                        gep->isInBounds());
+#endif
+                    gep->replaceAllUsesWith(wrap_v1(b, scalar_gep));
+                    gep->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *bo = ::llvm::dyn_cast<::llvm::BinaryOperator>(&inst)) {
+                    if (!is_v1_type(bo->getType())) { continue; }
+                    auto *s0 = unwrap_v1(b, bo->getOperand(0u));
+                    auto *s1 = unwrap_v1(b, bo->getOperand(1u));
+                    auto *res = b.CreateBinOp(bo->getOpcode(), s0, s1);
+                    if (auto *ri = ::llvm::dyn_cast<::llvm::Instruction>(res)) {
+                        ri->copyIRFlags(bo);
+                    }
+                    bo->replaceAllUsesWith(wrap_v1(b, res));
+                    bo->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *uo = ::llvm::dyn_cast<::llvm::UnaryOperator>(&inst)) {
+                    if (!is_v1_type(uo->getType())) { continue; }
+                    auto *s0 = unwrap_v1(b, uo->getOperand(0u));
+                    auto *res = b.CreateUnOp(uo->getOpcode(), s0);
+                    if (auto *ri = ::llvm::dyn_cast<::llvm::Instruction>(res)) {
+                        ri->copyIRFlags(uo);
+                    }
+                    uo->replaceAllUsesWith(wrap_v1(b, res));
+                    uo->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *ci = ::llvm::dyn_cast<::llvm::CastInst>(&inst)) {
+                    auto *src = ci->getOperand(0u);
+                    if (is_v1_type(ci->getType()) && is_v1_type(src->getType())) {
+                        auto *dst_elt =
+                            ::llvm::cast<::llvm::FixedVectorType>(ci->getType())
+                                ->getElementType();
+                        auto *s0 = unwrap_v1(b, src);
+                        auto *res = b.CreateCast(ci->getOpcode(), s0, dst_elt);
+                        if (auto *ri = ::llvm::dyn_cast<::llvm::Instruction>(res)) {
+                            ri->copyIRFlags(ci);
+                        }
+                        ci->replaceAllUsesWith(wrap_v1(b, res));
+                        ci->eraseFromParent();
+                        changed = true;
+                    } else if (ci->getOpcode() == ::llvm::Instruction::BitCast &&
+                               is_v1_type(src->getType()) &&
+                               !ci->getType()->isVectorTy()) {
+                        auto *s0 = unwrap_v1(b, src);
+                        auto *res = b.CreateBitCast(s0, ci->getType());
+                        ci->replaceAllUsesWith(res);
+                        ci->eraseFromParent();
+                        changed = true;
+                    } else if (ci->getOpcode() == ::llvm::Instruction::BitCast &&
+                               is_v1_type(ci->getType()) &&
+                               !src->getType()->isVectorTy()) {
+                        auto *dst_elt =
+                            ::llvm::cast<::llvm::FixedVectorType>(ci->getType())
+                                ->getElementType();
+                        auto *res = b.CreateBitCast(src, dst_elt);
+                        ci->replaceAllUsesWith(wrap_v1(b, res));
+                        ci->eraseFromParent();
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                if (auto *ic = ::llvm::dyn_cast<::llvm::ICmpInst>(&inst)) {
+                    if (!is_v1_type(ic->getType()) ||
+                        !is_v1_type(ic->getOperand(0u)->getType())) {
+                        continue;
+                    }
+                    auto *s0 = unwrap_v1(b, ic->getOperand(0u));
+                    auto *s1 = unwrap_v1(b, ic->getOperand(1u));
+                    auto *res = b.CreateICmp(ic->getPredicate(), s0, s1);
+                    ic->replaceAllUsesWith(wrap_v1(b, res));
+                    ic->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *fc = ::llvm::dyn_cast<::llvm::FCmpInst>(&inst)) {
+                    if (!is_v1_type(fc->getType()) ||
+                        !is_v1_type(fc->getOperand(0u)->getType())) {
+                        continue;
+                    }
+                    auto *s0 = unwrap_v1(b, fc->getOperand(0u));
+                    auto *s1 = unwrap_v1(b, fc->getOperand(1u));
+                    auto *res = b.CreateFCmp(fc->getPredicate(), s0, s1);
+                    if (auto *ri = ::llvm::dyn_cast<::llvm::Instruction>(res);
+                        ri != nullptr && ::llvm::isa<::llvm::FPMathOperator>(ri)) {
+                        ri->copyFastMathFlags(fc);
+                    }
+                    fc->replaceAllUsesWith(wrap_v1(b, res));
+                    fc->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *sel = ::llvm::dyn_cast<::llvm::SelectInst>(&inst)) {
+                    if (!is_v1_type(sel->getType())) { continue; }
+                    auto *sc = unwrap_v1(b, sel->getCondition());
+                    auto *st = unwrap_v1(b, sel->getTrueValue());
+                    auto *sf = unwrap_v1(b, sel->getFalseValue());
+                    auto *res = b.CreateSelect(sc, st, sf);
+                    if (auto *ri = ::llvm::dyn_cast<::llvm::Instruction>(res);
+                        ri != nullptr && ::llvm::isa<::llvm::FPMathOperator>(sel) &&
+                        ::llvm::isa<::llvm::FPMathOperator>(ri)) {
+                        ri->copyFastMathFlags(sel);
+                    }
+                    sel->replaceAllUsesWith(wrap_v1(b, res));
+                    sel->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *fr = ::llvm::dyn_cast<::llvm::FreezeInst>(&inst)) {
+                    if (!is_v1_type(fr->getType())) { continue; }
+                    auto *res = b.CreateFreeze(unwrap_v1(b, fr->getOperand(0u)));
+                    fr->replaceAllUsesWith(wrap_v1(b, res));
+                    fr->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *sv = ::llvm::dyn_cast<::llvm::ShuffleVectorInst>(&inst)) {
+                    if (!is_v1_type(sv->getType())) { continue; }
+                    auto *op0_vt = ::llvm::dyn_cast<::llvm::FixedVectorType>(
+                        sv->getOperand(0u)->getType());
+                    if (op0_vt == nullptr) { continue; }
+                    auto mask = sv->getShuffleMask();
+                    if (mask.size() != 1u) { continue; }
+                    if (mask[0u] == ::llvm::PoisonMaskElem) {
+                        sv->replaceAllUsesWith(::llvm::PoisonValue::get(sv->getType()));
+                        sv->eraseFromParent();
+                        changed = true;
+                        continue;
+                    }
+                    const auto idx = static_cast<unsigned>(mask[0u]);
+                    const auto n0 = op0_vt->getNumElements();
+                    auto *src_vec = idx < n0 ? sv->getOperand(0u) : sv->getOperand(1u);
+                    const auto elem_idx = idx < n0 ? idx : idx - n0;
+                    ::llvm::Value *elem = nullptr;
+                    if (is_v1_type(src_vec->getType()) && elem_idx == 0u) {
+                        elem = unwrap_v1(b, src_vec);
+                    } else {
+                        elem = b.CreateExtractElement(
+                            src_vec, static_cast<uint64_t>(elem_idx));
+                    }
+                    sv->replaceAllUsesWith(wrap_v1(b, elem));
+                    sv->eraseFromParent();
+                    changed = true;
+                    continue;
+                }
+
+                if (auto *ii = ::llvm::dyn_cast<::llvm::IntrinsicInst>(&inst)) {
+                    const auto id = ii->getIntrinsicID();
+                    const bool has_explicit_align_arg = ii->arg_size() == 4u;
+                    auto masked_align = [&](unsigned ptr_arg, unsigned align_arg) noexcept {
+                        if (has_explicit_align_arg) {
+                            if (auto *ci = ::llvm::dyn_cast<::llvm::ConstantInt>(
+                                    ii->getArgOperand(align_arg))) {
+                                if (ci->getZExtValue() > 0u) {
+                                    return ::llvm::MaybeAlign{ci->getZExtValue()};
+                                }
+                            }
+                            return ::llvm::MaybeAlign{1u};
+                        }
+                        return ::llvm::MaybeAlign{
+                            ii->getParamAlign(ptr_arg).value_or(::llvm::Align{1u})};
+                    };
+
+                    if (id == ::llvm::Intrinsic::masked_gather &&
+                        is_v1_type(ii->getType()) &&
+                        (ii->arg_size() == 3u || ii->arg_size() == 4u)) {
+                        const unsigned mask_idx = ii->arg_size() - 2u;
+                        if (is_const_v1_true(ii->getArgOperand(mask_idx))) {
+                            auto *elt_ty =
+                                ::llvm::cast<::llvm::FixedVectorType>(ii->getType())
+                                    ->getElementType();
+                            auto *scalar_ptr = unwrap_v1(b, ii->getArgOperand(0u));
+                            auto *load = b.CreateAlignedLoad(
+                                elt_ty, scalar_ptr, masked_align(0u, 1u));
+                            load->copyMetadata(*ii);
+                            ii->replaceAllUsesWith(wrap_v1(b, load));
+                            ii->eraseFromParent();
+                            changed = true;
+                        }
+                        continue;
+                    }
+
+                    if (id == ::llvm::Intrinsic::masked_scatter &&
+                        is_v1_type(ii->getArgOperand(0u)->getType()) &&
+                        (ii->arg_size() == 3u || ii->arg_size() == 4u)) {
+                        const unsigned mask_idx = ii->arg_size() - 1u;
+                        if (is_const_v1_true(ii->getArgOperand(mask_idx))) {
+                            auto *scalar_val = unwrap_v1(b, ii->getArgOperand(0u));
+                            auto *scalar_ptr = unwrap_v1(b, ii->getArgOperand(1u));
+                            auto *store = b.CreateAlignedStore(
+                                scalar_val, scalar_ptr, masked_align(1u, 2u));
+                            store->copyMetadata(*ii);
+                            ii->eraseFromParent();
+                            changed = true;
+                        }
+                        continue;
+                    }
+
+                    if (id == ::llvm::Intrinsic::masked_load &&
+                        is_v1_type(ii->getType()) &&
+                        (ii->arg_size() == 3u || ii->arg_size() == 4u)) {
+                        const unsigned mask_idx = ii->arg_size() - 2u;
+                        if (is_const_v1_true(ii->getArgOperand(mask_idx))) {
+                            auto *elt_ty =
+                                ::llvm::cast<::llvm::FixedVectorType>(ii->getType())
+                                    ->getElementType();
+                            auto *load = b.CreateAlignedLoad(
+                                elt_ty, ii->getArgOperand(0u), masked_align(0u, 1u));
+                            load->copyMetadata(*ii);
+                            ii->replaceAllUsesWith(wrap_v1(b, load));
+                            ii->eraseFromParent();
+                            changed = true;
+                        }
+                        continue;
+                    }
+
+                    if (id == ::llvm::Intrinsic::masked_store &&
+                        is_v1_type(ii->getArgOperand(0u)->getType()) &&
+                        (ii->arg_size() == 3u || ii->arg_size() == 4u)) {
+                        const unsigned mask_idx = ii->arg_size() - 1u;
+                        if (is_const_v1_true(ii->getArgOperand(mask_idx))) {
+                            auto *scalar_val = unwrap_v1(b, ii->getArgOperand(0u));
+                            auto *store = b.CreateAlignedStore(
+                                scalar_val, ii->getArgOperand(1u), masked_align(1u, 2u));
+                            store->copyMetadata(*ii);
+                            ii->eraseFromParent();
+                            changed = true;
+                        }
+                        continue;
+                    }
+
+                    if (is_v1_reduction_intrinsic(id) &&
+                        ii->arg_size() >= 1u &&
+                        is_v1_type(ii->getArgOperand(0u)->getType()) &&
+                        !ii->getType()->isVectorTy()) {
+                        ii->replaceAllUsesWith(unwrap_v1(b, ii->getArgOperand(0u)));
+                        ii->eraseFromParent();
+                        changed = true;
+                        continue;
+                    }
+
+                    if (module != nullptr &&
+                        is_v1_type(ii->getType()) &&
+                        is_single_overloaded_elementwise_v1_intrinsic(id)) {
+                        auto *elt_ty =
+                            ::llvm::cast<::llvm::FixedVectorType>(ii->getType())
+                                ->getElementType();
+                        ::llvm::SmallVector<::llvm::Value *, 4u> args;
+                        args.reserve(ii->arg_size());
+                        for (unsigned a = 0u; a < ii->arg_size(); ++a) {
+                            auto *arg = ii->getArgOperand(a);
+                            args.emplace_back(
+                                is_v1_type(arg->getType()) ? unwrap_v1(b, arg) : arg);
+                        }
+#if LLVM_VERSION_MAJOR >= 20
+                        auto *scalar_fn = ::llvm::Intrinsic::getOrInsertDeclaration(
+                            module, id, {elt_ty});
+#else
+                        auto *scalar_fn = ::llvm::Intrinsic::getDeclaration(
+                            module, id, {elt_ty});
+#endif
+                        auto *call = b.CreateCall(scalar_fn, args);
+                        call->setTailCallKind(ii->getTailCallKind());
+                        if (::llvm::isa<::llvm::FPMathOperator>(ii) &&
+                            ::llvm::isa<::llvm::FPMathOperator>(call)) {
+                            call->copyFastMathFlags(ii);
+                        }
+                        ii->replaceAllUsesWith(wrap_v1(b, call));
+                        ii->eraseFromParent();
+                        changed = true;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Pass C: Clean up dead <1 x T> insertelement wrappers bottom-up.
+        for (auto &&bb : function) {
+            for (auto &inst : ::llvm::make_early_inc_range(::llvm::reverse(bb))) {
+                if (auto *ie = ::llvm::dyn_cast<::llvm::InsertElementInst>(&inst)) {
+                    if (is_v1_type(ie->getType()) && ie->use_empty()) {
+                        ie->eraseFromParent();
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        any_changed |= changed;
+        if (!changed) { break; }
+    }
+    return any_changed;
+}
+
 // Strip <1 x T> pseudo-vectors in W=1 functions after SROA/scalar opts and
 // immediately before LoopVectorize/SLPVectorizer so LLVM SLP can pack
 // independent scalar lanes (e.g. 8-corner 3D Perlin noise, Float3/Float4 math)
-// into native SIMD registers on both x86-64 and AArch64.
+// into native SIMD registers on both x86-64 and AArch64 without touching
+// explicit <2 x T> / <4 x T> operations.
 struct ScalarizeW1FunctionPass {
+    bool scalarize_all_functions{false};
+    bool run_slp{true};
+
     // The pass-manager interface is stable even when PassInfoMixin is private.
     static ::llvm::StringRef name() noexcept { return "ScalarizeW1FunctionPass"; }
     static bool isRequired() noexcept { return false; }
@@ -132,50 +701,46 @@ struct ScalarizeW1FunctionPass {
     ::llvm::PreservedAnalyses run(
         ::llvm::Function &function,
         ::llvm::FunctionAnalysisManager &am) noexcept {
-        if (!function.getName().ends_with(".simd_w1") &&
+        if (!scalarize_all_functions &&
+            !function.getName().ends_with(".simd_w1") &&
             !function.getName().ends_with(".live_w1")) {
             return ::llvm::PreservedAnalyses::all();
         }
         bool has_v1 = false;
-        bool has_wide = false;
-        auto inspect_type = [&](::llvm::Type *ty) noexcept {
-            if (auto *vt = ::llvm::dyn_cast<::llvm::FixedVectorType>(ty)) {
-                auto n = vt->getNumElements();
-                if (n == 1u) {
-                    has_v1 = true;
-                } else if (n > 1u) {
-                    has_wide = true;
-                }
-            }
-        };
         for (auto &&bb : function) {
             for (auto &&inst : bb) {
-                inspect_type(inst.getType());
-                for (auto &op : inst.operands()) {
-                    inspect_type(op->getType());
+                if (is_v1_type(inst.getType())) {
+                    has_v1 = true;
+                    break;
                 }
-                if (has_wide) { break; }
+                for (auto &op : inst.operands()) {
+                    if (is_v1_type(op->getType())) {
+                        has_v1 = true;
+                        break;
+                    }
+                }
+                if (has_v1) { break; }
             }
-            if (has_wide) { break; }
+            if (has_v1) { break; }
         }
-        if (!has_v1 || has_wide) {
+        if (!has_v1 || !scalarize_v1_instructions(function)) {
             return ::llvm::PreservedAnalyses::all();
         }
-        ::llvm::ScalarizerPassOptions opts{};
-        opts.ScalarizeLoadStore = true;
-        opts.ScalarizeVariableInsertExtract = true;
-        ::llvm::ScalarizerPass scalarizer{opts};
-        auto pa = scalarizer.run(function, am);
-        if (pa.areAllPreserved()) { return pa; }
+        auto pa = ::llvm::PreservedAnalyses::none();
         am.invalidate(function, pa);
-        ::llvm::InstCombinePass ic{};
-        auto ic_pa = ic.run(function, am);
-        am.invalidate(function, ic_pa);
-        pa.intersect(ic_pa);
-        ::llvm::SLPVectorizerPass slp{};
-        auto slp_pa = slp.run(function, am);
-        pa.intersect(slp_pa);
-        return pa;
+        auto run_fn_pass = [&](auto &&pass) noexcept {
+            auto sub_pa = pass.run(function, am);
+            am.invalidate(function, sub_pa);
+        };
+        run_fn_pass(::llvm::InstCombinePass{});
+        run_fn_pass(::llvm::SROAPass{::llvm::SROAOptions::PreserveCFG});
+        run_fn_pass(::llvm::InstCombinePass{});
+        run_fn_pass(::llvm::EarlyCSEPass{/*UseMemorySSA=*/false});
+        run_fn_pass(::llvm::SimplifyCFGPass{});
+        if (run_slp) {
+            run_fn_pass(::llvm::SLPVectorizerPass{});
+        }
+        return ::llvm::PreservedAnalyses::none();
     }
 };
 
@@ -185,7 +750,8 @@ void LLVMJIT::_fail(std::string message) noexcept {
     if (_error.empty()) { _error = std::move(message); }
 }
 
-LLVMJIT::LLVMJIT(bool capture_object) noexcept {
+LLVMJIT::LLVMJIT(bool capture_object, bool enable_fast_math, bool scalarize_w1) noexcept
+    : _enable_fast_math{enable_fast_math}, _scalarize_w1{scalarize_w1} {
     static std::once_flag llvm_target_init_once;
     static bool llvm_target_init_failed = false;
     std::call_once(llvm_target_init_once, [] {
@@ -204,12 +770,24 @@ LLVMJIT::LLVMJIT(bool capture_object) noexcept {
         return;
     }
     host->setCodeGenOptLevel(::llvm::CodeGenOptLevel::Aggressive);
+    if (host->getTargetTriple().isAArch64()) {
+        host->addFeatures({"+neon"});
+    }
     // LLJIT selects PIC for an unspecified relocation model. Make that
     // choice explicit before creating the audit TargetMachine as well, so
     // captured assembly and ORC's final relocatable object have identical
     // instruction layout.
     host->setRelocationModel(::llvm::Reloc::PIC_);
     host->setCodeModel(::llvm::CodeModel::Small);
+    auto &target_options = host->getOptions();
+    luisa::compute::detail::apply_llvm_fp_target_options(
+        target_options,
+        enable_fast_math ? luisa::compute::detail::LLVMFPOpFusion::Fast :
+                           luisa::compute::detail::LLVMFPOpFusion::Strict);
+    if (!host->getTargetTriple().isOSBinFormatCOFF()) {
+        luisa::compute::detail::enable_llvm_machine_function_splitting(
+            target_options);
+    }
     _target_triple = host->getTargetTriple().str();
     auto target_machine = host->createTargetMachine();
     if (!target_machine) {
@@ -394,6 +972,13 @@ bool LLVMJIT::_prepare_module(
         _fail("refusing to process an invalid LLVM module");
         return false;
     }
+    const auto fp_fusion = _enable_fast_math ?
+                               luisa::compute::detail::LLVMFPOpFusion::Fast :
+                               luisa::compute::detail::LLVMFPOpFusion::Strict;
+    for (auto &&function : module) {
+        luisa::compute::detail::apply_llvm_fp_function_options(
+            function, fp_fusion);
+    }
 
     ::llvm::LoopAnalysisManager loop_analyses;
     ::llvm::FunctionAnalysisManager function_analyses;
@@ -406,9 +991,26 @@ bool LLVMJIT::_prepare_module(
     auto pass_builder = luisa::compute::detail::make_llvm_pass_builder(
         module.getContext(), _target_machine.get(), tuning_options);
     if (!luisa::compute::detail::env_flag("LUISA_SIMD_DISABLE_W1_SCALARIZE")) {
+        if (_scalarize_w1) {
+            pass_builder.registerPipelineStartEPCallback(
+                [](::llvm::ModulePassManager &mpm, ::llvm::OptimizationLevel) {
+                    mpm.addPass(::llvm::AlwaysInlinerPass{});
+                    ::llvm::FunctionPassManager fpm;
+                    fpm.addPass(::llvm::SROAPass{::llvm::SROAOptions::PreserveCFG});
+                    fpm.addPass(::llvm::InstCombinePass{});
+                    fpm.addPass(ScalarizeW1FunctionPass{
+                        /*scalarize_all_functions=*/true,
+                        /*run_slp=*/false});
+                    mpm.addPass(::llvm::createModuleToFunctionPassAdaptor(
+                        std::move(fpm)));
+                });
+        }
+        const bool scalarize_all = _scalarize_w1;
         pass_builder.registerVectorizerStartEPCallback(
-            [](::llvm::FunctionPassManager &fpm, ::llvm::OptimizationLevel) {
-                fpm.addPass(ScalarizeW1FunctionPass{});
+            [scalarize_all](::llvm::FunctionPassManager &fpm, ::llvm::OptimizationLevel) {
+                fpm.addPass(ScalarizeW1FunctionPass{
+                    scalarize_all,
+                    /*run_slp=*/!scalarize_all});
             });
     }
     pass_builder.registerModuleAnalyses(module_analyses);
@@ -441,12 +1043,23 @@ bool LLVMJIT::_prepare_module(
     if (out_size_bounded != nullptr) {
         *out_size_bounded = size_bounded;
     }
+    const auto full_o3_instruction_limit =
+        _scalarize_w1 ? size_t{450'000u} : size_t{250'000u};
+    const bool force_o2 =
+        luisa::compute::detail::env_flag("LUISA_SIMD_OPT_LEVEL_O2") ||
+        max_function_instructions > full_o3_instruction_limit;
+    const auto opt_level = force_o2 ? ::llvm::OptimizationLevel::O2 :
+                                      ::llvm::OptimizationLevel::O3;
+    const char *pipeline_label =
+        size_bounded ? "linear-SROA/O1-CG size-bounded" :
+        force_o2     ? "O2" :
+                       "O3";
     auto report = luisa::compute::detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
     if (report) {
         LUISA_INFO(
             "SIMD LLVM pipeline: {}, blocks={}, instructions={}, "
             "max_fn_blocks={}, max_fn_instructions={}",
-            size_bounded ? "linear-SROA/O1-CG size-bounded" : "O2",
+            pipeline_label,
             block_count, instruction_count,
             max_function_blocks, max_function_instructions);
     }
@@ -505,7 +1118,7 @@ bool LLVMJIT::_prepare_module(
             pipeline.run(module, module_analyses);
         } else {
             auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
-                ::llvm::OptimizationLevel::O2);
+                opt_level);
             pipeline.run(module, module_analyses);
         }
     };
@@ -538,7 +1151,11 @@ bool LLVMJIT::_prepare_module(
         LUISA_INFO(
             "SIMD LLVM post-opt '{}': pipeline={}, optimize_ms={:.3f}, "
             "blocks={}, instructions={}, phis={}, max_block_size={}, max_block_phis={}",
-            module.getModuleIdentifier(), size_bounded ? "O0-IR/O1-CG size-bounded" : "O2", elapsed_ms,
+            module.getModuleIdentifier(),
+            size_bounded ? "O0-IR/O1-CG size-bounded" :
+            force_o2     ? "O2" :
+                           "O3",
+            elapsed_ms,
             post_block_count, post_instruction_count, phi_count, max_block_size, max_block_phis);
     }
     return true;

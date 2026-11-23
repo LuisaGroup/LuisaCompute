@@ -8,6 +8,9 @@
 #include <luisa/runtime/buffer.h>
 #include <atomic>
 #include <thread>
+#ifndef _WIN32
+#include <pthread.h>
+#endif
 
 namespace luisa::compute::coro {
 
@@ -30,6 +33,34 @@ void detail::coro_scheduler_compile_shaders(
             jobs[index]();
         }
     };
+#ifndef _WIN32
+    // macOS defaults secondary pthreads to 512 KB stacks, which overflows inside
+    // LLVM 23 SelectionDAG/DAGTypeLegalizer when compiling large coroutine shards.
+    constexpr size_t worker_stack_bytes = 16u * 1024u * 1024u;
+    using WorkFn = decltype(work);
+    auto pthread_entry = [](void *param) -> void * {
+        (*static_cast<WorkFn *>(param))();
+        return nullptr;
+    };
+    pthread_attr_t attr{};
+    const bool attr_ok = ::pthread_attr_init(&attr) == 0 &&
+                         ::pthread_attr_setstacksize(&attr, worker_stack_bytes) == 0;
+    luisa::vector<pthread_t> pthread_workers;
+    luisa::vector<std::thread> fallback_workers;
+    pthread_workers.reserve(thread_count - 1u);
+    for (size_t i = 1u; i < thread_count; ++i) {
+        pthread_t tid{};
+        if (attr_ok && ::pthread_create(&tid, &attr, pthread_entry, &work) == 0) {
+            pthread_workers.emplace_back(tid);
+        } else {
+            fallback_workers.emplace_back(work);
+        }
+    }
+    if (attr_ok) { ::pthread_attr_destroy(&attr); }
+    work();
+    for (auto tid : pthread_workers) { ::pthread_join(tid, nullptr); }
+    for (auto &t : fallback_workers) { t.join(); }
+#else
     luisa::vector<std::jthread> workers;
     workers.reserve(thread_count - 1u);
     for (size_t i = 1u; i < thread_count; ++i) {
@@ -37,6 +68,7 @@ void detail::coro_scheduler_compile_shaders(
     }
     work();
     // jthread destruction joins before the caller consumes any shader slot.
+#endif
 }
 
 // Explicit instantiations for common argument combinations.

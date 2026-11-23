@@ -30,104 +30,6 @@ void ScheduleEmitter::_ray_query_pipeline(
     auto *pointer_lanes = ::llvm::FixedVectorType::get(
         pointer_type, _width);
     auto status_index = _ray_query_status_slots[object_id.value];
-
-    if (_width == 1u) {
-        auto *states = _ray_query_state_handles(object_id);
-        if (states == nullptr) {
-            _fail("W1 ray-query pipeline requires a state owner");
-            return;
-        }
-        if (handler_pair.on_candidate_w1 == nullptr ||
-            status_index >=
-                _ray_query_pipeline_callback_storage.size()) {
-            _fail("W1 ray-query pipeline has no resident callback ABI");
-            return;
-        }
-        auto *pipeline_callbacks = _builder.CreateAlignedLoad(
-            pointer_lanes,
-            _ray_query_pipeline_callback_storage[status_index],
-            ::llvm::Align{alignof(void *)},
-            "ray.query.pipeline.w1.callbacks");
-        auto *pipeline_callback = _builder.CreateExtractElement(
-            pipeline_callbacks, _safe_first_lane(_active_mask));
-        auto *null_pointer =
-            ::llvm::ConstantPointerNull::get(pointer_type);
-        _trap_if(
-            _builder.CreateICmpEQ(
-                pipeline_callback, null_pointer),
-            "ray.query.pipeline.w1.callback.null");
-        auto *callback_mismatch = _builder.CreateAnd(
-            _active_mask,
-            _builder.CreateICmpNE(
-                pipeline_callbacks,
-                _builder.CreateVectorSplat(
-                    _width, pipeline_callback)));
-        _trap_if(
-            _builder.CreateOrReduce(callback_mismatch),
-            "ray.query.pipeline.w1.callback.mismatch");
-
-        auto capture_count = instruction.operands.size() - 1u;
-        auto *capture_pointer = static_cast<::llvm::Value *>(
-            null_pointer);
-        if (capture_count != 0u) {
-            auto capture_types = std::vector<::llvm::Type *>{};
-            auto capture_values = std::vector<::llvm::Value *>{};
-            capture_types.reserve(capture_count);
-            capture_values.reserve(capture_count);
-            for (auto capture_index = size_t{0u};
-                 capture_index < capture_count; capture_index++) {
-                auto *capture = _load_value(
-                    instruction.operands[capture_index + 1u]);
-                if (capture == nullptr) { return; }
-                auto *expected = handler_pair.on_surface
-                                     ->getFunctionType()
-                                     ->getParamType(
-                                         static_cast<unsigned>(
-                                             capture_index + 4u));
-                if (capture->getType() != expected) {
-                    _fail("W1 ray-query pipeline capture type mismatch");
-                    return;
-                }
-                capture_types.emplace_back(expected);
-                capture_values.emplace_back(capture);
-            }
-            auto *capture_type = ::llvm::StructType::get(
-                context, capture_types, false);
-            auto *capture_storage = _entry_scratch(
-                capture_type,
-                "ray.query.pipeline.w1.captures." +
-                    std::to_string(*instruction.source_op));
-            capture_storage->setAlignment(::llvm::Align{1u});
-            auto *captured = static_cast<::llvm::Value *>(
-                ::llvm::PoisonValue::get(capture_type));
-            for (auto capture_index = size_t{0u};
-                 capture_index < capture_count; capture_index++) {
-                captured = _builder.CreateInsertValue(
-                    captured, capture_values[capture_index],
-                    {static_cast<unsigned>(capture_index)});
-            }
-            auto *capture_store = _builder.CreateStore(
-                captured, capture_storage);
-            capture_store->setAlignment(::llvm::Align{1u});
-            capture_pointer = capture_storage;
-        }
-
-        auto *state = _builder.CreateExtractElement(
-            states, _safe_first_lane(_active_mask));
-        auto *pipeline_type = ::llvm::FunctionType::get(
-            _builder.getVoidTy(),
-            {pointer_type, pointer_type, pointer_type,
-             pointer_type},
-            false);
-        _builder.CreateCall(
-            pipeline_type, pipeline_callback,
-            {state, capture_pointer, _launch_config,
-             handler_pair.on_candidate_w1});
-        auto *outer_active_bits = _bindless_callback_mask(true);
-        _ray_query_update_status(object_id, outer_active_bits);
-        return;
-    }
-
     auto *null_pointer =
         ::llvm::ConstantPointerNull::get(pointer_type);
     auto *outer_active_bits = _bindless_callback_mask(true);
@@ -413,19 +315,26 @@ void ScheduleEmitter::_ray_query_pipeline(
         _builder.CreateBr(exit);
         _builder.SetInsertPoint(regular);
     }
-    if (_width >= 2u && !handler_pair.embree_surface_filter_safe &&
-        handler_pair.surface_exclusion_safe &&
-        status_index <
-            _ray_query_surface_exclusion_soa_accel_storage.size() &&
+    auto *w1_io =
+        _width == 1u &&
+                status_index < _ray_query_w1_surface_exclusion_io_storage.size() ?
+            _ray_query_w1_surface_exclusion_io_storage[status_index] :
+            nullptr;
+    const bool has_soa_packets =
         status_index <
             _ray_query_surface_exclusion_soa_input_storage.size() &&
         status_index < _ray_query_output_packet_storage.size() &&
+        _ray_query_surface_exclusion_soa_input_storage[status_index] !=
+            nullptr &&
+        _ray_query_output_packet_storage[status_index] != nullptr;
+    if (!handler_pair.embree_surface_filter_safe &&
+        handler_pair.surface_exclusion_safe &&
+        status_index <
+            _ray_query_surface_exclusion_soa_accel_storage.size() &&
         status_index < _ray_query_live_dispatch_storage.size() &&
         _ray_query_surface_exclusion_soa_accel_storage[status_index] !=
             nullptr &&
-        _ray_query_surface_exclusion_soa_input_storage[status_index] !=
-            nullptr &&
-        _ray_query_output_packet_storage[status_index] != nullptr &&
+        (w1_io != nullptr || has_soa_packets) &&
         _ray_query_live_dispatch_storage[status_index] != nullptr) {
         auto *soa_accels = _builder.CreateMaskedLoad(
             pointer_lanes,
@@ -472,61 +381,6 @@ void ScheduleEmitter::_ray_query_pipeline(
         _trap_if(
             _builder.CreateICmpEQ(live_dispatch, null_pointer),
             "ray.query.surface.exclusion.soa.live.dispatch.null");
-        auto *fn_ptr = _builder.CreateLoad(
-            pointer_type,
-            _byte_pointer(
-                live_dispatch,
-                offsetof(
-                    SIMDHostAccelRayQueryLiveDispatch,
-                    surface_exclusion_soa)),
-            "ray.query.surface.exclusion.soa.fn");
-        fn_ptr->setAlignment(::llvm::Align{alignof(void *)});
-        _trap_if(
-            _builder.CreateICmpEQ(fn_ptr, null_pointer),
-            "ray.query.surface.exclusion.soa.fn.null");
-        auto *i32_lanes = ::llvm::FixedVectorType::get(
-            _builder.getInt32Ty(), _width);
-        std::array<::llvm::Value *, 4u> excl_ptrs{};
-        for (auto k = size_t{0u}; k < 4u; k++) {
-            auto cap_idx =
-                handler_pair.surface_exclusion_capture_indices[k];
-            ::llvm::Value *vec = nullptr;
-            if (cap_idx != std::numeric_limits<uint32_t>::max()) {
-                if (cap_idx == 0u ||
-                    cap_idx >= instruction.operands.size()) {
-                    _fail("surface-exclusion capture index is out of range");
-                    return;
-                }
-                auto operand_id = instruction.operands[cap_idx];
-                auto *op_val = _source.value(operand_id);
-                if (op_val == nullptr) {
-                    _fail("surface-exclusion capture value is missing");
-                    return;
-                }
-                auto *loaded = _load_value(operand_id);
-                if (loaded == nullptr) { return; }
-                vec = _is_local_lvalue(operand_id) ?
-                          _gather_data(
-                              _local_base(_builder, loaded),
-                              _local_offsets(_builder, loaded),
-                              op_val->type) :
-                          _as_lane_vector(loaded, *op_val);
-                if (vec == nullptr) { return; }
-            } else {
-                vec = _builder.CreateVectorSplat(
-                    _width,
-                    _builder.getInt32(
-                        handler_pair.surface_exclusion_constants[k]));
-            }
-            auto *slot = _entry_scratch(
-                i32_lanes,
-                "ray.query.excl.soa." +
-                    std::to_string(*instruction.source_op) + "." +
-                    std::to_string(k));
-            slot->setAlignment(::llvm::Align{16u});
-            _builder.CreateAlignedStore(vec, slot, ::llvm::Align{16u});
-            excl_ptrs[k] = slot;
-        }
         auto *query_object = _source.value(object_id);
         auto query_any =
             query_object != nullptr &&
@@ -536,21 +390,137 @@ void ScheduleEmitter::_ray_query_pipeline(
                  simd_host_ray_query_live_flag_terminate_on_commit :
                  0u) |
             (query_any ? simd_host_ray_query_live_flag_query_any : 0u);
-        auto *fn_type = ::llvm::FunctionType::get(
-            _builder.getVoidTy(),
-            {_builder.getInt32Ty(), _builder.getInt64Ty(),
-             pointer_type, pointer_type, pointer_type,
-             pointer_type, pointer_type, pointer_type, pointer_type,
-             _builder.getInt32Ty()},
-            false);
-        _builder.CreateCall(
-            fn_type, fn_ptr,
-            {_builder.getInt32(_width), outer_active_bits,
-             soa_accel,
-             _ray_query_surface_exclusion_soa_input_storage[status_index],
-             _ray_query_output_packet_storage[status_index],
-             excl_ptrs[0u], excl_ptrs[1u], excl_ptrs[2u], excl_ptrs[3u],
-             _builder.getInt32(flags)});
+        if (w1_io != nullptr) {
+            auto *fn_ptr = _builder.CreateLoad(
+                pointer_type,
+                _byte_pointer(
+                    live_dispatch,
+                    offsetof(
+                        SIMDHostAccelRayQueryLiveDispatch,
+                        surface_exclusion_w1)),
+                "ray.query.surface.exclusion.w1.fn");
+            fn_ptr->setAlignment(::llvm::Align{alignof(void *)});
+            _trap_if(
+                _builder.CreateICmpEQ(fn_ptr, null_pointer),
+                "ray.query.surface.exclusion.w1.fn.null");
+            std::array<::llvm::Value *, 4u> excl_vals{};
+            for (auto k = size_t{0u}; k < 4u; k++) {
+                auto cap_idx =
+                    handler_pair.surface_exclusion_capture_indices[k];
+                if (cap_idx != std::numeric_limits<uint32_t>::max()) {
+                    if (cap_idx == 0u ||
+                        cap_idx >= instruction.operands.size()) {
+                        _fail("surface-exclusion capture index is out of range");
+                        return;
+                    }
+                    auto operand_id = instruction.operands[cap_idx];
+                    auto *op_val = _source.value(operand_id);
+                    if (op_val == nullptr) {
+                        _fail("surface-exclusion capture value is missing");
+                        return;
+                    }
+                    auto *loaded = _load_value(operand_id);
+                    if (loaded == nullptr) { return; }
+                    auto *vec = _is_local_lvalue(operand_id) ?
+                                    _gather_data(
+                                        _local_base(_builder, loaded),
+                                        _local_offsets(_builder, loaded),
+                                        op_val->type) :
+                                    _as_lane_vector(loaded, *op_val);
+                    if (vec == nullptr) { return; }
+                    excl_vals[k] = _builder.CreateExtractElement(
+                        vec, uint64_t{0u},
+                        "ray.query.excl.w1." + std::to_string(k));
+                } else {
+                    excl_vals[k] = _builder.getInt32(
+                        handler_pair.surface_exclusion_constants[k]);
+                }
+            }
+            auto *fn_type = ::llvm::FunctionType::get(
+                _builder.getVoidTy(),
+                {pointer_type, pointer_type,
+                 _builder.getInt32Ty(), _builder.getInt32Ty(),
+                 _builder.getInt32Ty(), _builder.getInt32Ty(),
+                 _builder.getInt32Ty()},
+                false);
+            _builder.CreateCall(
+                fn_type, fn_ptr,
+                {soa_accel, w1_io,
+                 excl_vals[0u], excl_vals[1u],
+                 excl_vals[2u], excl_vals[3u],
+                 _builder.getInt32(flags)});
+        } else {
+            auto *fn_ptr = _builder.CreateLoad(
+                pointer_type,
+                _byte_pointer(
+                    live_dispatch,
+                    offsetof(
+                        SIMDHostAccelRayQueryLiveDispatch,
+                        surface_exclusion_soa)),
+                "ray.query.surface.exclusion.soa.fn");
+            fn_ptr->setAlignment(::llvm::Align{alignof(void *)});
+            _trap_if(
+                _builder.CreateICmpEQ(fn_ptr, null_pointer),
+                "ray.query.surface.exclusion.soa.fn.null");
+            auto *i32_lanes = ::llvm::FixedVectorType::get(
+                _builder.getInt32Ty(), _width);
+            std::array<::llvm::Value *, 4u> excl_ptrs{};
+            for (auto k = size_t{0u}; k < 4u; k++) {
+                auto cap_idx =
+                    handler_pair.surface_exclusion_capture_indices[k];
+                ::llvm::Value *vec = nullptr;
+                if (cap_idx != std::numeric_limits<uint32_t>::max()) {
+                    if (cap_idx == 0u ||
+                        cap_idx >= instruction.operands.size()) {
+                        _fail("surface-exclusion capture index is out of range");
+                        return;
+                    }
+                    auto operand_id = instruction.operands[cap_idx];
+                    auto *op_val = _source.value(operand_id);
+                    if (op_val == nullptr) {
+                        _fail("surface-exclusion capture value is missing");
+                        return;
+                    }
+                    auto *loaded = _load_value(operand_id);
+                    if (loaded == nullptr) { return; }
+                    vec = _is_local_lvalue(operand_id) ?
+                              _gather_data(
+                                  _local_base(_builder, loaded),
+                                  _local_offsets(_builder, loaded),
+                                  op_val->type) :
+                              _as_lane_vector(loaded, *op_val);
+                    if (vec == nullptr) { return; }
+                } else {
+                    vec = _builder.CreateVectorSplat(
+                        _width,
+                        _builder.getInt32(
+                            handler_pair.surface_exclusion_constants[k]));
+                }
+                auto *slot = _entry_scratch(
+                    i32_lanes,
+                    "ray.query.excl.soa." +
+                        std::to_string(*instruction.source_op) + "." +
+                        std::to_string(k));
+                slot->setAlignment(::llvm::Align{16u});
+                _builder.CreateAlignedStore(vec, slot, ::llvm::Align{16u});
+                excl_ptrs[k] = slot;
+            }
+            auto *fn_type = ::llvm::FunctionType::get(
+                _builder.getVoidTy(),
+                {_builder.getInt32Ty(), _builder.getInt64Ty(),
+                 pointer_type, pointer_type, pointer_type,
+                 pointer_type, pointer_type, pointer_type, pointer_type,
+                 _builder.getInt32Ty()},
+                false);
+            _builder.CreateCall(
+                fn_type, fn_ptr,
+                {_builder.getInt32(_width), outer_active_bits,
+                 soa_accel,
+                 _ray_query_surface_exclusion_soa_input_storage[status_index],
+                 _ray_query_output_packet_storage[status_index],
+                 excl_ptrs[0u], excl_ptrs[1u], excl_ptrs[2u], excl_ptrs[3u],
+                 _builder.getInt32(flags)});
+        }
         _builder.CreateBr(exit);
         _builder.SetInsertPoint(regular);
     }
@@ -630,10 +600,12 @@ void ScheduleEmitter::_ray_query_pipeline(
         safe_states, scratch);
     state_store->setAlignment(
         ::llvm::Align{alignof(void *)});
-    if (_width >= 2u && !handler_pair.embree_surface_filter_safe &&
+    if (!handler_pair.embree_surface_filter_safe &&
         (handler_pair.surface_exclusion_safe ||
          (handler_pair.live_embree_safe &&
-          handler_pair.on_candidate_live != nullptr)) &&
+          (handler_pair.on_candidate_live != nullptr ||
+           (_width == 1u &&
+            handler_pair.on_candidate_live_w1 != nullptr)))) &&
         status_index < _ray_query_live_dispatch_storage.size() &&
         _ray_query_live_dispatch_storage[status_index] != nullptr) {
         auto *live_dispatches = _builder.CreateAlignedLoad(
@@ -731,6 +703,93 @@ void ScheduleEmitter::_ray_query_pipeline(
                  excl_ptrs[2u], excl_ptrs[3u],
                  _builder.getInt32(flags)});
             _builder.CreateBr(exit);
+        } else if (_width == 1u &&
+                   handler_pair.on_candidate_live_w1 != nullptr) {
+            auto *fn_ptr = _builder.CreateLoad(
+                pointer_type,
+                _byte_pointer(
+                    live_dispatch,
+                    offsetof(
+                        SIMDHostAccelRayQueryLiveDispatch,
+                        live_pipeline_w1)),
+                "ray.query.live.pipeline.w1.fn");
+            fn_ptr->setAlignment(::llvm::Align{alignof(void *)});
+            _trap_if(
+                _builder.CreateICmpEQ(fn_ptr, null_pointer),
+                "ray.query.live.pipeline.w1.fn.null");
+            auto capture_count = instruction.operands.size() - 1u;
+            auto *capture_pointer =
+                static_cast<::llvm::Value *>(null_pointer);
+            if (capture_count != 0u) {
+                std::vector<::llvm::Type *> capture_types;
+                std::vector<::llvm::Value *> capture_values;
+                capture_types.reserve(capture_count);
+                capture_values.reserve(capture_count);
+                for (auto i = size_t{0u}; i < capture_count; i++) {
+                    auto *arg = handler_arguments[i + 4u];
+                    auto mode =
+                        i < handler_pair.live_w1_capture_modes.size() ?
+                            handler_pair.live_w1_capture_modes[i] :
+                            uint8_t{0u};
+                    if (mode == 1u || mode == 2u) {
+                        auto *base = _builder.CreateExtractElement(
+                            _local_base(_builder, arg), uint64_t{0u});
+                        auto *off = _builder.CreateExtractElement(
+                            _local_offsets(_builder, arg), uint64_t{0u});
+                        auto *effective = _builder.CreateGEP(
+                            _builder.getInt8Ty(), base, off);
+                        if (mode == 2u) {
+                            auto *scalar_ty =
+                                i < handler_pair.live_w1_capture_scalar_types.size() ?
+                                    handler_pair.live_w1_capture_scalar_types[i] :
+                                    nullptr;
+                            if (scalar_ty != nullptr) {
+                                auto *loaded_val = _builder.CreateAlignedLoad(
+                                    scalar_ty, effective, ::llvm::Align{1u});
+                                capture_types.emplace_back(scalar_ty);
+                                capture_values.emplace_back(loaded_val);
+                                continue;
+                            }
+                        }
+                        capture_types.emplace_back(pointer_type);
+                        capture_values.emplace_back(effective);
+                    } else {
+                        capture_types.emplace_back(arg->getType());
+                        capture_values.emplace_back(arg);
+                    }
+                }
+                auto *capture_type = ::llvm::StructType::get(
+                    context, capture_types, false);
+                auto *capture_storage = _entry_scratch(
+                    capture_type,
+                    "ray.query.pipeline.live.w1.captures." +
+                        std::to_string(*instruction.source_op));
+                capture_storage->setAlignment(::llvm::Align{16u});
+                for (auto i = size_t{0u}; i < capture_count; i++) {
+                    auto *field_ptr = _builder.CreateStructGEP(
+                        capture_type, capture_storage,
+                        static_cast<unsigned>(i));
+                    _builder.CreateStore(capture_values[i], field_ptr);
+                }
+                capture_pointer = capture_storage;
+            }
+            auto flags =
+                !handler_pair.procedural_handler_empty ?
+                    simd_host_ray_query_live_flag_has_procedural :
+                    0u;
+            auto *state_ptr = _builder.CreateExtractElement(
+                states, uint64_t{0u}, "ray.query.live.pipeline.w1.state");
+            auto *fn_type = ::llvm::FunctionType::get(
+                _builder.getVoidTy(),
+                {pointer_type, pointer_type, pointer_type,
+                 pointer_type, _builder.getInt32Ty()},
+                false);
+            _builder.CreateCall(
+                fn_type, fn_ptr,
+                {state_ptr, capture_pointer, _launch_config,
+                 handler_pair.on_candidate_live_w1,
+                 _builder.getInt32(flags)});
+            _builder.CreateBr(exit);
         } else {
             auto *fn_ptr = _builder.CreateLoad(
                 pointer_type,
@@ -786,6 +845,91 @@ void ScheduleEmitter::_ray_query_pipeline(
             _builder.CreateBr(exit);
         }
         _builder.SetInsertPoint(after_live);
+    }
+    if (_width == 1u) {
+        if (handler_pair.on_candidate_w1 == nullptr ||
+            status_index >=
+                _ray_query_pipeline_callback_storage.size()) {
+            _fail("W1 ray-query pipeline has no resident callback ABI");
+            return;
+        }
+        auto *pipeline_callbacks = _builder.CreateAlignedLoad(
+            pointer_lanes,
+            _ray_query_pipeline_callback_storage[status_index],
+            ::llvm::Align{alignof(void *)},
+            "ray.query.pipeline.w1.callbacks");
+        auto *pipeline_callback = _builder.CreateExtractElement(
+            pipeline_callbacks, _safe_first_lane(_active_mask));
+        _trap_if(
+            _builder.CreateICmpEQ(
+                pipeline_callback, null_pointer),
+            "ray.query.pipeline.w1.callback.null");
+        auto *callback_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                pipeline_callbacks,
+                _builder.CreateVectorSplat(
+                    _width, pipeline_callback)));
+        _trap_if(
+            _builder.CreateOrReduce(callback_mismatch),
+            "ray.query.pipeline.w1.callback.mismatch");
+
+        auto capture_count = instruction.operands.size() - 1u;
+        auto *capture_pointer = static_cast<::llvm::Value *>(
+            null_pointer);
+        if (capture_count != 0u) {
+            auto capture_types = std::vector<::llvm::Type *>{};
+            capture_types.reserve(capture_count);
+            for (auto capture_index = size_t{0u};
+                 capture_index < capture_count; capture_index++) {
+                auto *capture = handler_arguments[capture_index + 4u];
+                auto *expected = handler_pair.on_surface
+                                     ->getFunctionType()
+                                     ->getParamType(
+                                         static_cast<unsigned>(
+                                             capture_index + 4u));
+                if (capture->getType() != expected) {
+                    _fail("W1 ray-query pipeline capture type mismatch");
+                    return;
+                }
+                capture_types.emplace_back(expected);
+            }
+            auto *capture_type = ::llvm::StructType::get(
+                context, capture_types, false);
+            auto *capture_storage = _entry_scratch(
+                capture_type,
+                "ray.query.pipeline.w1.captures." +
+                    std::to_string(*instruction.source_op));
+            capture_storage->setAlignment(::llvm::Align{1u});
+            auto *captured = static_cast<::llvm::Value *>(
+                ::llvm::PoisonValue::get(capture_type));
+            for (auto capture_index = size_t{0u};
+                 capture_index < capture_count; capture_index++) {
+                captured = _builder.CreateInsertValue(
+                    captured, handler_arguments[capture_index + 4u],
+                    {static_cast<unsigned>(capture_index)});
+            }
+            auto *capture_store = _builder.CreateStore(
+                captured, capture_storage);
+            capture_store->setAlignment(::llvm::Align{1u});
+            capture_pointer = capture_storage;
+        }
+
+        auto *state = _builder.CreateExtractElement(
+            states, _safe_first_lane(_active_mask));
+        auto *pipeline_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {pointer_type, pointer_type, pointer_type,
+             pointer_type},
+            false);
+        _builder.CreateCall(
+            pipeline_type, pipeline_callback,
+            {state, capture_pointer, _launch_config,
+             handler_pair.on_candidate_w1});
+        _builder.CreateBr(exit);
+        _builder.SetInsertPoint(exit);
+        _ray_query_update_status(object_id, outer_active_bits);
+        return;
     }
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(

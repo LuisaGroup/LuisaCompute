@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <functional>
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/rtx/ray.h>
@@ -723,10 +725,14 @@ void MetalCodegenAST::_emit_scope_local_variables(
         _scratch << "{};\n";
         if (local.type() == _ray_query_any_type ||
             local.type() == _ray_query_all_type) {
-            _emit_indention();
-            _scratch << "LC_RAY_QUERY_SHADOW_VARIABLE(";
-            _emit_variable_name(local);
-            _scratch << ");\n";
+            if (!_ift_only_ray_query_uids.contains(luisa::hash_combine(
+                    {static_cast<uint64_t>(_function.hash()),
+                     static_cast<uint64_t>(local.uid())}))) {
+                _emit_indention();
+                _scratch << "LC_RAY_QUERY_SHADOW_VARIABLE(";
+                _emit_variable_name(local);
+                _scratch << ");\n";
+            }
         }
     }
 }
@@ -775,6 +781,9 @@ void MetalCodegenAST::_emit_function() noexcept {
         if (_uses_printing) {
             _scratch << "  alignas(16) LCPrinterBuffer print_buffer;\n";
         }
+        for (auto i = 0u; i < _intersection_functions.size(); i++) {
+            _scratch << "  alignas(16) intersection_function_table<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> lc_ift_" << i << ";\n";
+        }
         _scratch << "};\n\n";
 
         // emit function signature and prelude
@@ -814,7 +823,11 @@ void MetalCodegenAST::_emit_function() noexcept {
         if (_uses_printing) {
             _scratch << "  auto print_buffer = args.print_buffer;\n";
         }
+        for (auto i = 0u; i < _intersection_functions.size(); i++) {
+            _scratch << "  auto lc_ift_" << i << " = args.lc_ift_" << i << ";\n";
+        }
     } else {
+        auto needs_ift = _functions_using_ift.contains(_function.hash());
         LUISA_ASSERT(_function.shared_variables().empty(), "Shared memory declaration not allowed in callable.");
         auto texture_count = 0u;
         for (auto arg : _function.arguments()) {
@@ -840,7 +853,7 @@ void MetalCodegenAST::_emit_function() noexcept {
         _emit_type_name(_function.return_type());
         _scratch << " callable_" << hash_to_string(_function.hash()) << "(";
         auto emitted_texture_count = 0u;
-        if (!_function.arguments().empty() || _uses_printing) {
+        if (!_function.arguments().empty() || _uses_printing || needs_ift) {
             for (auto arg : _function.arguments()) {
                 auto is_mut_ref = arg.is_reference() &&
                                   (to_underlying(_function.variable_usage(arg.uid())) &
@@ -863,11 +876,15 @@ void MetalCodegenAST::_emit_function() noexcept {
                 }
             }
             if (_uses_printing) {
-                _scratch << "LCPrinterBuffer print_buffer";
-            } else {
-                _scratch.pop_back();
-                _scratch.pop_back();
+                _scratch << "LCPrinterBuffer print_buffer, ";
             }
+            if (needs_ift) {
+                for (auto i = 0u; i < _intersection_functions.size(); i++) {
+                    _scratch << "intersection_function_table<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> lc_ift_" << i << ", ";
+                }
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
         }
         _scratch << ") {\n";
     }
@@ -1121,6 +1138,9 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
             }
         }
     }
+
+    _analyze_ray_queries(functions);
+    _emit_lowered_ray_query_functions();
 
     // emit functions
     for (auto f : functions) {
@@ -1525,11 +1545,29 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "ray_query_world_ray"; break;
         case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: _scratch << "ray_query_object_ray"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "ray_query_procedural_candidate"; break;
-        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "ray_query_triangle_candidate"; break;
+        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
+            if (_active_lowered_ray_query != nullptr) {
+                _scratch << "LCTriangleHit{_lc_inst, _lc_prim, _lc_bary, _lc_dist}";
+                return;
+            }
+            _scratch << "ray_query_triangle_candidate";
+            break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "ray_query_committed_hit"; break;
-        case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "ray_query_commit_triangle"; break;
+        case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
+            if (_active_lowered_ray_query != nullptr) {
+                _scratch << "(_lc_accept = true)";
+                return;
+            }
+            _scratch << "ray_query_commit_triangle";
+            break;
         case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "ray_query_commit_procedural"; break;
-        case CallOp::RAY_QUERY_TERMINATE: _scratch << "ray_query_terminate"; break;
+        case CallOp::RAY_QUERY_TERMINATE:
+            if (_active_lowered_ray_query != nullptr) {
+                _scratch << "(_lc_continue = false)";
+                return;
+            }
+            _scratch << "ray_query_terminate";
+            break;
         case CallOp::RAY_QUERY_PROCEED: _scratch << "ray_query_next"; break;
         case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: _scratch << "ray_query_is_triangle_candidate"; break;
         case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: _scratch << "!ray_query_is_triangle_candidate"; break;
@@ -1683,7 +1721,15 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         }
         if (expr->is_custom() && _uses_printing) {
             if (emitted_argument) { _scratch << ", "; }
+            emitted_argument = true;
             _scratch << "print_buffer";
+        }
+        if (expr->is_custom() && _functions_using_ift.contains(expr->custom().hash())) {
+            for (auto i = 0u; i < _intersection_functions.size(); i++) {
+                if (emitted_argument) { _scratch << ", "; }
+                emitted_argument = true;
+                _scratch << "lc_ift_" << i;
+            }
         }
     }
     _scratch << ")";
@@ -1772,6 +1818,22 @@ void MetalCodegenAST::visit(const ContinueStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const ReturnStmt *stmt) noexcept {
+    if (_active_lowered_ray_query != nullptr &&
+        _active_lowered_ray_query->is_wrapped_callable) {
+        for (const auto &cap : _active_lowered_ray_query->captures) {
+            if (cap.is_written) {
+                _emit_indention();
+                _scratch << "_lc_payload.";
+                _emit_variable_name(cap.callee_variable);
+                _scratch << " = ";
+                _emit_variable_name(cap.callee_variable);
+                _scratch << ";\n";
+            }
+        }
+        _emit_indention();
+        _scratch << "return LCTriangleIsectResult{_lc_accept, _lc_continue};\n";
+        return;
+    }
     auto previous_temporary_count = _reference_temporaries.size();
     if (auto expression = stmt->expression()) {
         _emit_swizzle_reference_temporaries(expression);
@@ -2052,7 +2114,965 @@ void MetalCodegenAST::visit(const PrintStmt *stmt) noexcept {
     _scratch << "}\n";
 }
 
+void MetalCodegenAST::_analyze_ray_queries(
+    luisa::span<const Function> functions) noexcept {
+
+    _intersection_functions.clear();
+    _lowered_ray_queries.clear();
+    _lowered_ray_query_map.clear();
+    _ift_only_ray_query_uids.clear();
+    _functions_using_ift.clear();
+    _active_lowered_ray_query = nullptr;
+
+    static const auto disabled = [] {
+        auto v = std::getenv("LUISA_METAL_DISABLE_RAY_QUERY_IFT");
+        return v != nullptr && v[0] != '\0' && (v[0] != '0' || v[1] != '\0');
+    }();
+    if (disabled || functions.empty()) { return; }
+
+    const auto &kernel = functions.back();
+    if (kernel.requires_motion_blur() || kernel.required_curve_bases().any()) {
+        return;
+    }
+
+    auto make_rq_key = [](uint64_t fn_hash, uint uid) noexcept {
+        return luisa::hash_combine({fn_hash, static_cast<uint64_t>(uid)});
+    };
+
+    auto is_forbidden_call = [](CallOp op) noexcept {
+        if (is_atomic_operation(op)) { return true; }
+        switch (op) {
+            case CallOp::CUSTOM:
+            case CallOp::EXTERNAL:
+            case CallOp::SYNCHRONIZE_BLOCK:
+            case CallOp::TEXTURE_READ:
+            case CallOp::TEXTURE_WRITE:
+            case CallOp::TEXTURE_SIZE:
+            case CallOp::TEXTURE2D_SAMPLE:
+            case CallOp::TEXTURE2D_SAMPLE_LEVEL:
+            case CallOp::TEXTURE2D_SAMPLE_GRAD:
+            case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL:
+            case CallOp::TEXTURE3D_SAMPLE:
+            case CallOp::TEXTURE3D_SAMPLE_LEVEL:
+            case CallOp::TEXTURE3D_SAMPLE_GRAD:
+            case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
+            case CallOp::RAY_TRACING_INSTANCE_TRANSFORM:
+            case CallOp::RAY_TRACING_INSTANCE_USER_ID:
+            case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK:
+            case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
+            case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY:
+            case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+            case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID:
+            case CallOp::RAY_TRACING_TRACE_CLOSEST:
+            case CallOp::RAY_TRACING_TRACE_ANY:
+            case CallOp::RAY_TRACING_QUERY_ALL:
+            case CallOp::RAY_TRACING_QUERY_ANY:
+            case CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX:
+            case CallOp::RAY_TRACING_INSTANCE_MOTION_SRT:
+            case CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX:
+            case CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT:
+            case CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR:
+            case CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR:
+            case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+            case CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+            case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
+            case CallOp::RAY_QUERY_OBJECT_SPACE_RAY:
+            case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT:
+            case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
+            case CallOp::RAY_QUERY_COMMITTED_HIT:
+            case CallOp::RAY_QUERY_PROCEED:
+            case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE:
+            case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE:
+            case CallOp::REQUIRES_GRADIENT:
+            case CallOp::GRADIENT:
+            case CallOp::GRADIENT_MARKER:
+            case CallOp::ACCUMULATE_GRADIENT:
+            case CallOp::BACKWARD:
+            case CallOp::RASTER_SET_Z_DEPTH:
+            case CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+            case CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+            case CallOp::RASTER_DISCARD:
+            case CallOp::INDIRECT_SET_DISPATCH_COUNT:
+            case CallOp::INDIRECT_SET_DISPATCH_KERNEL:
+            case CallOp::DDX:
+            case CallOp::DDY:
+            case CallOp::WARP_IS_FIRST_ACTIVE_LANE:
+            case CallOp::WARP_FIRST_ACTIVE_LANE:
+            case CallOp::WARP_ACTIVE_ALL_EQUAL:
+            case CallOp::WARP_ACTIVE_BIT_AND:
+            case CallOp::WARP_ACTIVE_BIT_OR:
+            case CallOp::WARP_ACTIVE_BIT_XOR:
+            case CallOp::WARP_ACTIVE_COUNT_BITS:
+            case CallOp::WARP_ACTIVE_MAX:
+            case CallOp::WARP_ACTIVE_MIN:
+            case CallOp::WARP_ACTIVE_PRODUCT:
+            case CallOp::WARP_ACTIVE_SUM:
+            case CallOp::WARP_ACTIVE_ALL:
+            case CallOp::WARP_ACTIVE_ANY:
+            case CallOp::WARP_ACTIVE_BIT_MASK:
+            case CallOp::WARP_PREFIX_COUNT_BITS:
+            case CallOp::WARP_PREFIX_SUM:
+            case CallOp::WARP_PREFIX_PRODUCT:
+            case CallOp::WARP_READ_LANE:
+            case CallOp::WARP_READ_FIRST_ACTIVE_LANE:
+            case CallOp::SHADER_EXECUTION_REORDER:
+                return true;
+            default: {
+                const auto v = luisa::to_underlying(op);
+                return v >= luisa::to_underlying(CallOp::BINDLESS_TEXTURE2D_SAMPLE) &&
+                       v <= luisa::to_underlying(CallOp::TYPED_BINDLESS_BUFFER_ADDRESS);
+            }
+        }
+    };
+
+    auto is_forbidden_var = [](Variable v) noexcept {
+        if (v.is_shared() || v.is_builtin()) { return true; }
+        switch (v.tag()) {
+            case Variable::Tag::TEXTURE:
+            case Variable::Tag::BINDLESS_ARRAY:
+            case Variable::Tag::ACCEL:
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    auto capture_size_align = [](const Type *type) noexcept -> std::pair<size_t, size_t> {
+        if (type->is_buffer()) { return {16u, 8u}; }
+        return {std::max<size_t>(type_size_bytes(type), 1u),
+                std::max<size_t>(type->alignment(), 1u)};
+    };
+
+    struct WrappedCandidateCallable {
+        Function callee;
+        luisa::vector<Variable> caller_args;
+        const Expression *q_arg_expr{nullptr};
+    };
+    auto match_wrapped_candidate_callable = [](const ScopeStmt *scope, uint q_uid) noexcept
+        -> luisa::optional<WrappedCandidateCallable> {
+        const CallExpr *found_call = nullptr;
+        for (auto s : scope->statements()) {
+            if (s->tag() == Statement::Tag::COMMENT) { continue; }
+            if (found_call != nullptr || s->tag() != Statement::Tag::EXPR) {
+                return luisa::nullopt;
+            }
+            auto e = static_cast<const ExprStmt *>(s)->expression();
+            if (e == nullptr || e->tag() != Expression::Tag::CALL) {
+                return luisa::nullopt;
+            }
+            found_call = static_cast<const CallExpr *>(e);
+        }
+        if (found_call == nullptr ||
+            found_call->op() != CallOp::CUSTOM ||
+            found_call->type() != nullptr) {
+            return luisa::nullopt;
+        }
+        auto callee = found_call->custom();
+        auto all_args_unbound = std::all_of(
+            callee.bound_arguments().begin(), callee.bound_arguments().end(),
+            [](const Function::Binding &b) noexcept {
+                return luisa::holds_alternative<luisa::monostate>(b);
+            });
+        if (callee.return_type() != nullptr ||
+            !all_args_unbound ||
+            found_call->arguments().size() != callee.arguments().size() ||
+            callee.arguments().empty()) {
+            return luisa::nullopt;
+        }
+        auto arg0 = found_call->arguments().front();
+        if (arg0->tag() != Expression::Tag::REF ||
+            static_cast<const RefExpr *>(arg0)->variable().uid() != q_uid) {
+            return luisa::nullopt;
+        }
+        luisa::vector<Variable> caller_args;
+        caller_args.reserve(callee.arguments().size());
+        luisa::unordered_set<uint> seen_ref_caller_uids;
+        for (size_t k = 0u; k < callee.arguments().size(); k++) {
+            auto arg = found_call->arguments()[k];
+            if (arg->tag() != Expression::Tag::REF) { return luisa::nullopt; }
+            auto v = static_cast<const RefExpr *>(arg)->variable();
+            if (k > 0u &&
+                callee.arguments()[k].tag() == Variable::Tag::REFERENCE &&
+                !seen_ref_caller_uids.emplace(v.uid()).second) {
+                return luisa::nullopt;
+            }
+            caller_args.emplace_back(v);
+        }
+        return WrappedCandidateCallable{callee, std::move(caller_args), arg0};
+    };
+    auto is_effectively_empty_scope = [&](const ScopeStmt *scope, uint q_uid) noexcept {
+        bool has_non_comment = false;
+        for (auto s : scope->statements()) {
+            if (s->tag() != Statement::Tag::COMMENT) {
+                has_non_comment = true;
+                break;
+            }
+        }
+        if (!has_non_comment) { return true; }
+        auto wrapped = match_wrapped_candidate_callable(scope, q_uid);
+        if (!wrapped) { return false; }
+        for (auto s : wrapped->callee.body()->statements()) {
+            if (s->tag() == Statement::Tag::COMMENT) { continue; }
+            if (s->tag() == Statement::Tag::RETURN &&
+                static_cast<const ReturnStmt *>(s)->expression() == nullptr) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    };
+
+    for (auto f : functions) {
+        if (!f.direct_builtin_callables().uses_ray_query() &&
+            !f.propagated_builtin_callables().uses_ray_query()) {
+            continue;
+        }
+        luisa::vector<const RayQueryStmt *> rqs;
+        traverse_expressions<false>(
+            f.body(),
+            [](const Expression *) noexcept {},
+            [&](const Statement *s) noexcept {
+                if (s->tag() == Statement::Tag::RAY_QUERY) {
+                    rqs.emplace_back(static_cast<const RayQueryStmt *>(s));
+                }
+            },
+            [](const Statement *) noexcept {});
+        if (rqs.empty()) { continue; }
+
+        // Check ray-query variable outside uses across f.body().
+        luisa::unordered_set<uint> invalid_rq_uids;
+        luisa::unordered_set<uint> rq_uids;
+        for (auto *rq : rqs) {
+            if (rq->query() == nullptr ||
+                rq->query()->tag() != Expression::Tag::REF) {
+                continue;
+            }
+            auto qv = rq->query()->variable();
+            if (qv.tag() == Variable::Tag::LOCAL &&
+                (qv.type() == _ray_query_all_type || qv.type() == _ray_query_any_type)) {
+                rq_uids.emplace(qv.uid());
+            } else {
+                invalid_rq_uids.emplace(qv.uid());
+            }
+        }
+        for (auto arg : f.arguments()) {
+            if (arg.type() == _ray_query_all_type || arg.type() == _ray_query_any_type) {
+                invalid_rq_uids.emplace(arg.uid());
+            }
+        }
+        auto is_query_construct_assign = [](const Statement *s, uint uid) noexcept {
+            if (s->tag() != Statement::Tag::ASSIGN) { return false; }
+            auto a = static_cast<const AssignStmt *>(s);
+            if (a->lhs()->tag() != Expression::Tag::REF ||
+                static_cast<const RefExpr *>(a->lhs())->variable().uid() != uid ||
+                a->rhs()->tag() != Expression::Tag::CALL) {
+                return false;
+            }
+            auto op = static_cast<const CallExpr *>(a->rhs())->op();
+            return op == CallOp::RAY_TRACING_QUERY_ALL ||
+                   op == CallOp::RAY_TRACING_QUERY_ANY;
+        };
+        luisa::unordered_set<const Expression *> allowed_rq_refs;
+        traverse_expressions<true>(
+            f.body(),
+            [&](const Expression *e) noexcept {
+                if (e->tag() == Expression::Tag::CALL) {
+                    auto call = static_cast<const CallExpr *>(e);
+                    if ((call->op() == CallOp::RAY_QUERY_COMMITTED_HIT ||
+                         call->op() == CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT ||
+                         call->op() == CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
+                         call->op() == CallOp::RAY_QUERY_TERMINATE) &&
+                        !call->arguments().empty() &&
+                        call->arguments().front()->tag() == Expression::Tag::REF) {
+                        auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
+                        if (rq_uids.contains(v.uid())) {
+                            allowed_rq_refs.emplace(call->arguments().front());
+                        }
+                    }
+                } else if (e->tag() == Expression::Tag::REF) {
+                    auto v = static_cast<const RefExpr *>(e)->variable();
+                    if ((v.type() == _ray_query_all_type || v.type() == _ray_query_any_type) &&
+                        !allowed_rq_refs.contains(e)) {
+                        invalid_rq_uids.emplace(v.uid());
+                    }
+                }
+            },
+            [&](const Statement *s) noexcept {
+                if (s->tag() == Statement::Tag::RAY_QUERY) {
+                    auto rqs_stmt = static_cast<const RayQueryStmt *>(s);
+                    allowed_rq_refs.emplace(rqs_stmt->query());
+                    if (rqs_stmt->query() != nullptr &&
+                        rqs_stmt->query()->tag() == Expression::Tag::REF) {
+                        auto q_uid = static_cast<const RefExpr *>(rqs_stmt->query())->variable().uid();
+                        if (auto w = match_wrapped_candidate_callable(rqs_stmt->on_triangle_candidate(), q_uid)) {
+                            allowed_rq_refs.emplace(w->q_arg_expr);
+                        }
+                        if (auto w = match_wrapped_candidate_callable(rqs_stmt->on_procedural_candidate(), q_uid)) {
+                            allowed_rq_refs.emplace(w->q_arg_expr);
+                        }
+                    }
+                } else if (s->tag() == Statement::Tag::ASSIGN) {
+                    auto a = static_cast<const AssignStmt *>(s);
+                    if (a->lhs()->tag() == Expression::Tag::REF) {
+                        auto v = static_cast<const RefExpr *>(a->lhs())->variable();
+                        if (rq_uids.contains(v.uid()) && is_query_construct_assign(s, v.uid())) {
+                            allowed_rq_refs.emplace(a->lhs());
+                        }
+                    }
+                }
+            },
+            [](const Statement *) noexcept {});
+
+        luisa::unordered_map<uint, luisa::vector<size_t>> lowered_by_q;
+        luisa::unordered_set<uint> failed_q;
+
+        for (auto *rq : rqs) {
+            if (rq->query() == nullptr || rq->query()->tag() != Expression::Tag::REF) { continue; }
+            auto q_var = rq->query()->variable();
+            if (!is_effectively_empty_scope(rq->on_procedural_candidate(), q_var.uid()) ||
+                invalid_rq_uids.contains(q_var.uid()) ||
+                !rq_uids.contains(q_var.uid())) {
+                failed_q.emplace(q_var.uid());
+                continue;
+            }
+
+            auto wrapped_tri = match_wrapped_candidate_callable(rq->on_triangle_candidate(), q_var.uid());
+            const bool is_wrapped_callable = wrapped_tri.has_value();
+            Function tri_fn = is_wrapped_callable ? wrapped_tri->callee : f;
+            const ScopeStmt *tri_body = is_wrapped_callable ? wrapped_tri->callee.body() : rq->on_triangle_candidate();
+            const uint tri_q_uid = is_wrapped_callable ? wrapped_tri->callee.arguments().front().uid() : q_var.uid();
+            luisa::unordered_map<uint, std::pair<Variable, Variable>> callee_arg_map;
+            if (is_wrapped_callable) {
+                for (size_t k = 1u; k < wrapped_tri->callee.arguments().size(); k++) {
+                    auto callee_arg = wrapped_tri->callee.arguments()[k];
+                    auto caller_arg = wrapped_tri->caller_args[k];
+                    callee_arg_map.try_emplace(callee_arg.uid(), std::pair{caller_arg, callee_arg});
+                }
+            }
+
+            bool ok = true;
+            bool uses_buffers = false;
+            bool has_loops_or_switches = false;
+            uint nested_rq_depth = 0u;
+            luisa::unordered_set<uint> inner_vars;
+            luisa::vector<Variable> inner_var_order;
+            luisa::unordered_set<uint> written_non_buffer;
+
+            auto mark_lvalue_written = [&](const Expression *lhs) noexcept {
+                while (lhs != nullptr) {
+                    if (lhs->tag() == Expression::Tag::MEMBER) {
+                        lhs = static_cast<const MemberExpr *>(lhs)->self();
+                    } else if (lhs->tag() == Expression::Tag::ACCESS) {
+                        auto acc = static_cast<const AccessExpr *>(lhs);
+                        if (acc->range()->type()->is_buffer()) {
+                            uses_buffers = true;
+                            return;
+                        }
+                        lhs = acc->range();
+                    } else {
+                        break;
+                    }
+                }
+                if (lhs != nullptr && lhs->tag() == Expression::Tag::REF) {
+                    auto v = static_cast<const RefExpr *>(lhs)->variable();
+                    if (v.type()->is_buffer()) {
+                        uses_buffers = true;
+                    } else {
+                        written_non_buffer.emplace(v.uid());
+                    }
+                }
+            };
+
+            luisa::unordered_set<const Expression *> rq_self_refs;
+            traverse_expressions<true>(
+                tri_body,
+                [&](const Expression *e) noexcept {
+                    if (!ok) { return; }
+                    if (e->tag() == Expression::Tag::CALL) {
+                        auto call = static_cast<const CallExpr *>(e);
+                        if (is_forbidden_call(call->op())) {
+                            ok = false;
+                            return;
+                        }
+                        if (call->op() == CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT ||
+                            call->op() == CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
+                            call->op() == CallOp::RAY_QUERY_TERMINATE) {
+                            if (!call->arguments().empty() &&
+                                call->arguments().front()->tag() == Expression::Tag::REF &&
+                                static_cast<const RefExpr *>(call->arguments().front())->variable().uid() == tri_q_uid) {
+                                rq_self_refs.emplace(call->arguments().front());
+                            } else {
+                                ok = false;
+                            }
+                        } else if (call->op() == CallOp::BUFFER_READ ||
+                                   call->op() == CallOp::BUFFER_WRITE ||
+                                   call->op() == CallOp::BUFFER_VOLATILE_READ ||
+                                   call->op() == CallOp::BUFFER_VOLATILE_WRITE ||
+                                   call->op() == CallOp::BUFFER_SIZE ||
+                                   call->op() == CallOp::BYTE_BUFFER_READ ||
+                                   call->op() == CallOp::BYTE_BUFFER_WRITE ||
+                                   call->op() == CallOp::BYTE_BUFFER_VOLATILE_READ ||
+                                   call->op() == CallOp::BYTE_BUFFER_VOLATILE_WRITE ||
+                                   call->op() == CallOp::BYTE_BUFFER_SIZE) {
+                            uses_buffers = true;
+                        }
+                    } else if (e->tag() == Expression::Tag::CPUCUSTOM ||
+                               e->tag() == Expression::Tag::GPUCUSTOM) {
+                        ok = false;
+                    } else if (e->tag() == Expression::Tag::REF) {
+                        if (rq_self_refs.contains(e)) { return; }
+                        auto v = static_cast<const RefExpr *>(e)->variable();
+                        if (v.uid() == tri_q_uid || is_forbidden_var(v)) {
+                            ok = false;
+                            return;
+                        }
+                        if (v.type()->is_buffer()) { uses_buffers = true; }
+                        if (inner_vars.emplace(v.uid()).second) {
+                            inner_var_order.emplace_back(v);
+                        }
+                    }
+                },
+                [&](const Statement *s) noexcept {
+                    if (!ok) { return; }
+                    switch (s->tag()) {
+                        case Statement::Tag::RETURN:
+                            if (!is_wrapped_callable ||
+                                static_cast<const ReturnStmt *>(s)->expression() != nullptr) {
+                                ok = false;
+                            }
+                            break;
+                        case Statement::Tag::AUTO_DIFF:
+                        case Statement::Tag::PRINT:
+                        case Statement::Tag::RAY_QUERY:
+                        case Statement::Tag::SUSPEND:
+                            ok = false;
+                            nested_rq_depth++;
+                            break;
+                        case Statement::Tag::LOOP:
+                        case Statement::Tag::FOR:
+                        case Statement::Tag::SWITCH:
+                            has_loops_or_switches = true;
+                            break;
+                        case Statement::Tag::ASSIGN:
+                            mark_lvalue_written(static_cast<const AssignStmt *>(s)->lhs());
+                            break;
+                        default: break;
+                    }
+                },
+                [](const Statement *) noexcept {});
+
+            if (!ok || nested_rq_depth != 0u) {
+                failed_q.emplace(q_var.uid());
+                continue;
+            }
+
+            // Collect variables referenced outside rq->on_triangle_candidate().
+            luisa::unordered_set<uint> outside_vars;
+            if (!is_wrapped_callable) {
+                for (auto arg : f.arguments()) { outside_vars.emplace(arg.uid()); }
+                uint skip_depth = 0u;
+                traverse_expressions<true>(
+                    f.body(),
+                    [&](const Expression *e) noexcept {
+                        if (skip_depth > 0u) { return; }
+                        if (e->tag() == Expression::Tag::REF) {
+                            outside_vars.emplace(static_cast<const RefExpr *>(e)->variable().uid());
+                        }
+                    },
+                    [&](const Statement *s) noexcept {
+                        if (s == rq->on_triangle_candidate()) { skip_depth++; }
+                    },
+                    [&](const Statement *s) noexcept {
+                        if (s == rq->on_triangle_candidate()) { skip_depth--; }
+                    });
+            }
+
+            luisa::vector<LoweredRayQueryCapture> captures;
+            luisa::vector<Variable> inner_locals;
+            size_t payload_offset = 0u;
+            size_t payload_max_align = 1u;
+            for (auto v : inner_var_order) {
+                if (is_wrapped_callable) {
+                    if (auto iter = callee_arg_map.find(v.uid());
+                        iter != callee_arg_map.end()) {
+                        auto caller_v = iter->second.first;
+                        auto callee_v = iter->second.second;
+                        if (callee_v.type() == _ray_query_all_type ||
+                            callee_v.type() == _ray_query_any_type ||
+                            callee_v.type() == _indirect_dispatch_buffer_type ||
+                            callee_v.type()->is_texture() ||
+                            callee_v.type()->is_accel() ||
+                            callee_v.type()->is_bindless_array()) {
+                            ok = false;
+                            break;
+                        }
+                        auto [sz, align] = capture_size_align(callee_v.type());
+                        payload_offset = luisa::align(payload_offset, align) + sz;
+                        payload_max_align = std::max(payload_max_align, align);
+                        const bool is_written =
+                            callee_v.tag() == Variable::Tag::REFERENCE &&
+                            !callee_v.type()->is_buffer() &&
+                            written_non_buffer.contains(callee_v.uid());
+                        captures.emplace_back(LoweredRayQueryCapture{
+                            .caller_variable = caller_v,
+                            .callee_variable = callee_v,
+                            .is_written = is_written,
+                            .is_buffer = callee_v.type()->is_buffer()});
+                    } else {
+                        if (!v.is_local()) {
+                            ok = false;
+                            break;
+                        }
+                        inner_locals.emplace_back(v);
+                    }
+                } else if (outside_vars.contains(v.uid())) {
+                    if (v.type() == _ray_query_all_type ||
+                        v.type() == _ray_query_any_type ||
+                        v.type() == _indirect_dispatch_buffer_type ||
+                        v.type()->is_texture() ||
+                        v.type()->is_accel() ||
+                        v.type()->is_bindless_array()) {
+                        ok = false;
+                        break;
+                    }
+                    auto [sz, align] = capture_size_align(v.type());
+                    payload_offset = luisa::align(payload_offset, align) + sz;
+                    payload_max_align = std::max(payload_max_align, align);
+                    captures.emplace_back(LoweredRayQueryCapture{
+                        .caller_variable = v,
+                        .callee_variable = v,
+                        .is_written = !v.type()->is_buffer() &&
+                                      written_non_buffer.contains(v.uid()),
+                        .is_buffer = v.type()->is_buffer()});
+                } else {
+                    if (!v.is_local()) {
+                        ok = false;
+                        break;
+                    }
+                    inner_locals.emplace_back(v);
+                }
+            }
+            const auto payload_bytes =
+                captures.empty() ? 1u : luisa::align(payload_offset, payload_max_align);
+            if (!ok || payload_bytes > 128u) {
+                failed_q.emplace(q_var.uid());
+                continue;
+            }
+
+            // Symbolic dynamic force_opacity(forced_opacity::opaque) check.
+            bool has_dynamic_opaque = false;
+            luisa::vector<Variable> guard_vars;
+            const bool no_written_captures =
+                std::none_of(captures.begin(), captures.end(),
+                             [](const auto &c) noexcept { return c.is_written; });
+            if (no_written_captures && !uses_buffers && !has_loops_or_switches) {
+                luisa::unordered_map<uint, Variable> captured_read_to_caller;
+                for (const auto &c : captures) {
+                    captured_read_to_caller.try_emplace(c.callee_variable.uid(), c.caller_variable);
+                }
+                luisa::unordered_set<uint> local_hit_vars;
+                luisa::unordered_set<uint> local_hit_inst_vars;
+                luisa::unordered_map<uint, luisa::optional<bool>> local_const_bools;
+
+                auto is_hit_expr = [&](const Expression *e) noexcept {
+                    if (e->tag() == Expression::Tag::CALL &&
+                        static_cast<const CallExpr *>(e)->op() == CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT) {
+                        return true;
+                    }
+                    return e->tag() == Expression::Tag::REF &&
+                           local_hit_vars.contains(static_cast<const RefExpr *>(e)->variable().uid());
+                };
+                auto is_hit_inst_expr = [&](const Expression *e) noexcept {
+                    if (e->tag() == Expression::Tag::MEMBER) {
+                        auto m = static_cast<const MemberExpr *>(e);
+                        return !m->is_swizzle() && m->member_index() == 0u &&
+                               is_hit_expr(m->self());
+                    }
+                    return e->tag() == Expression::Tag::REF &&
+                           local_hit_inst_vars.contains(static_cast<const RefExpr *>(e)->variable().uid());
+                };
+                auto add_guard_var = [&](Variable v) noexcept {
+                    if (std::find(guard_vars.begin(), guard_vars.end(), v) == guard_vars.end()) {
+                        guard_vars.emplace_back(v);
+                    }
+                };
+                auto is_guard_uint_var = [&](const Expression *e, Variable &out_caller_v) noexcept {
+                    if (e->tag() != Expression::Tag::REF) { return false; }
+                    auto v = static_cast<const RefExpr *>(e)->variable();
+                    if (!v.type()->is_uint32()) { return false; }
+                    auto it = captured_read_to_caller.find(v.uid());
+                    if (it == captured_read_to_caller.end()) { return false; }
+                    out_caller_v = it->second;
+                    return true;
+                };
+                std::function<luisa::optional<bool>(const Expression *)> eval_bool;
+                eval_bool = [&](const Expression *e) noexcept -> luisa::optional<bool> {
+                    if (e->tag() == Expression::Tag::LITERAL) {
+                        auto lit = static_cast<const LiteralExpr *>(e)->value();
+                        if (luisa::holds_alternative<bool>(lit)) {
+                            return luisa::get<bool>(lit);
+                        }
+                        return luisa::nullopt;
+                    }
+                    if (e->tag() == Expression::Tag::REF) {
+                        auto v = static_cast<const RefExpr *>(e)->variable();
+                        if (auto it = local_const_bools.find(v.uid());
+                            it != local_const_bools.end()) {
+                            return it->second;
+                        }
+                        return luisa::nullopt;
+                    }
+                    if (e->tag() == Expression::Tag::UNARY) {
+                        auto u = static_cast<const UnaryExpr *>(e);
+                        if (u->op() == UnaryOp::NOT) {
+                            if (auto sub = eval_bool(u->operand())) { return !*sub; }
+                        }
+                        return luisa::nullopt;
+                    }
+                    if (e->tag() == Expression::Tag::BINARY) {
+                        auto b = static_cast<const BinaryExpr *>(e);
+                        if (b->op() == BinaryOp::AND || b->op() == BinaryOp::BIT_AND) {
+                            auto l = eval_bool(b->lhs());
+                            if (l.has_value() && !*l) { return false; }
+                            auto r = eval_bool(b->rhs());
+                            if (r.has_value() && !*r) { return false; }
+                            if (l.has_value() && r.has_value()) { return *l && *r; }
+                            return luisa::nullopt;
+                        }
+                        if (b->op() == BinaryOp::OR || b->op() == BinaryOp::BIT_OR) {
+                            auto l = eval_bool(b->lhs());
+                            if (l.has_value() && *l) { return true; }
+                            auto r = eval_bool(b->rhs());
+                            if (r.has_value() && *r) { return true; }
+                            if (l.has_value() && r.has_value()) { return *l || *r; }
+                            return luisa::nullopt;
+                        }
+                        if (b->op() == BinaryOp::EQUAL || b->op() == BinaryOp::NOT_EQUAL) {
+                            Variable gv;
+                            if ((is_hit_inst_expr(b->lhs()) && is_guard_uint_var(b->rhs(), gv)) ||
+                                (is_hit_inst_expr(b->rhs()) && is_guard_uint_var(b->lhs(), gv))) {
+                                add_guard_var(gv);
+                                return b->op() == BinaryOp::NOT_EQUAL;
+                            }
+                        }
+                        return luisa::nullopt;
+                    }
+                    if (e->tag() == Expression::Tag::CALL) {
+                        auto c = static_cast<const CallExpr *>(e);
+                        if (c->op() == CallOp::SELECT && c->arguments().size() == 3u) {
+                            if (auto cond = eval_bool(c->arguments()[2])) {
+                                return eval_bool(*cond ? c->arguments()[1] : c->arguments()[0]);
+                            }
+                        }
+                    }
+                    return luisa::nullopt;
+                };
+
+                struct PathOutcome {
+                    bool must_commit{false};
+                    bool may_terminate{false};
+                    bool valid{true};
+                };
+                std::function<PathOutcome(const ScopeStmt *)> eval_scope;
+                eval_scope = [&](const ScopeStmt *scope) noexcept -> PathOutcome {
+                    PathOutcome out{};
+                    for (auto s : scope->statements()) {
+                        if (is_wrapped_callable && s->tag() == Statement::Tag::RETURN) {
+                            break;
+                        }
+                        if (s->tag() == Statement::Tag::SCOPE) {
+                            auto sub = eval_scope(static_cast<const ScopeStmt *>(s));
+                            if (!sub.valid) { out.valid = false; return out; }
+                            out.must_commit |= sub.must_commit;
+                            out.may_terminate |= sub.may_terminate;
+                        } else if (s->tag() == Statement::Tag::ASSIGN) {
+                            auto a = static_cast<const AssignStmt *>(s);
+                            if (a->lhs()->tag() == Expression::Tag::REF) {
+                                auto lv = static_cast<const RefExpr *>(a->lhs())->variable();
+                                if (is_hit_expr(a->rhs())) {
+                                    local_hit_vars.emplace(lv.uid());
+                                } else if (is_hit_inst_expr(a->rhs()) && lv.type()->is_uint32()) {
+                                    local_hit_inst_vars.emplace(lv.uid());
+                                } else if (lv.type()->is_bool()) {
+                                    local_const_bools[lv.uid()] = eval_bool(a->rhs());
+                                }
+                            }
+                        } else if (s->tag() == Statement::Tag::EXPR) {
+                            auto e = static_cast<const ExprStmt *>(s)->expression();
+                            if (e->tag() == Expression::Tag::CALL) {
+                                auto op = static_cast<const CallExpr *>(e)->op();
+                                if (op == CallOp::RAY_QUERY_COMMIT_TRIANGLE) {
+                                    out.must_commit = true;
+                                } else if (op == CallOp::RAY_QUERY_TERMINATE) {
+                                    out.may_terminate = true;
+                                }
+                            }
+                        } else if (s->tag() == Statement::Tag::IF) {
+                            auto ifs = static_cast<const IfStmt *>(s);
+                            if (auto c = eval_bool(ifs->condition())) {
+                                auto sub = eval_scope(*c ? ifs->true_branch() : ifs->false_branch());
+                                if (!sub.valid) { out.valid = false; return out; }
+                                out.must_commit |= sub.must_commit;
+                                out.may_terminate |= sub.may_terminate;
+                            } else {
+                                auto saved_bools = local_const_bools;
+                                auto tb = eval_scope(ifs->true_branch());
+                                local_const_bools = saved_bools;
+                                auto fb = eval_scope(ifs->false_branch());
+                                local_const_bools.clear();
+                                if (!tb.valid || !fb.valid) { out.valid = false; return out; }
+                                out.must_commit |= (tb.must_commit && fb.must_commit);
+                                out.may_terminate |= (tb.may_terminate || fb.may_terminate);
+                            }
+                        } else if (s->tag() != Statement::Tag::COMMENT) {
+                            out.valid = false;
+                            return out;
+                        }
+                    }
+                    return out;
+                };
+                auto outcome = eval_scope(tri_body);
+                const bool is_any = q_var.type() == _ray_query_any_type;
+                if (outcome.valid && outcome.must_commit &&
+                    (is_any || !outcome.may_terminate)) {
+                    has_dynamic_opaque = true;
+                } else {
+                    guard_vars.clear();
+                }
+            }
+
+            const bool needs_ift = !(has_dynamic_opaque && guard_vars.empty());
+            size_t ift_idx = 0u;
+            luisa::string fn_name;
+            if (needs_ift) {
+                ift_idx = _intersection_functions.size();
+                fn_name = luisa::format("lc_rq_isect_{}", ift_idx);
+                _intersection_functions.emplace_back(fn_name);
+            }
+            const auto info_index = _lowered_ray_queries.size();
+            _lowered_ray_queries.emplace_back(LoweredRayQueryInfo{
+                .stmt = rq,
+                .owner_function = f,
+                .handler_function = tri_fn,
+                .handler_body = tri_body,
+                .is_wrapped_callable = is_wrapped_callable,
+                .ift_index = ift_idx,
+                .function_name = std::move(fn_name),
+                .needs_ift = needs_ift,
+                .has_dynamic_opaque_fast_path = has_dynamic_opaque,
+                .dynamic_opaque_guards = std::move(guard_vars),
+                .captures = std::move(captures),
+                .inner_locals = std::move(inner_locals)});
+            _lowered_ray_query_map.try_emplace(rq, info_index);
+            lowered_by_q[q_var.uid()].emplace_back(info_index);
+        }
+
+        for (const auto &[q_uid, indices] : lowered_by_q) {
+            if (!failed_q.contains(q_uid)) {
+                _ift_only_ray_query_uids.emplace(make_rq_key(f.hash(), q_uid));
+            }
+        }
+    }
+
+    // Mark functions containing or transitively calling lowered IFT queries.
+    for (const auto &info : _lowered_ray_queries) {
+        if (info.needs_ift) {
+            _functions_using_ift.emplace(info.owner_function.hash());
+        }
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto f : functions) {
+            if (_functions_using_ift.contains(f.hash())) { continue; }
+            for (auto callee : sorted_custom_callables(f)) {
+                if (_functions_using_ift.contains(callee.hash())) {
+                    _functions_using_ift.emplace(f.hash());
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void MetalCodegenAST::_emit_lowered_ray_query_functions() noexcept {
+    if (_lowered_ray_queries.empty()) { return; }
+    for (const auto &info : _lowered_ray_queries) {
+        if (!info.needs_ift) { continue; }
+        _function = info.handler_function;
+        _analyze_local_variables();
+
+        _scratch << "struct alignas(16) LCRayQueryPayload_" << info.ift_index << " {\n";
+        if (info.captures.empty()) {
+            _scratch << "  uchar _dummy;\n";
+        } else {
+            for (const auto &cap : info.captures) {
+                _scratch << "  ";
+                _emit_type_name(cap.callee_variable.type(),
+                                info.handler_function.variable_usage(cap.callee_variable.uid()));
+                _scratch << " ";
+                _emit_variable_name(cap.callee_variable);
+                _scratch << ";\n";
+            }
+        }
+        _scratch << "};\n\n";
+
+        _scratch << "[[intersection(triangle, triangle_data, instancing LC_EXTENDED_LIMITS_TAG)]]\n"
+                 << "LCTriangleIsectResult " << info.function_name << "(\n"
+                 << "    uint _lc_inst [[instance_id]],\n"
+                 << "    uint _lc_prim [[primitive_id]],\n"
+                 << "    float2 _lc_bary [[barycentric_coord]],\n"
+                 << "    float _lc_dist [[distance]],\n"
+                 << "    ray_data LCRayQueryPayload_" << info.ift_index << " &_lc_payload [[payload]]) {\n"
+                 << "  bool _lc_accept = false;\n"
+                 << "  bool _lc_continue = true;\n";
+        for (const auto &cap : info.captures) {
+            _scratch << "  ";
+            _emit_type_name(cap.callee_variable.type(),
+                            info.handler_function.variable_usage(cap.callee_variable.uid()));
+            _scratch << " ";
+            _emit_variable_name(cap.callee_variable);
+            _scratch << " = _lc_payload.";
+            _emit_variable_name(cap.callee_variable);
+            _scratch << ";\n";
+        }
+        for (auto u : info.inner_locals) {
+            if (auto iter = _local_variable_emissions.find(u.uid());
+                iter != _local_variable_emissions.end() &&
+                iter->second.initializer == nullptr) {
+                _scratch << "  ";
+                _emit_type_name(u.type(), info.handler_function.variable_usage(u.uid()));
+                _scratch << " ";
+                _emit_variable_name(u);
+                _scratch << "{};\n";
+            }
+        }
+        _active_lowered_ray_query = &info;
+        _indention = 1u;
+        for (auto s : info.handler_body->statements()) {
+            s->accept(*this);
+        }
+        _active_lowered_ray_query = nullptr;
+        for (const auto &cap : info.captures) {
+            if (cap.is_written) {
+                _scratch << "  _lc_payload.";
+                _emit_variable_name(cap.callee_variable);
+                _scratch << " = ";
+                _emit_variable_name(cap.callee_variable);
+                _scratch << ";\n";
+            }
+        }
+        _scratch << "  return LCTriangleIsectResult{_lc_accept, _lc_continue};\n"
+                 << "}\n\n";
+    }
+}
+
 void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
+    if (auto iter = _lowered_ray_query_map.find(stmt);
+        iter != _lowered_ray_query_map.end()) {
+        const auto &info = _lowered_ray_queries[iter->second];
+        auto emit_opaque = [&] {
+            _emit_indention();
+            _scratch << "_lc_isect.force_opacity(forced_opacity::opaque);\n";
+            _emit_indention();
+            _scratch << "auto _lc_res = _lc_isect.intersect(";
+            stmt->query()->accept(*this);
+            _scratch << ".ray, ";
+            stmt->query()->accept(*this);
+            _scratch << ".accel, ";
+            stmt->query()->accept(*this);
+            _scratch << ".mask);\n";
+            _emit_indention();
+            stmt->query()->accept(*this);
+            _scratch << ".ift_hit = lc_committed_hit_from_triangle_result(_lc_res);\n";
+            _emit_indention();
+            stmt->query()->accept(*this);
+            _scratch << ".has_ift_hit = true;\n";
+        };
+        auto emit_ift = [&] {
+            _emit_indention();
+            _scratch << "_lc_isect.force_opacity(forced_opacity::non_opaque);\n";
+            _emit_indention();
+            _scratch << "LCRayQueryPayload_" << info.ift_index << " _lc_payload{};\n";
+            for (const auto &cap : info.captures) {
+                _emit_indention();
+                _scratch << "_lc_payload.";
+                _emit_variable_name(cap.callee_variable);
+                _scratch << " = ";
+                _emit_variable_name(cap.caller_variable);
+                _scratch << ";\n";
+            }
+            _emit_indention();
+            _scratch << "auto _lc_res = _lc_isect.intersect(";
+            stmt->query()->accept(*this);
+            _scratch << ".ray, ";
+            stmt->query()->accept(*this);
+            _scratch << ".accel, ";
+            stmt->query()->accept(*this);
+            _scratch << ".mask, lc_ift_" << info.ift_index << ", _lc_payload);\n";
+            for (const auto &cap : info.captures) {
+                if (cap.is_written) {
+                    _emit_indention();
+                    _emit_variable_name(cap.caller_variable);
+                    _scratch << " = _lc_payload.";
+                    _emit_variable_name(cap.callee_variable);
+                    _scratch << ";\n";
+                }
+            }
+            _emit_indention();
+            stmt->query()->accept(*this);
+            _scratch << ".ift_hit = lc_committed_hit_from_triangle_result(_lc_res);\n";
+            _emit_indention();
+            stmt->query()->accept(*this);
+            _scratch << ".has_ift_hit = true;\n";
+        };
+
+        _emit_indention();
+        _scratch << "/* ray query ift begin */\n";
+        _emit_indention();
+        _scratch << "{\n";
+        _indention++;
+        _emit_indention();
+        _scratch << "intersector<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> _lc_isect;\n";
+        _emit_indention();
+        _scratch << "_lc_isect.assume_geometry_type(geometry_type::triangle);\n";
+        _emit_indention();
+        _scratch << "_lc_isect.accept_any_intersection(";
+        stmt->query()->accept(*this);
+        _scratch << ".terminate_on_first_hit);\n";
+        if (!info.needs_ift) {
+            emit_opaque();
+        } else if (info.has_dynamic_opaque_fast_path && !info.dynamic_opaque_guards.empty()) {
+            _emit_indention();
+            _scratch << "if (";
+            for (auto i = 0u; i < info.dynamic_opaque_guards.size(); i++) {
+                if (i != 0u) { _scratch << " && "; }
+                _emit_variable_name(info.dynamic_opaque_guards[i]);
+                _scratch << " == 0xffffffffu";
+            }
+            _scratch << ") {\n";
+            _indention++;
+            emit_opaque();
+            _indention--;
+            _emit_indention();
+            _scratch << "} else {\n";
+            _indention++;
+            emit_ift();
+            _indention--;
+            _emit_indention();
+            _scratch << "}\n";
+        } else {
+            emit_ift();
+        }
+        _indention--;
+        _emit_indention();
+        _scratch << "}\n";
+        _emit_indention();
+        _scratch << "/* ray query ift end */\n";
+        return;
+    }
+
     _emit_indention();
     _scratch << "/* ray query begin */\n";
     _emit_indention();

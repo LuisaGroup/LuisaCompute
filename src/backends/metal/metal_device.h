@@ -1,5 +1,9 @@
 #pragma once
 
+#include <atomic>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 #include "metal_api.h"
@@ -30,6 +34,11 @@ private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io{nullptr};
     const BinaryIO *_io{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
+    MTL::ResidencySet *_residency_set{nullptr};
+    spin_mutex _residency_mutex;
+    std::atomic_bool _residency_dirty{false};
+    luisa::unordered_map<const MTL::Allocation *, size_t> _residency_refcounts;
+    luisa::vector<const MTL::Allocation *> _pending_residency_releases;
     bool _inqueue_buffer_limit;
 
 private:
@@ -51,6 +60,12 @@ public:
     [[nodiscard]] auto builtin_prepare_indirect_dispatches() const noexcept { return _builtin_prepare_indirect_dispatches; }
     [[nodiscard]] auto builtin_swapchain_present_ldr() const noexcept { return _builtin_swapchain_present_ldr; }
     [[nodiscard]] auto builtin_swapchain_present_hdr() const noexcept { return _builtin_swapchain_present_hdr; }
+    [[nodiscard]] auto residency_set() const noexcept { return _residency_set; }
+    void register_residency(const MTL::Allocation *allocation) noexcept;
+    void register_residency(luisa::span<const MTL::Allocation *const> allocations) noexcept;
+    void unregister_residency(const MTL::Allocation *allocation) noexcept;
+    void unregister_residency(luisa::span<const MTL::Allocation *const> allocations) noexcept;
+    void commit_residency_if_needed() noexcept;
 
 public:
     MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept;

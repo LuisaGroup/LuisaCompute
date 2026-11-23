@@ -264,21 +264,27 @@ void emit_byte1_linear_mirror_sample(
 }
 
 [[nodiscard]] ::llvm::Function *get_or_create_w1_rgba_linear_sample_helper(
-    ::llvm::Module &module, bool is_float4) {
-    auto fn_name = is_float4 ?
-                       std::string{"__luisa_simd_bindless_sample2d_float4_linear_w1"} :
-                       std::string{"__luisa_simd_bindless_sample2d_byte4_linear_w1"};
+    ::llvm::Module &module, bool is_float4, bool enable_fast_math) {
+    auto fn_name = std::string{
+        is_float4 ? "__luisa_simd_bindless_sample2d_float4_linear_w1" :
+                    "__luisa_simd_bindless_sample2d_byte4_linear_w1"};
+    if (enable_fast_math) { fn_name += "_fm"; }
     if (auto *existing = module.getFunction(fn_name)) {
         return existing;
     }
     auto &ctx = module.getContext();
     auto *ptr_ty = ::llvm::PointerType::getUnqual(ctx);
     auto *i8_ty = ::llvm::Type::getInt8Ty(ctx);
+    auto *i16_ty = ::llvm::Type::getInt16Ty(ctx);
     auto *i32_ty = ::llvm::Type::getInt32Ty(ctx);
     auto *i64_ty = ::llvm::Type::getInt64Ty(ctx);
     auto *f32_ty = ::llvm::Type::getFloatTy(ctx);
+    auto *f32x2_ty = ::llvm::FixedVectorType::get(f32_ty, 2u);
     auto *f32x4_ty = ::llvm::FixedVectorType::get(f32_ty, 4u);
+    auto *i32x2_ty = ::llvm::FixedVectorType::get(i32_ty, 2u);
     auto *i32x4_ty = ::llvm::FixedVectorType::get(i32_ty, 4u);
+    auto *i16x8_ty = ::llvm::FixedVectorType::get(i16_ty, 8u);
+    auto *i8x8_ty = ::llvm::FixedVectorType::get(i8_ty, 8u);
     auto *i8x4_ty = ::llvm::FixedVectorType::get(i8_ty, 4u);
 
     auto *fn_ty = ::llvm::FunctionType::get(
@@ -295,6 +301,14 @@ void emit_byte1_linear_mirror_sample(
 
     auto *entry_bb = ::llvm::BasicBlock::Create(ctx, "entry", fn);
     ::llvm::IRBuilder<> b{entry_bb};
+    if (enable_fast_math) {
+        ::llvm::FastMathFlags fm_flags;
+        fm_flags.setAllowReciprocal(true);
+        fm_flags.setAllowContract(true);
+        fm_flags.setAllowReassoc(true);
+        fm_flags.setNoSignedZeros(true);
+        b.setFastMathFlags(fm_flags);
+    }
     auto *data = fn->getArg(0u);
     auto *metadata = fn->getArg(1u);
     auto *u_arg = fn->getArg(2u);
@@ -312,6 +326,126 @@ void emit_byte1_linear_mirror_sample(
     auto *addr_mode = b.CreateTrunc(
         b.CreateAnd(metadata, b.getInt64(0x03u)), i32_ty);
 
+    // Division-free interior fast path for REPEAT (1) and EDGE (0).
+    auto *interior_check_bb = ::llvm::BasicBlock::Create(
+        ctx, "interior.check", fn);
+    auto *interior_idx_bb = ::llvm::BasicBlock::Create(
+        ctx, "interior.idx", fn);
+    auto *interior_load_bb = ::llvm::BasicBlock::Create(
+        ctx, "interior.load", fn);
+    auto *general_bb = ::llvm::BasicBlock::Create(ctx, "general", fn);
+
+    auto *u_bits = b.CreateBitCast(u_arg, i32_ty);
+    auto *v_bits = b.CreateBitCast(v_arg, i32_ty);
+    auto *exp_mask = b.getInt32(0x7f800000u);
+    auto *u_fin_fast = b.CreateICmpNE(b.CreateAnd(u_bits, exp_mask), exp_mask);
+    auto *v_fin_fast = b.CreateICmpNE(b.CreateAnd(v_bits, exp_mask), exp_mask);
+    auto *fast_eligible = b.CreateAnd(
+        b.CreateAnd(
+            b.CreateICmpULE(addr_mode, b.getInt32(1u)),
+            b.CreateAnd(
+                b.CreateICmpUGE(width_val, b.getInt32(2u)),
+                b.CreateICmpUGE(height_val, b.getInt32(2u)))),
+        b.CreateAnd(u_fin_fast, v_fin_fast));
+    auto *fast_br = b.CreateCondBr(fast_eligible, interior_check_bb, general_bb);
+    fast_br->setMetadata(
+        ::llvm::LLVMContext::MD_prof,
+        ::llvm::MDBuilder{ctx}.createBranchWeights(1000000u, 1u));
+
+    b.SetInsertPoint(interior_check_bb);
+    auto *w_f_fast = b.CreateUIToFP(width_val, f32_ty);
+    auto *h_f_fast = b.CreateUIToFP(height_val, f32_ty);
+    ::llvm::Value *uv2 = ::llvm::PoisonValue::get(f32x2_ty);
+    uv2 = b.CreateInsertElement(uv2, u_arg, b.getInt32(0u));
+    uv2 = b.CreateInsertElement(uv2, v_arg, b.getInt32(1u));
+    ::llvm::Value *wh2 = ::llvm::PoisonValue::get(f32x2_ty);
+    wh2 = b.CreateInsertElement(wh2, w_f_fast, b.getInt32(0u));
+    wh2 = b.CreateInsertElement(wh2, h_f_fast, b.getInt32(1u));
+    auto *uv_frac = b.CreateFSub(
+        uv2, b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, uv2));
+    auto *is_repeat = b.CreateICmpEQ(addr_mode, b.getInt32(1u));
+    auto *uv_wrapped = b.CreateSelect(is_repeat, uv_frac, uv2);
+    auto *minus_half2 = float_vector_constant(b, 2u, -0.5f);
+    auto *pos2 = b.CreateIntrinsic(
+        ::llvm::Intrinsic::fma, {f32x2_ty}, {uv_wrapped, wh2, minus_half2});
+    auto *zero2 = float_vector_constant(b, 2u, 0.0f);
+    auto *one2 = float_vector_constant(b, 2u, 1.0f);
+    auto *in_interior_f = b.CreateAndReduce(
+        b.CreateAnd(
+            b.CreateFCmpOGE(pos2, zero2),
+            b.CreateFCmpOLT(pos2, b.CreateFSub(wh2, one2))));
+    auto *interior_f_br = b.CreateCondBr(
+        in_interior_f, interior_idx_bb, general_bb);
+    interior_f_br->setMetadata(
+        ::llvm::LLVMContext::MD_prof,
+        ::llvm::MDBuilder{ctx}.createBranchWeights(1000000u, 1u));
+
+    b.SetInsertPoint(interior_idx_bb);
+    auto *idx2 = b.CreateFPToUI(pos2, i32x2_ty);
+    auto *x0 = b.CreateExtractElement(idx2, b.getInt32(0u));
+    auto *y0 = b.CreateExtractElement(idx2, b.getInt32(1u));
+    auto *idx_ok = b.CreateAnd(
+        b.CreateICmpULT(b.CreateAdd(x0, b.getInt32(1u)), width_val),
+        b.CreateICmpULT(b.CreateAdd(y0, b.getInt32(1u)), height_val));
+    auto *idx_br = b.CreateCondBr(idx_ok, interior_load_bb, general_bb);
+    idx_br->setMetadata(
+        ::llvm::LLVMContext::MD_prof,
+        ::llvm::MDBuilder{ctx}.createBranchWeights(1000000u, 1u));
+
+    b.SetInsertPoint(interior_load_bb);
+    auto *frac2 = b.CreateFSub(pos2, b.CreateUIToFP(idx2, f32x2_ty));
+    auto *xt4_fast = b.CreateVectorSplat(
+        4u, b.CreateExtractElement(frac2, b.getInt32(0u)));
+    auto *yt4_fast = b.CreateVectorSplat(
+        4u, b.CreateExtractElement(frac2, b.getInt32(1u)));
+    auto *w64_fast = b.CreateZExt(width_val, i64_ty);
+    auto *idx0 = b.CreateAdd(
+        b.CreateMul(b.CreateZExt(y0, i64_ty), w64_fast),
+        b.CreateZExt(x0, i64_ty));
+    auto *idx1 = b.CreateAdd(idx0, w64_fast);
+    auto lerp4_fast = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                          ::llvm::Value *t) {
+        return b.CreateIntrinsic(
+            ::llvm::Intrinsic::fma, {f32x4_ty}, {b.CreateFSub(rhs, lhs), t, lhs});
+    };
+    if (is_float4) {
+        auto load_f4 = [&](::llvm::Value *off) {
+            auto *ptr = b.CreateGEP(f32x4_ty, data, off);
+            auto *ld = b.CreateLoad(f32x4_ty, ptr);
+            ld->setAlignment(::llvm::Align{4u});
+            return ld;
+        };
+        auto *one64 = b.getInt64(1u);
+        auto *v00 = load_f4(idx0);
+        auto *v01 = load_f4(b.CreateAdd(idx0, one64));
+        auto *v10 = load_f4(idx1);
+        auto *v11 = load_f4(b.CreateAdd(idx1, one64));
+        b.CreateRet(
+            lerp4_fast(lerp4_fast(v00, v01, xt4_fast),
+                       lerp4_fast(v10, v11, xt4_fast), yt4_fast));
+    } else {
+        auto load_row_pair = [&](::llvm::Value *row_off) {
+            auto *ptr = b.CreateGEP(i8x4_ty, data, row_off);
+            auto *bytes = b.CreateLoad(i8x8_ty, ptr);
+            bytes->setAlignment(::llvm::Align{4u});
+            auto *u16 = b.CreateZExt(bytes, i16x8_ty);
+            auto *lo16 = b.CreateShuffleVector(u16, {0, 1, 2, 3});
+            auto *hi16 = b.CreateShuffleVector(u16, {4, 5, 6, 7});
+            return std::make_pair(
+                b.CreateUIToFP(b.CreateZExt(lo16, i32x4_ty), f32x4_ty),
+                b.CreateUIToFP(b.CreateZExt(hi16, i32x4_ty), f32x4_ty));
+        };
+        auto [v00, v01] = load_row_pair(idx0);
+        auto [v10, v11] = load_row_pair(idx1);
+        auto *res_fast = lerp4_fast(
+            lerp4_fast(v00, v01, xt4_fast),
+            lerp4_fast(v10, v11, xt4_fast), yt4_fast);
+        res_fast = b.CreateFMul(
+            res_fast, float_vector_constant(b, 4u, 1.0f / 255.0f));
+        b.CreateRet(res_fast);
+    }
+
+    b.SetInsertPoint(general_bb);
     auto *zero4 = float_vector_constant(b, 4u, 0.0f);
     auto *half4 = float_vector_constant(b, 4u, 0.5f);
     auto *one4 = float_vector_constant(b, 4u, 1.0f);
@@ -988,12 +1122,12 @@ void emit_byte1_linear_mirror_sample(
         _builder.getInt32Ty(), _width);
     auto *safe_slot_indices = _builder.CreateTrunc(
         array.slot_indices, i32_lanes);
-    auto *slot_scratch = _entry_scratch(
-        i32_lanes, "bindless.texture.query.slots");
-    _builder.CreateStore(safe_slot_indices, slot_scratch);
     auto *zero_i32 = ::llvm::Constant::getNullValue(i32_lanes);
 
     if (size_query) {
+        auto *slot_scratch = _entry_scratch(
+            i32_lanes, "bindless.texture.query.slots");
+        _builder.CreateStore(safe_slot_indices, slot_scratch);
         auto expected_operands = has_level ? 3u : 2u;
         auto *result = _source.value(*instruction.result);
         if (instruction.operands.size() != expected_operands ||
@@ -1098,6 +1232,283 @@ void emit_byte1_linear_mirror_sample(
     auto *one_float = ::llvm::ConstantVector::getSplat(
         ::llvm::ElementCount::getFixed(_width),
         ::llvm::ConstantFP::get(_builder.getFloatTy(), 1.0));
+    auto *slot_value = _source.value(instruction.operands[1u]);
+    const bool direct_mip0_candidate =
+        dimension == 2u && !has_level && !has_gradient &&
+        (!explicit_sampler || _width == 1u) && varying_result &&
+        slot_value != nullptr &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING");
+    if (_width == 1u && direct_mip0_candidate) {
+        auto *u_lanes = _extract_child(
+            coordinate, coordinate_value->type, 0u, true);
+        auto *v_lanes = _extract_child(
+            coordinate, coordinate_value->type, 1u, true);
+        ::llvm::Value *sampler = nullptr;
+        ::llvm::Value *explicit_sampler_scalar = nullptr;
+        if (explicit_sampler) {
+            auto *filter_value = _source.value(instruction.operands[3u]);
+            auto *address_value = _source.value(instruction.operands[4u]);
+            auto *filter = filter_value == nullptr ?
+                               nullptr :
+                               _as_lane_vector(
+                                   _load_value(instruction.operands[3u]),
+                                   *filter_value);
+            auto *address = address_value == nullptr ?
+                                nullptr :
+                                _as_lane_vector(
+                                    _load_value(instruction.operands[4u]),
+                                    *address_value);
+            if (filter_value == nullptr || address_value == nullptr ||
+                filter == nullptr || address == nullptr ||
+                filter_value->type == nullptr ||
+                address_value->type == nullptr ||
+                !filter_value->type->is_scalar() ||
+                !address_value->type->is_scalar() ||
+                filter_value->type->is_float() ||
+                address_value->type->is_float()) {
+                _fail("bindless texture sample has an invalid explicit sampler");
+                return nullptr;
+            }
+            filter = _builder.CreateZExtOrTrunc(filter, i32_lanes);
+            address = _builder.CreateZExtOrTrunc(address, i32_lanes);
+            sampler = _builder.CreateOr(
+                _builder.CreateShl(
+                    filter,
+                    _builder.CreateVectorSplat(_width, _builder.getInt32(2u))),
+                address);
+            sampler = _builder.CreateSelect(_active_mask, sampler, zero_i32);
+            explicit_sampler_scalar = _builder.CreateExtractElement(
+                sampler, _builder.getInt32(0u),
+                "bindless.texture.explicit.sampler.scalar");
+        }
+        auto *any_active = _builder.CreateExtractElement(
+            _active_mask, _builder.getInt32(0u));
+        auto *inspect_bb = ::llvm::BasicBlock::Create(
+            context, "bindless.texture.w1.mip0.inspect", _entry);
+        auto *direct_byte4 = ::llvm::BasicBlock::Create(
+            context, "bindless.texture.w1.byte4.direct", _entry);
+        auto *check_float4 = ::llvm::BasicBlock::Create(
+            context, "bindless.texture.w1.float4.check", _entry);
+        auto *direct_float4 = ::llvm::BasicBlock::Create(
+            context, "bindless.texture.w1.float4.direct", _entry);
+        auto *fallback = ::llvm::BasicBlock::Create(
+            context, "bindless.texture.w1.mip0.callback", _entry);
+        auto *merge = ::llvm::BasicBlock::Create(
+            context, "bindless.texture.w1.mip0.merge", _entry);
+
+        auto *pre_active_bb = _builder.GetInsertBlock();
+        auto *active_br = _builder.CreateCondBr(any_active, inspect_bb, merge);
+        active_br->setMetadata(
+            ::llvm::LLVMContext::MD_prof,
+            ::llvm::MDBuilder{context}.createBranchWeights(1000u, 1u));
+
+        _builder.SetInsertPoint(inspect_bb);
+        auto *scalar_slot = _builder.CreateExtractElement(
+            array.slot_indices, _builder.getInt32(0u));
+        auto *slot_base = _builder.CreateGEP(
+            _builder.getInt8Ty(), array.slots,
+            _builder.CreateMul(
+                scalar_slot,
+                _builder.getInt64(sizeof(SIMDHostBindlessSlot))));
+        auto *descriptor = _builder.CreateGEP(
+            _builder.getInt8Ty(), slot_base,
+            _builder.getInt64(offsetof(SIMDHostBindlessSlot, texture2d)));
+        auto *data = _builder.CreateLoad(
+            pointer_type,
+            _builder.CreateGEP(
+                _builder.getInt8Ty(), descriptor,
+                _builder.getInt64(
+                    offsetof(SIMDHostBindlessTextureSlot, byte1_mip0))),
+            "bindless.texture.mip0.data");
+        auto *metadata = _builder.CreateLoad(
+            _builder.getInt64Ty(),
+            _builder.CreateGEP(
+                _builder.getInt8Ty(), descriptor,
+                _builder.getInt64(
+                    offsetof(SIMDHostBindlessTextureSlot, metadata))),
+            "bindless.texture.mip0.metadata");
+        auto *sampler_code =
+            explicit_sampler_scalar != nullptr ?
+                explicit_sampler_scalar :
+                _builder.CreateTrunc(
+                    _builder.CreateAnd(metadata, _builder.getInt64(0x0fu)),
+                    _builder.getInt32Ty());
+        auto *effective_metadata =
+            explicit_sampler_scalar != nullptr ?
+                _builder.CreateOr(
+                    _builder.CreateAnd(
+                        metadata, _builder.getInt64(~uint64_t{0x0fu})),
+                    _builder.CreateZExt(
+                        _builder.CreateAnd(
+                            explicit_sampler_scalar, _builder.getInt32(0x0fu)),
+                        _builder.getInt64Ty())) :
+                metadata;
+        auto *mip0_format = _builder.CreateTrunc(
+            _builder.CreateLShr(
+                metadata,
+                _builder.getInt64(simd_bindless_texture_mip0_format_shift)),
+            _builder.getInt32Ty());
+        auto *address_mode = _builder.CreateAnd(
+            sampler_code, _builder.getInt32(0x03u));
+        auto *linear_non_zero = _builder.CreateAnd(
+            _builder.CreateICmpNE(data, null_pointer),
+            _builder.CreateAnd(
+                _builder.CreateICmpUGE(sampler_code, _builder.getInt32(4u)),
+                _builder.CreateICmpNE(address_mode, _builder.getInt32(3u))));
+        auto *byte4_eligible = _builder.CreateAnd(
+            linear_non_zero,
+            _builder.CreateICmpEQ(
+                mip0_format,
+                _builder.getInt32(static_cast<uint32_t>(
+                    simd_bindless_texture_mip0_format_byte4))),
+            "bindless.texture.byte4.eligible");
+        auto *float4_eligible = _builder.CreateAnd(
+            linear_non_zero,
+            _builder.CreateICmpEQ(
+                mip0_format,
+                _builder.getInt32(static_cast<uint32_t>(
+                    simd_bindless_texture_mip0_format_float4))),
+            "bindless.texture.float4.eligible");
+        auto *byte4_br = _builder.CreateCondBr(
+            byte4_eligible, direct_byte4, check_float4);
+        byte4_br->setMetadata(
+            ::llvm::LLVMContext::MD_prof,
+            ::llvm::MDBuilder{context}.createBranchWeights(1000000u, 1u));
+
+        auto emit_w1_helper_call = [&](bool is_float4) noexcept {
+            auto *helper = get_or_create_w1_rgba_linear_sample_helper(
+                _module, is_float4, _enable_fast_math);
+            auto *u_scalar = _builder.CreateExtractElement(
+                u_lanes, _builder.getInt32(0u));
+            auto *v_scalar = _builder.CreateExtractElement(
+                v_lanes, _builder.getInt32(0u));
+            auto *call = _builder.CreateCall(
+                helper, {data, effective_metadata, u_scalar, v_scalar});
+            call->setCallingConv(::llvm::CallingConv::Fast);
+            return call;
+        };
+
+        _builder.SetInsertPoint(direct_byte4);
+        auto *byte4_res = emit_w1_helper_call(false);
+        _builder.CreateBr(merge);
+
+        _builder.SetInsertPoint(check_float4);
+        auto *float4_br = _builder.CreateCondBr(
+            float4_eligible, direct_float4, fallback);
+        float4_br->setMetadata(
+            ::llvm::LLVMContext::MD_prof,
+            ::llvm::MDBuilder{context}.createBranchWeights(1000000u, 1u));
+
+        _builder.SetInsertPoint(direct_float4);
+        auto *float4_res = emit_w1_helper_call(true);
+        _builder.CreateBr(merge);
+
+        _builder.SetInsertPoint(fallback);
+        if (_w1_bindless_slot_scratch == nullptr) {
+            _w1_bindless_slot_scratch = _entry_scratch(
+                i32_lanes, "w1.bindless.texture.query.slots");
+        }
+        for (uint32_t axis = 0u; axis < 3u; ++axis) {
+            if (_w1_bindless_coord_scratch[axis] == nullptr) {
+                _w1_bindless_coord_scratch[axis] = _entry_scratch(
+                    float_lanes,
+                    "w1.bindless.texture.sample.coordinate." +
+                        std::to_string(axis));
+            }
+        }
+        ::llvm::Value *fallback_sampler_ptr = null_pointer;
+        if (explicit_sampler) {
+            if (_w1_bindless_sampler_scratch == nullptr) {
+                _w1_bindless_sampler_scratch = _entry_scratch(
+                    i32_lanes, "w1.bindless.texture.sample.samplers");
+            }
+            _builder.CreateStore(sampler, _w1_bindless_sampler_scratch);
+            fallback_sampler_ptr = _w1_bindless_sampler_scratch;
+        }
+        auto *scratch_type = ::llvm::ArrayType::get(float_lanes, 4u);
+        if (_w1_bindless_result_scratch == nullptr) {
+            _w1_bindless_result_scratch = _entry_scratch(
+                scratch_type, "w1.bindless.texture.sample.result");
+        }
+        _builder.CreateStore(safe_slot_indices, _w1_bindless_slot_scratch);
+        _builder.CreateStore(
+            _builder.CreateSelect(_active_mask, u_lanes, zero_float),
+            _w1_bindless_coord_scratch[0u]);
+        _builder.CreateStore(
+            _builder.CreateSelect(_active_mask, v_lanes, zero_float),
+            _w1_bindless_coord_scratch[1u]);
+        _builder.CreateStore(zero_float, _w1_bindless_coord_scratch[2u]);
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(scratch_type),
+            _w1_bindless_result_scratch);
+
+        auto *callback = _builder.CreateExtractValue(array.view, {2u});
+        auto *callback_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {pointer_type, _builder.getInt64Ty(),
+             _builder.getInt32Ty(), _builder.getInt32Ty(),
+             _builder.getInt64Ty(), pointer_type, pointer_type,
+             pointer_type, pointer_type, pointer_type,
+             pointer_type, pointer_type},
+            false);
+        auto *missing_callback = _builder.CreateICmpEQ(callback, null_pointer);
+        _trap_if(
+            _builder.CreateAnd(
+                _builder.CreateOrReduce(_active_mask), missing_callback),
+            "bindless.texture.sample.callback.null");
+        auto *active_mask_bits = _bindless_callback_mask(true);
+        _builder.CreateCall(
+            callback_type, callback,
+            {array.slots, array.slot_count,
+             _builder.getInt32(dimension), _builder.getInt32(_width),
+             active_mask_bits, _w1_bindless_slot_scratch,
+             fallback_sampler_ptr,
+             _w1_bindless_coord_scratch[0u],
+             _w1_bindless_coord_scratch[1u],
+             _w1_bindless_coord_scratch[2u],
+             null_pointer, _w1_bindless_result_scratch});
+        auto *f32x4_ty = ::llvm::FixedVectorType::get(
+            _builder.getFloatTy(), 4u);
+        ::llvm::Value *fallback_res = ::llvm::PoisonValue::get(f32x4_ty);
+        for (uint32_t ch = 0u; ch < 4u; ++ch) {
+            auto *comp_ptr = _builder.CreateGEP(
+                scratch_type, _w1_bindless_result_scratch,
+                {_builder.getInt32(0u), _builder.getInt32(ch)});
+            auto *comp_v1 = _builder.CreateLoad(float_lanes, comp_ptr);
+            auto *comp_scalar = _builder.CreateExtractElement(
+                comp_v1, _builder.getInt32(0u));
+            fallback_res = _builder.CreateInsertElement(
+                fallback_res, comp_scalar, _builder.getInt32(ch));
+        }
+        auto *fallback_end_bb = _builder.GetInsertBlock();
+        _builder.CreateBr(merge);
+
+        _builder.SetInsertPoint(merge);
+        auto *res_phi = _builder.CreatePHI(
+            f32x4_ty, 4u, "bindless.texture.mip0.w1.res");
+        res_phi->addIncoming(
+            ::llvm::Constant::getNullValue(f32x4_ty), pre_active_bb);
+        res_phi->addIncoming(byte4_res, direct_byte4);
+        res_phi->addIncoming(float4_res, direct_float4);
+        res_phi->addIncoming(fallback_res, fallback_end_bb);
+
+        auto *pixels = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(_data_type(result->type, true)));
+        for (uint32_t ch = 0u; ch < 4u; ++ch) {
+            auto *elem = _builder.CreateExtractElement(
+                res_phi, _builder.getInt32(ch));
+            auto *v1 = _builder.CreateInsertElement(
+                ::llvm::PoisonValue::get(float_lanes), elem,
+                _builder.getInt32(0u));
+            pixels = _insert_child(pixels, v1, result->type, ch, true);
+        }
+        return pixels;
+    }
+
+    auto *slot_scratch = _entry_scratch(
+        i32_lanes, "bindless.texture.query.slots");
+    _builder.CreateStore(safe_slot_indices, slot_scratch);
     std::array<::llvm::AllocaInst *, 3u> coordinate_scratch{};
     for (auto axis = uint32_t{0u}; axis < 3u; axis++) {
         auto *lanes = axis < dimension ?
@@ -1403,6 +1814,7 @@ void emit_byte1_linear_mirror_sample(
     }
 
     ::llvm::Value *sampler_pointer = null_pointer;
+    ::llvm::Value *explicit_sampler_scalar = nullptr;
     if (explicit_sampler) {
         auto *filter_value = _source.value(
             instruction.operands[operand_index]);
@@ -1437,6 +1849,11 @@ void emit_byte1_linear_mirror_sample(
             address);
         sampler = _builder.CreateSelect(
             _active_mask, sampler, zero_i32);
+        if (_width == 1u) {
+            explicit_sampler_scalar = _builder.CreateExtractElement(
+                sampler, _builder.getInt32(0u),
+                "bindless.texture.explicit.sampler.scalar");
+        }
         auto *sampler_scratch = _entry_scratch(
             i32_lanes, "bindless.texture.sample.samplers");
         _builder.CreateStore(sampler, sampler_scratch);
@@ -1478,15 +1895,9 @@ void emit_byte1_linear_mirror_sample(
              coordinate_scratch[2u], level_pointer, scratch});
     };
 
-    auto *slot_value = _source.value(instruction.operands[1u]);
-    auto slot_is_uniform =
+    const auto slot_is_uniform =
         _width == 1u ||
         (slot_value != nullptr && schedule::is_uniform(slot_value->value_class));
-    auto direct_mip0_candidate =
-        dimension == 2u && !has_level && !has_gradient &&
-        !explicit_sampler && varying_result && slot_value != nullptr &&
-        !luisa::compute::detail::env_flag(
-            "LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING");
     if (direct_mip0_candidate) {
         auto *any_active = _width == 1u ?
                                _builder.CreateExtractElement(_active_mask, _builder.getInt32(0u)) :
@@ -1566,9 +1977,22 @@ void emit_byte1_linear_mirror_sample(
             4u, "bindless.texture.mip0.width");
         auto *height = extent(
             24u, "bindless.texture.mip0.height");
-        auto *sampler_code = _builder.CreateTrunc(
-            _builder.CreateAnd(metadata, _builder.getInt64(0x0fu)),
-            _builder.getInt32Ty());
+        auto *sampler_code =
+            explicit_sampler_scalar != nullptr ?
+                explicit_sampler_scalar :
+                _builder.CreateTrunc(
+                    _builder.CreateAnd(metadata, _builder.getInt64(0x0fu)),
+                    _builder.getInt32Ty());
+        auto *effective_metadata =
+            explicit_sampler_scalar != nullptr ?
+                _builder.CreateOr(
+                    _builder.CreateAnd(
+                        metadata, _builder.getInt64(~uint64_t{0x0fu})),
+                    _builder.CreateZExt(
+                        _builder.CreateAnd(
+                            explicit_sampler_scalar, _builder.getInt32(0x0fu)),
+                        _builder.getInt64Ty())) :
+                metadata;
         auto *mip0_format = _builder.CreateTrunc(
             _builder.CreateLShr(
                 metadata,
@@ -1620,14 +2044,14 @@ void emit_byte1_linear_mirror_sample(
             auto *v_lanes = _builder.CreateLoad(float_lanes, coordinate_scratch[1u]);
             if (_width == 1u) {
                 auto *helper = get_or_create_w1_rgba_linear_sample_helper(
-                    _module, is_float4);
+                    _module, is_float4, _enable_fast_math);
                 auto *u_scalar = _builder.CreateExtractElement(
                     u_lanes, _builder.getInt32(0u));
                 auto *v_scalar = _builder.CreateExtractElement(
                     v_lanes, _builder.getInt32(0u));
                 auto *call = _builder.CreateCall(
                     helper,
-                    {data, metadata, u_scalar, v_scalar});
+                    {data, effective_metadata, u_scalar, v_scalar});
                 call->setCallingConv(::llvm::CallingConv::Fast);
                 for (uint32_t ch = 0u; ch < 4u; ++ch) {
                     auto *elem = _builder.CreateExtractElement(

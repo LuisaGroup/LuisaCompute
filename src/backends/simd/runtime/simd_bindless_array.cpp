@@ -145,7 +145,8 @@ void SIMDBindlessArray::_update_texture(
                                simd_bindless_texture_mip0_format_byte1;
             descriptor = {
                 .texture = resource,
-                .byte1_mip0 = (is_2d_byte1 || is_2d_byte4 || is_2d_float4) ?
+                .byte1_mip0 = ((is_2d_byte1 || is_2d_byte4 || is_2d_float4) &&
+                               size.x > 0u && size.y > 0u) ?
                                   base_view.data() :
                                   nullptr,
                 .metadata = simd_bindless_texture_metadata(

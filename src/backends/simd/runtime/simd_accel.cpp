@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <type_traits>
 
 #include <luisa/core/logging.h>
@@ -476,18 +477,24 @@ public:
 struct LiveRayQueryContext {
     RayQueryRTCContext rtc{};
     const SIMDHostAccelInstanceTable *instances{nullptr};
+    const uint8_t *instance_flags{nullptr};
+    size_t instance_flags_size{0u};
     SIMDHostRayQueryState *const *states{nullptr};
     SIMDHostRayQueryState *state{nullptr};
     const void *capture{nullptr};
     const SIMDPacketLaunchConfig *launch_config{nullptr};
     SIMDHostRayQueryLiveCandidateHandler *on_candidate{nullptr};
+    SIMDHostRayQueryW1LiveCandidateHandler *w1_on_candidate{nullptr};
     uint32_t lane_count{0u};
     uint32_t lane{0u};
     uint32_t excl_inst0{~uint32_t{0u}};
     uint32_t excl_prim0{~uint32_t{0u}};
     uint32_t excl_inst1{~uint32_t{0u}};
     uint32_t excl_prim1{~uint32_t{0u}};
+    float t_min{0.0f};
+    float t_max{0.0f};
     bool terminate_on_commit{false};
+    bool has_curves{false};
 };
 static_assert(offsetof(LiveRayQueryContext, rtc) == 0u);
 
@@ -1606,11 +1613,18 @@ void simd_procedural_intersect(
             state->candidate_kind = static_cast<uint32_t>(
                 SIMDHostRayQueryCandidateKind::procedural);
             state->candidate_committed = 0u;
-            live->on_candidate(
-                live->lane_count, uint64_t{1u} << live->lane,
-                live->states, live->capture, live->launch_config,
-                static_cast<uint32_t>(
-                    SIMDHostRayQueryCandidateKind::procedural));
+            if (live->w1_on_candidate != nullptr) {
+                live->w1_on_candidate(
+                    state, live->capture, live->launch_config,
+                    static_cast<uint32_t>(
+                        SIMDHostRayQueryCandidateKind::procedural));
+            } else {
+                live->on_candidate(
+                    live->lane_count, uint64_t{1u} << live->lane,
+                    live->states, live->capture, live->launch_config,
+                    static_cast<uint32_t>(
+                        SIMDHostRayQueryCandidateKind::procedural));
+            }
             if (state->candidate_committed != 0u) {
                 auto t = state->candidate.t;
                 state->committed = SIMDHostRayQueryCommittedHit{
@@ -1673,11 +1687,18 @@ void simd_procedural_occluded(
             state->candidate_kind = static_cast<uint32_t>(
                 SIMDHostRayQueryCandidateKind::procedural);
             state->candidate_committed = 0u;
-            live->on_candidate(
-                live->lane_count, uint64_t{1u} << live->lane,
-                live->states, live->capture, live->launch_config,
-                static_cast<uint32_t>(
-                    SIMDHostRayQueryCandidateKind::procedural));
+            if (live->w1_on_candidate != nullptr) {
+                live->w1_on_candidate(
+                    state, live->capture, live->launch_config,
+                    static_cast<uint32_t>(
+                        SIMDHostRayQueryCandidateKind::procedural));
+            } else {
+                live->on_candidate(
+                    live->lane_count, uint64_t{1u} << live->lane,
+                    live->states, live->capture, live->launch_config,
+                    static_cast<uint32_t>(
+                        SIMDHostRayQueryCandidateKind::procedural));
+            }
             if (state->candidate_committed != 0u) {
                 auto t = state->candidate.t;
                 state->committed = SIMDHostRayQueryCommittedHit{
@@ -1978,6 +1999,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         // its last committed state. Keep every dirty bit and desired primitive
         // binding so a later ordinary build can catch up even though this
         // command has consumed the runtime modification list.
+        _instance_flags_valid = false;
         return;
     }
 
@@ -2202,6 +2224,18 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
     }
     _instance_table.committed_instances = _committed_instances.data();
     _instance_table.committed_size = _committed_instances.size();
+    _instance_flags.resize(_committed_instances.size());
+    for (size_t i = 0u; i < _committed_instances.size(); ++i) {
+        const auto &ci = _committed_instances[i];
+        _instance_flags[i] =
+            (ci.opaque != 0u ? uint8_t{1u} : uint8_t{0u}) |
+            (ci.geometry_kind ==
+                     static_cast<uint8_t>(SIMDHostAccelGeometryKind::curve) ?
+                 uint8_t{2u} :
+                 uint8_t{0u});
+    }
+    _instance_flags_size = _instance_flags.size();
+    _instance_flags_valid = true;
     if (_instance_summary_dirty) {
         refresh_instance_summary();
         _instance_summary_dirty = false;
@@ -2998,6 +3032,8 @@ const SIMDHostAccelRayQueryLiveDispatch SIMDAccel::_live_dispatch{
     .surface_exclusion = SIMDAccel::_ray_query_surface_exclusion,
     .live_pipeline = SIMDAccel::_ray_query_live_pipeline,
     .surface_exclusion_soa = SIMDAccel::_ray_query_surface_exclusion_soa,
+    .surface_exclusion_w1 = SIMDAccel::_ray_query_surface_exclusion_w1,
+    .live_pipeline_w1 = SIMDAccel::_ray_query_live_pipeline_w1,
 };
 
 namespace {
@@ -3017,6 +3053,38 @@ namespace {
            inst < instances.committed_size &&
            instances.committed_instances[inst].geometry_kind ==
                static_cast<uint8_t>(SIMDHostAccelGeometryKind::curve);
+}
+
+[[nodiscard]] LUISA_FORCE_INLINE uint8_t live_instance_flags_fast(
+    const uint8_t *flags, size_t flags_size,
+    const SIMDHostAccelInstanceTable &instances,
+    uint32_t inst) noexcept {
+    if (flags != nullptr && inst < flags_size) [[likely]] {
+        return flags[inst];
+    }
+    return static_cast<uint8_t>(
+        (live_instance_is_opaque(instances, inst) ? 1u : 0u) |
+        (live_instance_is_curve(instances, inst) ? 2u : 0u));
+}
+
+[[nodiscard]] LUISA_FORCE_INLINE bool live_instance_is_opaque_fast(
+    const uint8_t *flags, size_t flags_size,
+    const SIMDHostAccelInstanceTable &instances,
+    uint32_t inst) noexcept {
+    if (flags != nullptr && inst < flags_size) [[likely]] {
+        return (flags[inst] & 1u) != 0u;
+    }
+    return live_instance_is_opaque(instances, inst);
+}
+
+[[nodiscard]] LUISA_FORCE_INLINE bool live_instance_is_curve_fast(
+    const uint8_t *flags, size_t flags_size,
+    const SIMDHostAccelInstanceTable &instances,
+    uint32_t inst) noexcept {
+    if (flags != nullptr && inst < flags_size) [[likely]] {
+        return (flags[inst] & 2u) != 0u;
+    }
+    return live_instance_is_curve(instances, inst);
 }
 
 void live_surface_exclusion_filter(
@@ -3042,14 +3110,20 @@ void live_surface_exclusion_filter(
         args->valid[0u] = 0;
         return;
     }
-    const bool opaque = live_instance_is_opaque(*ctx->instances, inst);
+    const bool opaque = live_instance_is_opaque_fast(
+        ctx->instance_flags, ctx->instance_flags_size, *ctx->instances, inst);
     if (!opaque &&
         ((inst == ctx->excl_inst0 && prim == ctx->excl_prim0) ||
          (inst == ctx->excl_inst1 && prim == ctx->excl_prim1))) {
         args->valid[0u] = 0;
         return;
     }
-    float v = live_instance_is_curve(*ctx->instances, inst) ? -1.0f : hit->v;
+    float v = (ctx->has_curves &&
+               live_instance_is_curve_fast(
+                   ctx->instance_flags, ctx->instance_flags_size,
+                   *ctx->instances, inst)) ?
+                  -1.0f :
+                  hit->v;
     state->committed = SIMDHostRayQueryCommittedHit{
         .inst = inst,
         .prim = prim,
@@ -3071,13 +3145,13 @@ void live_surface_exclusion_filter(
 void live_ray_query_filter(
     const RTCFilterFunctionNArguments *args) noexcept {
     auto *ctx = reinterpret_cast<LiveRayQueryContext *>(args->context);
-    if (ctx == nullptr || ctx->state == nullptr ||
-        ctx->instances == nullptr || ctx->on_candidate == nullptr ||
-        args->valid == nullptr || args->ray == nullptr ||
-        args->hit == nullptr || args->N != 1u ||
-        args->valid[0u] != -1) [[unlikely]] {
-        return;
-    }
+    LUISA_DEBUG_ASSERT(
+        ctx != nullptr && ctx->state != nullptr &&
+            ctx->instances != nullptr &&
+            (ctx->on_candidate != nullptr || ctx->w1_on_candidate != nullptr) &&
+            args->valid != nullptr && args->ray != nullptr &&
+            args->hit != nullptr && args->N == 1u && args->valid[0u] == -1,
+        "Invalid SIMD live ray-query filter arguments.");
     auto *state = ctx->state;
     auto *ray = reinterpret_cast<RTCRay *>(args->ray);
     auto *hit = reinterpret_cast<RTCHit *>(args->hit);
@@ -3096,8 +3170,15 @@ void live_ray_query_filter(
         args->valid[0u] = 0;
         return;
     }
-    float v = live_instance_is_curve(*ctx->instances, inst) ? -1.0f : hit->v;
-    if (live_instance_is_opaque(*ctx->instances, inst)) {
+    float v = (ctx->has_curves &&
+               live_instance_is_curve_fast(
+                   ctx->instance_flags, ctx->instance_flags_size,
+                   *ctx->instances, inst)) ?
+                  -1.0f :
+                  hit->v;
+    if (live_instance_is_opaque_fast(
+            ctx->instance_flags, ctx->instance_flags_size,
+            *ctx->instances, inst)) {
         state->committed = SIMDHostRayQueryCommittedHit{
             .inst = inst,
             .prim = prim,
@@ -3121,10 +3202,16 @@ void live_ray_query_filter(
     state->candidate_kind = static_cast<uint32_t>(
         SIMDHostRayQueryCandidateKind::surface);
     state->candidate_committed = 0u;
-    ctx->on_candidate(
-        ctx->lane_count, uint64_t{1u} << ctx->lane,
-        ctx->states, ctx->capture, ctx->launch_config,
-        static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface));
+    if (ctx->w1_on_candidate != nullptr) {
+        ctx->w1_on_candidate(
+            state, ctx->capture, ctx->launch_config,
+            static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface));
+    } else {
+        ctx->on_candidate(
+            ctx->lane_count, uint64_t{1u} << ctx->lane,
+            ctx->states, ctx->capture, ctx->launch_config,
+            static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface));
+    }
     const bool committed = state->candidate_committed != 0u;
     state->candidate_kind = static_cast<uint32_t>(
         SIMDHostRayQueryCandidateKind::none);
@@ -3163,6 +3250,91 @@ void live_ray_query_filter(
     args->valid[0u] = 0;
 }
 
+void live_ray_query_occluded_filter(
+    const RTCFilterFunctionNArguments *args) noexcept {
+    auto *ctx = reinterpret_cast<LiveRayQueryContext *>(args->context);
+    LUISA_DEBUG_ASSERT(
+        ctx != nullptr && ctx->state != nullptr &&
+            ctx->instances != nullptr &&
+            (ctx->on_candidate != nullptr || ctx->w1_on_candidate != nullptr) &&
+            args->valid != nullptr && args->ray != nullptr &&
+            args->hit != nullptr && args->N == 1u && args->valid[0u] == -1,
+        "Invalid SIMD live occluded ray-query filter arguments.");
+    auto *state = ctx->state;
+    auto *ray = reinterpret_cast<RTCRay *>(args->ray);
+    auto *hit = reinterpret_cast<RTCHit *>(args->hit);
+    auto t = ray->tfar;
+    auto raw_inst = hit->instID[0u];
+    auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ? hit->geomID : raw_inst;
+    auto prim = hit->primID;
+    if (!(t >= ctx->t_min && t <= ctx->t_max) ||
+        inst == RTC_INVALID_GEOMETRY_ID ||
+        prim == RTC_INVALID_GEOMETRY_ID) [[unlikely]] {
+        args->valid[0u] = 0;
+        return;
+    }
+    float v = (ctx->has_curves &&
+               live_instance_is_curve_fast(
+                   ctx->instance_flags, ctx->instance_flags_size,
+                   *ctx->instances, inst)) ?
+                  -1.0f :
+                  hit->v;
+    if (live_instance_is_opaque_fast(
+            ctx->instance_flags, ctx->instance_flags_size,
+            *ctx->instances, inst)) {
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = inst,
+            .prim = prim,
+            .bary = {hit->u, v},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = t,
+        };
+        state->world_ray[7u] = t;
+        state->terminated = 1u;
+        return;
+    }
+    state->candidate = SIMDHostRayQuerySurfaceHit{
+        .inst = inst,
+        .prim = prim,
+        .bary = {hit->u, v},
+        .t = t,
+    };
+    state->candidate_kind = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::surface);
+    state->candidate_committed = 0u;
+    if (ctx->w1_on_candidate != nullptr) {
+        ctx->w1_on_candidate(
+            state, ctx->capture, ctx->launch_config,
+            static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface));
+    } else {
+        ctx->on_candidate(
+            ctx->lane_count, uint64_t{1u} << ctx->lane,
+            ctx->states, ctx->capture, ctx->launch_config,
+            static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface));
+    }
+    if (state->candidate_committed != 0u) {
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = inst,
+            .prim = prim,
+            .bary = {hit->u, v},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = t,
+        };
+        state->world_ray[7u] = t;
+        state->terminated = 1u;
+        state->candidate_committed = 0u;
+        return;
+    }
+    if (state->terminated != 0u) {
+        // Leave valid[0] == -1 so rtcOccluded1 halts immediately without
+        // overwriting state->committed.
+        return;
+    }
+    args->valid[0u] = 0;
+}
+
 struct LiveSurfaceExclusionSoAContext {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
     RTCIntersectContext rtc{};
@@ -3170,6 +3342,8 @@ struct LiveSurfaceExclusionSoAContext {
     RTCRayQueryContext rtc{};
 #endif
     const SIMDHostAccelInstanceTable *instances{nullptr};
+    const uint8_t *instance_flags{nullptr};
+    size_t instance_flags_size{0u};
     SIMDHostRayQueryOutputPacket *outputs{nullptr};
     uint32_t lane{0u};
     uint32_t excl_inst0{~0u};
@@ -3180,6 +3354,8 @@ struct LiveSurfaceExclusionSoAContext {
     float t_max_current{0.0f};
     bool query_any{false};
     bool terminate_on_commit{false};
+    bool has_curves{false};
+    bool defer_output_write{false};
     bool terminated{false};
 };
 
@@ -3187,12 +3363,12 @@ void live_surface_exclusion_soa_filter(
     const RTCFilterFunctionNArguments *args) noexcept {
     auto *ctx =
         reinterpret_cast<LiveSurfaceExclusionSoAContext *>(args->context);
-    if (ctx == nullptr || ctx->outputs == nullptr ||
-        ctx->instances == nullptr || args->valid == nullptr ||
-        args->ray == nullptr || args->hit == nullptr ||
-        args->N != 1u || args->valid[0u] != -1) [[unlikely]] {
-        return;
-    }
+    LUISA_DEBUG_ASSERT(
+        ctx != nullptr && ctx->outputs != nullptr &&
+            ctx->instances != nullptr && args->valid != nullptr &&
+            args->ray != nullptr && args->hit != nullptr &&
+            args->N == 1u && args->valid[0u] == -1,
+        "Invalid SIMD surface-exclusion SoA filter arguments.");
     auto *ray = reinterpret_cast<RTCRay *>(args->ray);
     auto *hit = reinterpret_cast<RTCHit *>(args->hit);
     auto t = ray->tfar;
@@ -3206,14 +3382,24 @@ void live_surface_exclusion_soa_filter(
         args->valid[0u] = 0;
         return;
     }
-    const bool opaque = live_instance_is_opaque(*ctx->instances, inst);
+    const bool opaque = live_instance_is_opaque_fast(
+        ctx->instance_flags, ctx->instance_flags_size, *ctx->instances, inst);
     if (!opaque &&
         ((inst == ctx->excl_inst0 && prim == ctx->excl_prim0) ||
          (inst == ctx->excl_inst1 && prim == ctx->excl_prim1))) {
         args->valid[0u] = 0;
         return;
     }
-    float v = live_instance_is_curve(*ctx->instances, inst) ? -1.0f : hit->v;
+    if (ctx->defer_output_write) {
+        ctx->t_max_current = t;
+        return;
+    }
+    float v = (ctx->has_curves &&
+               live_instance_is_curve_fast(
+                   ctx->instance_flags, ctx->instance_flags_size,
+                   *ctx->instances, inst)) ?
+                  -1.0f :
+                  hit->v;
     const auto l = ctx->lane;
     ctx->outputs->committed_inst[l] = inst;
     ctx->outputs->committed_prim[l] = prim;
@@ -3236,6 +3422,8 @@ void live_surface_exclusion_soa_filter(
 struct LiveSurfaceExclusionSoAPacketContext {
     RTCRayQueryContext rtc{};
     const SIMDHostAccelInstanceTable *instances{nullptr};
+    const uint8_t *instance_flags{nullptr};
+    size_t instance_flags_size{0u};
     SIMDHostRayQueryOutputPacket *outputs{nullptr};
     const uint32_t *excl_inst0{nullptr};
     const uint32_t *excl_prim0{nullptr};
@@ -3278,7 +3466,9 @@ void live_surface_exclusion_soa_filter_n(
             args->valid[i] = 0;
             continue;
         }
-        const bool opaque = live_instance_is_opaque(*ctx->instances, inst);
+        const bool opaque = live_instance_is_opaque_fast(
+            ctx->instance_flags, ctx->instance_flags_size,
+            *ctx->instances, inst);
         if (!opaque &&
             ((inst == ctx->excl_inst0[l] && prim == ctx->excl_prim0[l]) ||
              (inst == ctx->excl_inst1[l] && prim == ctx->excl_prim1[l]))) {
@@ -3286,7 +3476,9 @@ void live_surface_exclusion_soa_filter_n(
             continue;
         }
         const float v = (ctx->has_curves &&
-                         live_instance_is_curve(*ctx->instances, inst)) ?
+                         live_instance_is_curve_fast(
+                             ctx->instance_flags, ctx->instance_flags_size,
+                             *ctx->instances, inst)) ?
                             -1.0f :
                             RTCHitN_v(args->hit, N, i);
         ctx->outputs->committed_inst[l] = inst;
@@ -3307,7 +3499,442 @@ void live_surface_exclusion_soa_filter_n(
         }
     }
 }
+
+template<uint32_t PacketWidth, typename RayHitPacket, size_t PacketAlign>
+void trace_unexcluded_surface_soa_packet(
+    RTCScene scene,
+    const SIMDHostAccelInstanceTable &instances,
+    bool has_curves,
+    const int *valid,
+    bool coherent,
+    const SIMDHostRayQuerySurfaceExclusionInputPacket *inputs,
+    SIMDHostRayQueryOutputPacket *outputs) noexcept {
+    alignas(PacketAlign) RayHitPacket packet{};
+    std::memcpy(packet.ray.org_x, inputs->org_x.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.org_y, inputs->org_y.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.org_z, inputs->org_z.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.dir_x, inputs->dir_x.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.dir_y, inputs->dir_y.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.dir_z, inputs->dir_z.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.time, inputs->time.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.tfar, outputs->t_max.data(), PacketWidth * sizeof(float));
+    std::memcpy(packet.ray.mask, inputs->visibility_mask.data(), PacketWidth * sizeof(uint32_t));
+    for (uint32_t l = 0u; l < PacketWidth; ++l) {
+        packet.ray.id[l] = l;
+        packet.hit.geomID[l] = RTC_INVALID_GEOMETRY_ID;
+        packet.hit.primID[l] = RTC_INVALID_GEOMETRY_ID;
+        for (uint32_t lv = 0u; lv < RTC_MAX_INSTANCE_LEVEL_COUNT; ++lv) {
+            packet.hit.instID[lv][l] = RTC_INVALID_GEOMETRY_ID;
+        }
+    }
+    RTCIntersectArguments arguments{};
+    rtcInitIntersectArguments(&arguments);
+    arguments.flags = coherent ? RTC_RAY_QUERY_FLAG_COHERENT :
+                                 RTC_RAY_QUERY_FLAG_INCOHERENT;
+    if constexpr (PacketWidth == 4u) {
+        rtcIntersect4(valid, scene, &packet, &arguments);
+    } else {
+        rtcIntersect8(valid, scene, &packet, &arguments);
+    }
+    for (uint32_t l = 0u; l < PacketWidth; ++l) {
+        if (valid[l] != 0 &&
+            packet.hit.geomID[l] != RTC_INVALID_GEOMETRY_ID) {
+            auto raw_inst = packet.hit.instID[0u][l];
+            auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
+                            packet.hit.geomID[l] :
+                            raw_inst;
+            float v = (has_curves && live_instance_is_curve(instances, inst)) ?
+                          -1.0f :
+                          packet.hit.v[l];
+            outputs->committed_inst[l] = inst;
+            outputs->committed_prim[l] = packet.hit.primID[l];
+            outputs->committed_bary_x[l] = packet.hit.u[l];
+            outputs->committed_bary_y[l] = v;
+            outputs->committed_kind[l] = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface);
+            outputs->committed_t[l] = packet.ray.tfar[l];
+        }
+    }
+}
+
+template<uint32_t PacketWidth, typename RayHitPacket, typename RayPacket, size_t PacketAlign>
+void trace_filtered_surface_soa_packet(
+    RTCScene scene,
+    const SIMDHostAccelInstanceTable &instances,
+    const uint8_t *instance_flags,
+    size_t instance_flags_size,
+    bool has_curves,
+    const int *valid,
+    bool query_any,
+    bool terminate_on_commit,
+    bool coherent,
+    const SIMDHostRayQuerySurfaceExclusionInputPacket *inputs,
+    SIMDHostRayQueryOutputPacket *outputs,
+    const uint32_t *excl_inst0,
+    const uint32_t *excl_prim0,
+    const uint32_t *excl_inst1,
+    const uint32_t *excl_prim1) noexcept {
+    LiveSurfaceExclusionSoAPacketContext pctx{};
+    rtcInitRayQueryContext(&pctx.rtc);
+    pctx.instances = &instances;
+    pctx.instance_flags = instance_flags;
+    pctx.instance_flags_size = instance_flags_size;
+    pctx.outputs = outputs;
+    pctx.excl_inst0 = excl_inst0;
+    pctx.excl_prim0 = excl_prim0;
+    pctx.excl_inst1 = excl_inst1;
+    pctx.excl_prim1 = excl_prim1;
+    pctx.query_any = query_any;
+    pctx.terminate_on_commit = terminate_on_commit;
+    pctx.has_curves = has_curves;
+    for (uint32_t l = 0u; l < PacketWidth; ++l) {
+        pctx.t_min[l] = outputs->t_min[l];
+        pctx.t_max_current[l] = outputs->t_max[l];
+        pctx.terminated[l] = false;
+    }
+    if (query_any) {
+        alignas(PacketAlign) RayPacket ray_packet{};
+        std::memcpy(ray_packet.org_x, inputs->org_x.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.org_y, inputs->org_y.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.org_z, inputs->org_z.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.dir_x, inputs->dir_x.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.dir_y, inputs->dir_y.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.dir_z, inputs->dir_z.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.time, inputs->time.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.tfar, outputs->t_max.data(), PacketWidth * sizeof(float));
+        std::memcpy(ray_packet.mask, inputs->visibility_mask.data(), PacketWidth * sizeof(uint32_t));
+        for (uint32_t l = 0u; l < PacketWidth; ++l) {
+            ray_packet.tnear[l] = ray_query_embree_tnear(outputs->t_min[l]);
+            ray_packet.id[l] = l;
+            ray_packet.flags[l] = 0u;
+        }
+        RTCOccludedArguments args{};
+        rtcInitOccludedArguments(&args);
+        args.context = &pctx.rtc;
+        args.flags = static_cast<RTCRayQueryFlags>(
+            (coherent ? RTC_RAY_QUERY_FLAG_COHERENT :
+                        RTC_RAY_QUERY_FLAG_INCOHERENT) |
+            RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
+        args.filter = live_surface_exclusion_soa_filter_n;
+        if constexpr (PacketWidth == 4u) {
+            rtcOccluded4(valid, scene, &ray_packet, &args);
+        } else {
+            rtcOccluded8(valid, scene, &ray_packet, &args);
+        }
+    } else {
+        alignas(PacketAlign) RayHitPacket packet{};
+        std::memcpy(packet.ray.org_x, inputs->org_x.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.org_y, inputs->org_y.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.org_z, inputs->org_z.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.dir_x, inputs->dir_x.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.dir_y, inputs->dir_y.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.dir_z, inputs->dir_z.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.time, inputs->time.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.tfar, outputs->t_max.data(), PacketWidth * sizeof(float));
+        std::memcpy(packet.ray.mask, inputs->visibility_mask.data(), PacketWidth * sizeof(uint32_t));
+        for (uint32_t l = 0u; l < PacketWidth; ++l) {
+            packet.ray.tnear[l] = ray_query_embree_tnear(outputs->t_min[l]);
+            packet.ray.id[l] = l;
+            packet.ray.flags[l] = 0u;
+            packet.hit.geomID[l] = RTC_INVALID_GEOMETRY_ID;
+            packet.hit.primID[l] = RTC_INVALID_GEOMETRY_ID;
+            for (uint32_t lv = 0u; lv < RTC_MAX_INSTANCE_LEVEL_COUNT; ++lv) {
+                packet.hit.instID[lv][l] = RTC_INVALID_GEOMETRY_ID;
+            }
+        }
+        RTCIntersectArguments args{};
+        rtcInitIntersectArguments(&args);
+        args.context = &pctx.rtc;
+        args.flags = static_cast<RTCRayQueryFlags>(
+            (coherent ? RTC_RAY_QUERY_FLAG_COHERENT :
+                        RTC_RAY_QUERY_FLAG_INCOHERENT) |
+            RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
+        args.filter = live_surface_exclusion_soa_filter_n;
+        if constexpr (PacketWidth == 4u) {
+            rtcIntersect4(valid, scene, &packet, &args);
+        } else {
+            rtcIntersect8(valid, scene, &packet, &args);
+        }
+    }
+}
 #endif
+
+struct LiveSurfaceExclusionW1Context {
+    RayQueryRTCContext rtc{};
+    const SIMDHostAccelInstanceTable *instances{nullptr};
+    const uint8_t *instance_flags{nullptr};
+    size_t instance_flags_size{0u};
+    SIMDHostRayQueryW1SurfaceExclusionIO *io{nullptr};
+    uint32_t excl_inst0{~0u};
+    uint32_t excl_prim0{~0u};
+    uint32_t excl_inst1{~0u};
+    uint32_t excl_prim1{~0u};
+    float t_min{0.0f};
+    float t_max_current{0.0f};
+    bool terminate_on_commit{false};
+    bool has_curves{false};
+    bool terminated{false};
+    bool hit_committed{false};
+};
+static_assert(offsetof(LiveSurfaceExclusionW1Context, rtc) == 0u);
+
+void live_surface_exclusion_w1_intersect_filter(
+    const RTCFilterFunctionNArguments *args) noexcept {
+    auto *ctx =
+        reinterpret_cast<LiveSurfaceExclusionW1Context *>(args->context);
+    auto *ray = reinterpret_cast<RTCRay *>(args->ray);
+    auto *hit = reinterpret_cast<RTCHit *>(args->hit);
+    const float t = ray->tfar;
+    const uint32_t raw_inst = hit->instID[0u];
+    const uint32_t inst =
+        raw_inst == RTC_INVALID_GEOMETRY_ID ? hit->geomID : raw_inst;
+    const uint32_t prim = hit->primID;
+    if (ctx->terminated ||
+        !(t >= ctx->t_min && t <= ctx->t_max_current) ||
+        inst == RTC_INVALID_GEOMETRY_ID ||
+        prim == RTC_INVALID_GEOMETRY_ID) [[unlikely]] {
+        args->valid[0u] = 0;
+        return;
+    }
+    const uint8_t inst_flags = live_instance_flags_fast(
+        ctx->instance_flags, ctx->instance_flags_size, *ctx->instances, inst);
+    const bool opaque = (inst_flags & 1u) != 0u;
+    if (!opaque &&
+        ((inst == ctx->excl_inst0 && prim == ctx->excl_prim0) ||
+         (inst == ctx->excl_inst1 && prim == ctx->excl_prim1))) {
+        args->valid[0u] = 0;
+        return;
+    }
+    ctx->t_max_current = t;
+    if (!ctx->terminate_on_commit) [[likely]] {
+        return;
+    }
+    const float v =
+        (ctx->has_curves && (inst_flags & 2u) != 0u) ? -1.0f : hit->v;
+    auto *io = ctx->io;
+    io->committed_inst = inst;
+    io->committed_prim = prim;
+    io->committed_bary_x = hit->u;
+    io->committed_bary_y = v;
+    io->committed_kind =
+        static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface);
+    io->committed_t = t;
+    ctx->hit_committed = true;
+    if (!opaque) {
+        ctx->terminated = true;
+        args->valid[0u] = 0;
+        ray->tfar = -std::numeric_limits<float>::infinity();
+    }
+}
+
+void live_surface_exclusion_w1_occluded_filter(
+    const RTCFilterFunctionNArguments *args) noexcept {
+    auto *ctx =
+        reinterpret_cast<LiveSurfaceExclusionW1Context *>(args->context);
+    auto *ray = reinterpret_cast<RTCRay *>(args->ray);
+    auto *hit = reinterpret_cast<RTCHit *>(args->hit);
+    const float t = ray->tfar;
+    const uint32_t raw_inst = hit->instID[0u];
+    const uint32_t inst =
+        raw_inst == RTC_INVALID_GEOMETRY_ID ? hit->geomID : raw_inst;
+    const uint32_t prim = hit->primID;
+    if (!(t >= ctx->t_min && t <= ctx->t_max_current) ||
+        inst == RTC_INVALID_GEOMETRY_ID ||
+        prim == RTC_INVALID_GEOMETRY_ID) [[unlikely]] {
+        args->valid[0u] = 0;
+        return;
+    }
+    const uint8_t inst_flags = live_instance_flags_fast(
+        ctx->instance_flags, ctx->instance_flags_size, *ctx->instances, inst);
+    const bool opaque = (inst_flags & 1u) != 0u;
+    if (!opaque &&
+        ((inst == ctx->excl_inst0 && prim == ctx->excl_prim0) ||
+         (inst == ctx->excl_inst1 && prim == ctx->excl_prim1))) {
+        args->valid[0u] = 0;
+        return;
+    }
+    const float v =
+        (ctx->has_curves && (inst_flags & 2u) != 0u) ? -1.0f : hit->v;
+    auto *io = ctx->io;
+    io->committed_inst = inst;
+    io->committed_prim = prim;
+    io->committed_bary_x = hit->u;
+    io->committed_bary_y = v;
+    io->committed_kind =
+        static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface);
+    io->committed_t = t;
+    ctx->hit_committed = true;
+}
+
+struct LiveRayQueryW1Context {
+    RayQueryRTCContext rtc{};
+    const SIMDHostAccelInstanceTable *instances{nullptr};
+    const uint8_t *instance_flags{nullptr};
+    size_t instance_flags_size{0u};
+    SIMDHostRayQueryState *state{nullptr};
+    const void *capture{nullptr};
+    const SIMDPacketLaunchConfig *launch_config{nullptr};
+    SIMDHostRayQueryW1LiveCandidateHandler *on_candidate{nullptr};
+    float t_min{0.0f};
+    float t_max{0.0f};
+    bool has_curves{false};
+};
+static_assert(offsetof(LiveRayQueryW1Context, rtc) == 0u);
+
+void live_ray_query_intersect_filter_w1(
+    const RTCFilterFunctionNArguments *args) noexcept {
+    auto *ctx = reinterpret_cast<LiveRayQueryW1Context *>(args->context);
+    auto *state = ctx->state;
+    auto *ray = reinterpret_cast<RTCRay *>(args->ray);
+    auto *hit = reinterpret_cast<RTCHit *>(args->hit);
+    if (state->terminated != 0u) {
+        args->valid[0u] = 0;
+        ray->tfar = -std::numeric_limits<float>::infinity();
+        return;
+    }
+    const float t = ray->tfar;
+    const uint32_t raw_inst = hit->instID[0u];
+    const uint32_t inst =
+        raw_inst == RTC_INVALID_GEOMETRY_ID ? hit->geomID : raw_inst;
+    const uint32_t prim = hit->primID;
+    if (!(t >= state->world_ray[3u] && t <= state->world_ray[7u]) ||
+        inst == RTC_INVALID_GEOMETRY_ID ||
+        prim == RTC_INVALID_GEOMETRY_ID) [[unlikely]] {
+        args->valid[0u] = 0;
+        return;
+    }
+    const uint8_t inst_flags = live_instance_flags_fast(
+        ctx->instance_flags, ctx->instance_flags_size, *ctx->instances, inst);
+    const float v =
+        (ctx->has_curves && (inst_flags & 2u) != 0u) ? -1.0f : hit->v;
+    if ((inst_flags & 1u) != 0u) {
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = inst,
+            .prim = prim,
+            .bary = {hit->u, v},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = t,
+        };
+        state->world_ray[7u] = t;
+        if (state->terminate_on_first != 0u) {
+            state->terminated = 1u;
+        }
+        return;
+    }
+    state->candidate = SIMDHostRayQuerySurfaceHit{
+        .inst = inst,
+        .prim = prim,
+        .bary = {hit->u, v},
+        .t = t,
+    };
+    state->candidate_kind = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::surface);
+    state->candidate_committed = 0u;
+    ctx->on_candidate(
+        state, ctx->capture, ctx->launch_config,
+        static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface));
+    const bool committed = state->candidate_committed != 0u;
+    state->candidate_kind = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::none);
+    state->candidate_committed = 0u;
+    if (committed) {
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = inst,
+            .prim = prim,
+            .bary = {hit->u, v},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = t,
+        };
+        state->world_ray[7u] = t;
+        if (state->terminate_on_first != 0u) {
+            state->terminated = 1u;
+            return;
+        }
+        if (state->terminated != 0u) {
+            args->valid[0u] = 0;
+            ray->tfar = -std::numeric_limits<float>::infinity();
+            return;
+        }
+        return;
+    }
+    if (state->terminated != 0u) {
+        if (state->terminate_on_first != 0u) {
+            return;
+        }
+        args->valid[0u] = 0;
+        ray->tfar = -std::numeric_limits<float>::infinity();
+        return;
+    }
+    args->valid[0u] = 0;
+}
+
+void live_ray_query_occluded_filter_w1(
+    const RTCFilterFunctionNArguments *args) noexcept {
+    auto *ctx = reinterpret_cast<LiveRayQueryW1Context *>(args->context);
+    auto *state = ctx->state;
+    auto *ray = reinterpret_cast<RTCRay *>(args->ray);
+    auto *hit = reinterpret_cast<RTCHit *>(args->hit);
+    const float t = ray->tfar;
+    const uint32_t raw_inst = hit->instID[0u];
+    const uint32_t inst =
+        raw_inst == RTC_INVALID_GEOMETRY_ID ? hit->geomID : raw_inst;
+    const uint32_t prim = hit->primID;
+    if (!(t >= ctx->t_min && t <= ctx->t_max) ||
+        inst == RTC_INVALID_GEOMETRY_ID ||
+        prim == RTC_INVALID_GEOMETRY_ID) [[unlikely]] {
+        args->valid[0u] = 0;
+        return;
+    }
+    const uint8_t inst_flags = live_instance_flags_fast(
+        ctx->instance_flags, ctx->instance_flags_size, *ctx->instances, inst);
+    const float v =
+        (ctx->has_curves && (inst_flags & 2u) != 0u) ? -1.0f : hit->v;
+    if ((inst_flags & 1u) != 0u) {
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = inst,
+            .prim = prim,
+            .bary = {hit->u, v},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = t,
+        };
+        state->world_ray[7u] = t;
+        state->terminated = 1u;
+        return;
+    }
+    state->candidate = SIMDHostRayQuerySurfaceHit{
+        .inst = inst,
+        .prim = prim,
+        .bary = {hit->u, v},
+        .t = t,
+    };
+    state->candidate_kind = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::surface);
+    state->candidate_committed = 0u;
+    ctx->on_candidate(
+        state, ctx->capture, ctx->launch_config,
+        static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface));
+    if (state->candidate_committed != 0u) {
+        state->committed = SIMDHostRayQueryCommittedHit{
+            .inst = inst,
+            .prim = prim,
+            .bary = {hit->u, v},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = t,
+        };
+        state->world_ray[7u] = t;
+        state->terminated = 1u;
+        state->candidate_committed = 0u;
+        return;
+    }
+    if (state->terminated != 0u) {
+        return;
+    }
+    args->valid[0u] = 0;
+}
 
 }// namespace
 
@@ -3333,72 +3960,41 @@ void SIMDAccel::_ray_query_surface_exclusion_soa(
         (flags & simd_host_ray_query_live_flag_query_any) != 0u;
 
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION != 3
-    if (lane_count == 8u && remaining == 0xffu &&
-        !query_any && !terminate_on_commit &&
+    if ((lane_count == 8u || lane_count == 4u) &&
         !self->_has_procedural_instances &&
         self->_embree_native_ray_packet) {
-        bool all_unexcluded = true;
-        for (uint32_t l = 0u; l < 8u; ++l) {
-            if (excl_inst0[l] != RTC_INVALID_GEOMETRY_ID ||
-                excl_inst1[l] != RTC_INVALID_GEOMETRY_ID ||
-                outputs->t_min[l] != 0.0f ||
-                !(outputs->t_max[l] >= 0.0f)) {
-                all_unexcluded = false;
-                break;
-            }
-        }
-        if (all_unexcluded) {
-            alignas(32) int valid[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
-            alignas(32) RTCRayHit8 packet{};
-            std::memcpy(packet.ray.org_x, inputs->org_x.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.org_y, inputs->org_y.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.org_z, inputs->org_z.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.dir_x, inputs->dir_x.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.dir_y, inputs->dir_y.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.dir_z, inputs->dir_z.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.time, inputs->time.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.tfar, outputs->t_max.data(), 8u * sizeof(float));
-            std::memcpy(packet.ray.mask, inputs->visibility_mask.data(), 8u * sizeof(uint32_t));
-            for (uint32_t l = 0u; l < 8u; ++l) {
-                packet.ray.id[l] = l;
-                packet.hit.geomID[l] = RTC_INVALID_GEOMETRY_ID;
-                packet.hit.primID[l] = RTC_INVALID_GEOMETRY_ID;
-                for (uint32_t lv = 0u; lv < RTC_MAX_INSTANCE_LEVEL_COUNT; ++lv) {
-                    packet.hit.instID[lv][l] = RTC_INVALID_GEOMETRY_ID;
+        const uint64_t full_mask = lane_count == 8u ? uint64_t{0xffu} : uint64_t{0xfu};
+        if (remaining == full_mask && !query_any && !terminate_on_commit) {
+            bool all_unexcluded = true;
+            for (uint32_t l = 0u; l < lane_count; ++l) {
+                if (excl_inst0[l] != RTC_INVALID_GEOMETRY_ID ||
+                    excl_inst1[l] != RTC_INVALID_GEOMETRY_ID ||
+                    outputs->t_min[l] != 0.0f ||
+                    !(outputs->t_max[l] >= 0.0f)) {
+                    all_unexcluded = false;
+                    break;
                 }
             }
-            RTCIntersectArguments arguments{};
-            rtcInitIntersectArguments(&arguments);
-            static const bool coherent_primary =
-                !luisa::compute::detail::env_flag("LUISA_SIMD_INCOHERENT_PRIMARY");
-            if (coherent_primary) {
-                arguments.flags = RTC_RAY_QUERY_FLAG_COHERENT;
-            }
-            rtcIntersect8(valid, self->_scene, &packet, &arguments);
-            for (uint32_t l = 0u; l < 8u; ++l) {
-                if (packet.hit.geomID[l] != RTC_INVALID_GEOMETRY_ID) {
-                    auto raw_inst = packet.hit.instID[0u][l];
-                    auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
-                                    packet.hit.geomID[l] :
-                                    raw_inst;
-                    float v = (self->_has_curve_instances &&
-                               live_instance_is_curve(self->_instance_table, inst)) ?
-                                  -1.0f :
-                                  packet.hit.v[l];
-                    outputs->committed_inst[l] = inst;
-                    outputs->committed_prim[l] = packet.hit.primID[l];
-                    outputs->committed_bary_x[l] = packet.hit.u[l];
-                    outputs->committed_bary_y[l] = v;
-                    outputs->committed_kind[l] = static_cast<uint32_t>(
-                        SIMDHostRayQueryCandidateKind::surface);
-                    outputs->committed_t[l] = packet.ray.tfar[l];
+            if (all_unexcluded) {
+                static const bool coherent_primary =
+                    !luisa::compute::detail::env_flag("LUISA_SIMD_INCOHERENT_PRIMARY");
+                if (lane_count == 4u) {
+                    alignas(16) int valid[4] = {-1, -1, -1, -1};
+                    trace_unexcluded_surface_soa_packet<4u, RTCRayHit4, 16u>(
+                        self->_scene, self->_instance_table,
+                        self->_has_curve_instances, valid, coherent_primary,
+                        inputs, outputs);
+                } else {
+                    alignas(32) int valid[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+                    trace_unexcluded_surface_soa_packet<8u, RTCRayHit8, 32u>(
+                        self->_scene, self->_instance_table,
+                        self->_has_curve_instances, valid, coherent_primary,
+                        inputs, outputs);
                 }
+                return;
             }
-            return;
         }
-    }
-    if (lane_count == 8u && !self->_has_procedural_instances &&
-        self->_embree_native_ray_packet) {
+
         static const uint32_t shadow_packet_min_lanes = []() noexcept -> uint32_t {
             const char *raw = std::getenv("LUISA_SIMD_SHADOW_PACKET_MIN_LANES");
             if (raw == nullptr || *raw == '\0') { return 0u; }
@@ -3417,11 +4013,11 @@ void SIMDAccel::_ray_query_surface_exclusion_soa(
             query_any ? shadow_packet_min_lanes : secondary_packet_min_lanes;
         const uint32_t active_count =
             static_cast<uint32_t>(std::popcount(remaining));
-        if (min_lanes > 0u && min_lanes <= 8u && active_count >= min_lanes) {
+        if (min_lanes > 0u && min_lanes <= lane_count && active_count >= min_lanes) {
             alignas(32) int valid[8]{};
             uint32_t valid_count = 0u;
             bool all_active_unexcluded = !query_any && !terminate_on_commit;
-            for (uint32_t l = 0u; l < 8u; ++l) {
+            for (uint32_t l = 0u; l < lane_count; ++l) {
                 if ((remaining & (uint64_t{1u} << l)) != 0u &&
                     outputs->t_max[l] >= outputs->t_min[l]) {
                     valid[l] = -1;
@@ -3439,123 +4035,39 @@ void SIMDAccel::_ray_query_surface_exclusion_soa(
             if (valid_count == 0u) { return; }
             if (valid_count >= min_lanes) {
                 if (all_active_unexcluded) {
-                    alignas(32) RTCRayHit8 packet{};
-                    std::memcpy(packet.ray.org_x, inputs->org_x.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.org_y, inputs->org_y.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.org_z, inputs->org_z.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.dir_x, inputs->dir_x.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.dir_y, inputs->dir_y.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.dir_z, inputs->dir_z.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.time, inputs->time.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.tfar, outputs->t_max.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.mask, inputs->visibility_mask.data(), 8u * sizeof(uint32_t));
-                    for (uint32_t l = 0u; l < 8u; ++l) {
-                        packet.ray.id[l] = l;
-                        packet.hit.geomID[l] = RTC_INVALID_GEOMETRY_ID;
-                        packet.hit.primID[l] = RTC_INVALID_GEOMETRY_ID;
-                        for (uint32_t lv = 0u; lv < RTC_MAX_INSTANCE_LEVEL_COUNT; ++lv) {
-                            packet.hit.instID[lv][l] = RTC_INVALID_GEOMETRY_ID;
-                        }
-                    }
-                    RTCIntersectArguments arguments{};
-                    rtcInitIntersectArguments(&arguments);
-                    arguments.flags = coherent_secondary ?
-                                          RTC_RAY_QUERY_FLAG_COHERENT :
-                                          RTC_RAY_QUERY_FLAG_INCOHERENT;
-                    rtcIntersect8(valid, self->_scene, &packet, &arguments);
-                    for (uint32_t l = 0u; l < 8u; ++l) {
-                        if (valid[l] != 0 &&
-                            packet.hit.geomID[l] != RTC_INVALID_GEOMETRY_ID) {
-                            auto raw_inst = packet.hit.instID[0u][l];
-                            auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
-                                            packet.hit.geomID[l] :
-                                            raw_inst;
-                            float v = (self->_has_curve_instances &&
-                                       live_instance_is_curve(self->_instance_table, inst)) ?
-                                          -1.0f :
-                                          packet.hit.v[l];
-                            outputs->committed_inst[l] = inst;
-                            outputs->committed_prim[l] = packet.hit.primID[l];
-                            outputs->committed_bary_x[l] = packet.hit.u[l];
-                            outputs->committed_bary_y[l] = v;
-                            outputs->committed_kind[l] = static_cast<uint32_t>(
-                                SIMDHostRayQueryCandidateKind::surface);
-                            outputs->committed_t[l] = packet.ray.tfar[l];
-                        }
+                    if (lane_count == 4u) {
+                        trace_unexcluded_surface_soa_packet<4u, RTCRayHit4, 16u>(
+                            self->_scene, self->_instance_table,
+                            self->_has_curve_instances, valid, coherent_secondary,
+                            inputs, outputs);
+                    } else {
+                        trace_unexcluded_surface_soa_packet<8u, RTCRayHit8, 32u>(
+                            self->_scene, self->_instance_table,
+                            self->_has_curve_instances, valid, coherent_secondary,
+                            inputs, outputs);
                     }
                     return;
                 }
-                LiveSurfaceExclusionSoAPacketContext pctx{};
-                rtcInitRayQueryContext(&pctx.rtc);
-                pctx.instances = &self->_instance_table;
-                pctx.outputs = outputs;
-                pctx.excl_inst0 = excl_inst0;
-                pctx.excl_prim0 = excl_prim0;
-                pctx.excl_inst1 = excl_inst1;
-                pctx.excl_prim1 = excl_prim1;
-                pctx.query_any = query_any;
-                pctx.terminate_on_commit = terminate_on_commit;
-                pctx.has_curves = self->_has_curve_instances;
-                for (uint32_t l = 0u; l < 8u; ++l) {
-                    pctx.t_min[l] = outputs->t_min[l];
-                    pctx.t_max_current[l] = outputs->t_max[l];
-                    pctx.terminated[l] = false;
-                }
-                if (query_any) {
-                    alignas(32) RTCRay8 ray8{};
-                    std::memcpy(ray8.org_x, inputs->org_x.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.org_y, inputs->org_y.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.org_z, inputs->org_z.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.dir_x, inputs->dir_x.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.dir_y, inputs->dir_y.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.dir_z, inputs->dir_z.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.time, inputs->time.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.tfar, outputs->t_max.data(), 8u * sizeof(float));
-                    std::memcpy(ray8.mask, inputs->visibility_mask.data(), 8u * sizeof(uint32_t));
-                    for (uint32_t l = 0u; l < 8u; ++l) {
-                        ray8.tnear[l] = ray_query_embree_tnear(outputs->t_min[l]);
-                        ray8.id[l] = l;
-                        ray8.flags[l] = 0u;
-                    }
-                    RTCOccludedArguments args{};
-                    rtcInitOccludedArguments(&args);
-                    args.context = &pctx.rtc;
-                    args.flags = static_cast<RTCRayQueryFlags>(
-                        (coherent_shadow ? RTC_RAY_QUERY_FLAG_COHERENT :
-                                           RTC_RAY_QUERY_FLAG_INCOHERENT) |
-                        RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
-                    args.filter = live_surface_exclusion_soa_filter_n;
-                    rtcOccluded8(valid, self->_scene, &ray8, &args);
+                const bool coherent =
+                    query_any ? coherent_shadow : coherent_secondary;
+                const uint8_t *inst_flags =
+                    self->_instance_flags_valid ? self->_instance_flags.data() : nullptr;
+                const size_t inst_flags_size =
+                    self->_instance_flags_valid ? self->_instance_flags_size : 0u;
+                if (lane_count == 4u) {
+                    trace_filtered_surface_soa_packet<4u, RTCRayHit4, RTCRay4, 16u>(
+                        self->_scene, self->_instance_table,
+                        inst_flags, inst_flags_size,
+                        self->_has_curve_instances, valid, query_any,
+                        terminate_on_commit, coherent, inputs, outputs,
+                        excl_inst0, excl_prim0, excl_inst1, excl_prim1);
                 } else {
-                    alignas(32) RTCRayHit8 packet{};
-                    std::memcpy(packet.ray.org_x, inputs->org_x.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.org_y, inputs->org_y.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.org_z, inputs->org_z.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.dir_x, inputs->dir_x.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.dir_y, inputs->dir_y.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.dir_z, inputs->dir_z.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.time, inputs->time.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.tfar, outputs->t_max.data(), 8u * sizeof(float));
-                    std::memcpy(packet.ray.mask, inputs->visibility_mask.data(), 8u * sizeof(uint32_t));
-                    for (uint32_t l = 0u; l < 8u; ++l) {
-                        packet.ray.tnear[l] = ray_query_embree_tnear(outputs->t_min[l]);
-                        packet.ray.id[l] = l;
-                        packet.ray.flags[l] = 0u;
-                        packet.hit.geomID[l] = RTC_INVALID_GEOMETRY_ID;
-                        packet.hit.primID[l] = RTC_INVALID_GEOMETRY_ID;
-                        for (uint32_t lv = 0u; lv < RTC_MAX_INSTANCE_LEVEL_COUNT; ++lv) {
-                            packet.hit.instID[lv][l] = RTC_INVALID_GEOMETRY_ID;
-                        }
-                    }
-                    RTCIntersectArguments args{};
-                    rtcInitIntersectArguments(&args);
-                    args.context = &pctx.rtc;
-                    args.flags = static_cast<RTCRayQueryFlags>(
-                        (coherent_secondary ? RTC_RAY_QUERY_FLAG_COHERENT :
-                                              RTC_RAY_QUERY_FLAG_INCOHERENT) |
-                        RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
-                    args.filter = live_surface_exclusion_soa_filter_n;
-                    rtcIntersect8(valid, self->_scene, &packet, &args);
+                    trace_filtered_surface_soa_packet<8u, RTCRayHit8, RTCRay8, 32u>(
+                        self->_scene, self->_instance_table,
+                        inst_flags, inst_flags_size,
+                        self->_has_curve_instances, valid, query_any,
+                        terminate_on_commit, coherent, inputs, outputs,
+                        excl_inst0, excl_prim0, excl_inst1, excl_prim1);
                 }
                 return;
             }
@@ -3571,9 +4083,15 @@ void SIMDAccel::_ray_query_surface_exclusion_soa(
     rtcInitRayQueryContext(&ctx.rtc);
 #endif
     ctx.instances = &self->_instance_table;
+    ctx.instance_flags =
+        self->_instance_flags_valid ? self->_instance_flags.data() : nullptr;
+    ctx.instance_flags_size =
+        self->_instance_flags_valid ? self->_instance_flags_size : 0u;
     ctx.outputs = outputs;
     ctx.query_any = query_any;
     ctx.terminate_on_commit = terminate_on_commit;
+    ctx.has_curves = self->_has_curve_instances;
+    ctx.defer_output_write = !query_any && !terminate_on_commit;
 
     while (remaining != 0u) {
         auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
@@ -3694,6 +4212,24 @@ void SIMDAccel::_ray_query_surface_exclusion_soa(
             args.filter = live_surface_exclusion_soa_filter;
             rtcIntersect1(self->_scene, &ray_hit, &args);
 #endif
+            if (ctx.defer_output_write &&
+                ray_hit.hit.geomID != RTC_INVALID_GEOMETRY_ID) {
+                auto raw_inst = ray_hit.hit.instID[0u];
+                auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
+                                ray_hit.hit.geomID :
+                                raw_inst;
+                float v = (self->_has_curve_instances &&
+                           live_instance_is_curve(self->_instance_table, inst)) ?
+                              -1.0f :
+                              ray_hit.hit.v;
+                outputs->committed_inst[lane] = inst;
+                outputs->committed_prim[lane] = ray_hit.hit.primID;
+                outputs->committed_bary_x[lane] = ray_hit.hit.u;
+                outputs->committed_bary_y[lane] = v;
+                outputs->committed_kind[lane] = static_cast<uint32_t>(
+                    SIMDHostRayQueryCandidateKind::surface);
+                outputs->committed_t[lane] = ray_hit.ray.tfar;
+            }
         }
     }
 }
@@ -3790,12 +4326,17 @@ void SIMDAccel::_ray_query_surface_exclusion(
 #endif
 
         ctx.instances = &self->_instance_table;
+        ctx.instance_flags =
+            self->_instance_flags_valid ? self->_instance_flags.data() : nullptr;
+        ctx.instance_flags_size =
+            self->_instance_flags_valid ? self->_instance_flags_size : 0u;
         ctx.state = state;
         ctx.lane = lane;
         ctx.excl_inst0 = e_i0;
         ctx.excl_prim0 = e_p0;
         ctx.excl_inst1 = e_i1;
         ctx.excl_prim1 = e_p1;
+        ctx.has_curves = self->_has_curve_instances;
 
         if (query_any) {
             RTCRay ray{};
@@ -3866,41 +4407,18 @@ void SIMDAccel::_ray_query_live_pipeline(
         return;
     }
     static_cast<void>(flags);
-    auto lane_mask = lane_count == 64u ? ~uint64_t{0u} :
-                                         ((uint64_t{1u} << lane_count) - 1u);
-    auto remaining = active_mask_bits & lane_mask;
 
-    LiveRayQueryContext ctx{};
-#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
-    rtcInitIntersectContext(&ctx.rtc);
-    ctx.rtc.filter = live_ray_query_filter;
-#else
-    rtcInitRayQueryContext(&ctx.rtc);
-#endif
-    ctx.states = states;
-    ctx.capture = capture;
-    ctx.launch_config = launch_config;
-    ctx.on_candidate = on_candidate;
-    ctx.lane_count = lane_count;
-    ScopedLiveRayQueryContext active_live{ctx};
-
-    while (remaining != 0u) {
-        auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
-        remaining &= remaining - 1u;
-        auto *state = states[lane];
-        if (state == nullptr || state->accel == nullptr) { continue; }
-        auto *self = static_cast<SIMDAccel *>(state->accel);
-        const float t_min = state->world_ray[3u];
-        const float t_max = state->world_ray[7u];
-        if (!(t_max >= t_min)) {
-            state->terminated = 1u;
-            continue;
-        }
-        ctx.instances = &self->_instance_table;
-        ctx.state = state;
-        ctx.lane = lane;
-
+    auto trace_single_live_ray = [&](SIMDAccel *self,
+                                     LiveRayQueryContext &ctx,
+                                     SIMDHostRayQueryState *state,
+                                     uint32_t lane,
+                                     float t_min,
+                                     float t_max) noexcept {
+        ctx.t_min = t_min;
+        ctx.t_max = t_max;
         if (state->terminate_on_first != 0u) {
+            state->candidate_kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface);
             RTCRay ray{};
             ray.org_x = state->world_ray[0u];
             ray.org_y = state->world_ray[1u];
@@ -3915,15 +4433,19 @@ void SIMDAccel::_ray_query_live_pipeline(
             ray.id = lane;
             ray.flags = 0u;
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+            ctx.rtc.filter = live_ray_query_occluded_filter;
             rtcOccluded1(self->_scene, &ctx.rtc, &ray);
 #else
             RTCOccludedArguments args{};
             rtcInitOccludedArguments(&args);
             args.context = &ctx.rtc;
             args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
-            args.filter = live_ray_query_filter;
+            args.filter = live_ray_query_occluded_filter;
             rtcOccluded1(self->_scene, &ray, &args);
 #endif
+            state->candidate_kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::none);
+            state->candidate_committed = 0u;
         } else {
             RTCRayHit ray_hit{};
             ray_hit.ray.org_x = state->world_ray[0u];
@@ -3944,6 +4466,7 @@ void SIMDAccel::_ray_query_live_pipeline(
                 ray_hit.hit.instID[l] = RTC_INVALID_GEOMETRY_ID;
             }
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+            ctx.rtc.filter = live_ray_query_filter;
             rtcIntersect1(self->_scene, &ctx.rtc, &ray_hit);
 #else
             RTCIntersectArguments args{};
@@ -3955,7 +4478,470 @@ void SIMDAccel::_ray_query_live_pipeline(
 #endif
         }
         state->terminated = 1u;
+    };
+
+    if (lane_count == 1u) {
+        if ((active_mask_bits & 1u) == 0u) { return; }
+        auto *state = states[0u];
+        if (state == nullptr || state->accel == nullptr) { return; }
+        const float t_min = state->world_ray[3u];
+        const float t_max = state->world_ray[7u];
+        if (!(t_max >= t_min)) {
+            state->terminated = 1u;
+            return;
+        }
+        auto *self = static_cast<SIMDAccel *>(state->accel);
+        LiveRayQueryContext ctx;
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+        rtcInitIntersectContext(&ctx.rtc);
+        ctx.rtc.filter = live_ray_query_filter;
+#else
+        rtcInitRayQueryContext(&ctx.rtc);
+#endif
+        ctx.instances = &self->_instance_table;
+        ctx.instance_flags =
+            self->_instance_flags_valid ? self->_instance_flags.data() : nullptr;
+        ctx.instance_flags_size =
+            self->_instance_flags_valid ? self->_instance_flags_size : 0u;
+        ctx.states = states;
+        ctx.state = state;
+        ctx.capture = capture;
+        ctx.launch_config = launch_config;
+        ctx.on_candidate = on_candidate;
+        ctx.lane_count = 1u;
+        ctx.lane = 0u;
+        ctx.has_curves = self->_has_curve_instances;
+        if (self->_has_procedural_instances) [[unlikely]] {
+            ScopedLiveRayQueryContext active_live{ctx};
+            trace_single_live_ray(self, ctx, state, 0u, t_min, t_max);
+        } else {
+            trace_single_live_ray(self, ctx, state, 0u, t_min, t_max);
+        }
+        return;
     }
+
+    auto lane_mask = lane_count == 64u ? ~uint64_t{0u} :
+                                         ((uint64_t{1u} << lane_count) - 1u);
+    auto remaining = active_mask_bits & lane_mask;
+
+    LiveRayQueryContext ctx{};
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    rtcInitIntersectContext(&ctx.rtc);
+    ctx.rtc.filter = live_ray_query_filter;
+#else
+    rtcInitRayQueryContext(&ctx.rtc);
+#endif
+    ctx.states = states;
+    ctx.capture = capture;
+    ctx.launch_config = launch_config;
+    ctx.on_candidate = on_candidate;
+    ctx.lane_count = lane_count;
+    std::optional<ScopedLiveRayQueryContext> active_live;
+
+    while (remaining != 0u) {
+        auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
+        remaining &= remaining - 1u;
+        auto *state = states[lane];
+        if (state == nullptr || state->accel == nullptr) { continue; }
+        auto *self = static_cast<SIMDAccel *>(state->accel);
+        const float t_min = state->world_ray[3u];
+        const float t_max = state->world_ray[7u];
+        if (!(t_max >= t_min)) {
+            state->terminated = 1u;
+            continue;
+        }
+        ctx.instances = &self->_instance_table;
+        ctx.instance_flags =
+            self->_instance_flags_valid ? self->_instance_flags.data() : nullptr;
+        ctx.instance_flags_size =
+            self->_instance_flags_valid ? self->_instance_flags_size : 0u;
+        ctx.state = state;
+        ctx.lane = lane;
+        ctx.has_curves = self->_has_curve_instances;
+        if (self->_has_procedural_instances && !active_live.has_value()) {
+            active_live.emplace(ctx);
+        }
+        trace_single_live_ray(self, ctx, state, lane, t_min, t_max);
+    }
+}
+
+void SIMDAccel::_ray_query_surface_exclusion_w1(
+    void *accel,
+    SIMDHostRayQueryW1SurfaceExclusionIO *io,
+    uint32_t excl_inst0, uint32_t excl_prim0,
+    uint32_t excl_inst1, uint32_t excl_prim1,
+    uint32_t flags) noexcept {
+    if (accel == nullptr || io == nullptr) { return; }
+    auto write_miss = [](SIMDHostRayQueryW1SurfaceExclusionIO *out) noexcept {
+        out->committed_inst = ~uint32_t{0u};
+        out->committed_prim = ~uint32_t{0u};
+        out->committed_bary_x = 0.0f;
+        out->committed_bary_y = 0.0f;
+        out->committed_kind =
+            static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::none);
+        out->committed_t = 0.0f;
+    };
+    const float t_min = io->t_min;
+    const float t_max = io->t_max;
+    if (!(t_max >= t_min)) {
+        write_miss(io);
+        return;
+    }
+    auto *self = static_cast<SIMDAccel *>(accel);
+    const bool terminate_on_commit =
+        (flags & simd_host_ray_query_live_flag_terminate_on_commit) != 0u;
+    const bool query_any =
+        (flags & simd_host_ray_query_live_flag_query_any) != 0u;
+
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION != 3
+    if (!query_any && !terminate_on_commit &&
+        !self->_has_procedural_instances &&
+        excl_inst0 == RTC_INVALID_GEOMETRY_ID &&
+        excl_inst1 == RTC_INVALID_GEOMETRY_ID &&
+        t_min == 0.0f) {
+        RTCRayHit ray_hit;
+        ray_hit.ray.org_x = io->org_x;
+        ray_hit.ray.org_y = io->org_y;
+        ray_hit.ray.org_z = io->org_z;
+        ray_hit.ray.tnear = 0.0f;
+        ray_hit.ray.dir_x = io->dir_x;
+        ray_hit.ray.dir_y = io->dir_y;
+        ray_hit.ray.dir_z = io->dir_z;
+        ray_hit.ray.time = io->time;
+        ray_hit.ray.tfar = t_max;
+        ray_hit.ray.mask = io->visibility_mask;
+        ray_hit.ray.id = 0u;
+        ray_hit.ray.flags = 0u;
+        ray_hit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+        ray_hit.hit.primID = RTC_INVALID_GEOMETRY_ID;
+        for (auto lv = 0u; lv < RTC_MAX_INSTANCE_LEVEL_COUNT; ++lv) {
+            ray_hit.hit.instID[lv] = RTC_INVALID_GEOMETRY_ID;
+        }
+        rtcIntersect1(self->_scene, &ray_hit);
+        if (ray_hit.hit.geomID != RTC_INVALID_GEOMETRY_ID) {
+            const uint32_t raw_inst = ray_hit.hit.instID[0u];
+            const uint32_t inst =
+                raw_inst == RTC_INVALID_GEOMETRY_ID ? ray_hit.hit.geomID :
+                                                      raw_inst;
+            const float v =
+                (self->_has_curve_instances &&
+                 live_instance_is_curve_fast(
+                     self->_instance_flags_valid ? self->_instance_flags.data() :
+                                                   nullptr,
+                     self->_instance_flags_valid ? self->_instance_flags_size :
+                                                   0u,
+                     self->_instance_table, inst)) ?
+                    -1.0f :
+                    ray_hit.hit.v;
+            io->committed_inst = inst;
+            io->committed_prim = ray_hit.hit.primID;
+            io->committed_bary_x = ray_hit.hit.u;
+            io->committed_bary_y = v;
+            io->committed_kind =
+                static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface);
+            io->committed_t = ray_hit.ray.tfar;
+        } else {
+            write_miss(io);
+        }
+        return;
+    }
+#endif
+
+    LiveSurfaceExclusionW1Context ctx{};
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    rtcInitIntersectContext(&ctx.rtc);
+#else
+    rtcInitRayQueryContext(&ctx.rtc);
+#endif
+    ctx.instances = &self->_instance_table;
+    ctx.instance_flags =
+        self->_instance_flags_valid ? self->_instance_flags.data() : nullptr;
+    ctx.instance_flags_size =
+        self->_instance_flags_valid ? self->_instance_flags_size : 0u;
+    ctx.io = io;
+    ctx.excl_inst0 = excl_inst0;
+    ctx.excl_prim0 = excl_prim0;
+    ctx.excl_inst1 = excl_inst1;
+    ctx.excl_prim1 = excl_prim1;
+    ctx.t_min = t_min;
+    ctx.t_max_current = t_max;
+    ctx.terminate_on_commit = terminate_on_commit;
+    ctx.has_curves = self->_has_curve_instances;
+
+    if (query_any) {
+        RTCRay ray;
+        ray.org_x = io->org_x;
+        ray.org_y = io->org_y;
+        ray.org_z = io->org_z;
+        ray.tnear = ray_query_embree_tnear(t_min);
+        ray.dir_x = io->dir_x;
+        ray.dir_y = io->dir_y;
+        ray.dir_z = io->dir_z;
+        ray.time = io->time;
+        ray.tfar = t_max;
+        ray.mask = io->visibility_mask;
+        ray.id = 0u;
+        ray.flags = 0u;
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+        ctx.rtc.filter = live_surface_exclusion_w1_occluded_filter;
+        rtcOccluded1(self->_scene, &ctx.rtc, &ray);
+#else
+        RTCOccludedArguments args{};
+        rtcInitOccludedArguments(&args);
+        args.context = &ctx.rtc;
+        args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+        args.filter = live_surface_exclusion_w1_occluded_filter;
+        rtcOccluded1(self->_scene, &ray, &args);
+#endif
+        if (!ctx.hit_committed) {
+            write_miss(io);
+        }
+        return;
+    }
+
+    RTCRayHit ray_hit;
+    ray_hit.ray.org_x = io->org_x;
+    ray_hit.ray.org_y = io->org_y;
+    ray_hit.ray.org_z = io->org_z;
+    ray_hit.ray.tnear = ray_query_embree_tnear(t_min);
+    ray_hit.ray.dir_x = io->dir_x;
+    ray_hit.ray.dir_y = io->dir_y;
+    ray_hit.ray.dir_z = io->dir_z;
+    ray_hit.ray.time = io->time;
+    ray_hit.ray.tfar = t_max;
+    ray_hit.ray.mask = io->visibility_mask;
+    ray_hit.ray.id = 0u;
+    ray_hit.ray.flags = 0u;
+    ray_hit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+    ray_hit.hit.primID = RTC_INVALID_GEOMETRY_ID;
+    for (auto lv = 0u; lv < RTC_MAX_INSTANCE_LEVEL_COUNT; ++lv) {
+        ray_hit.hit.instID[lv] = RTC_INVALID_GEOMETRY_ID;
+    }
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    ctx.rtc.filter = live_surface_exclusion_w1_intersect_filter;
+    rtcIntersect1(self->_scene, &ctx.rtc, &ray_hit);
+#else
+    RTCIntersectArguments args{};
+    rtcInitIntersectArguments(&args);
+    args.context = &ctx.rtc;
+    args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+    args.filter = live_surface_exclusion_w1_intersect_filter;
+    rtcIntersect1(self->_scene, &ray_hit, &args);
+#endif
+    if (!terminate_on_commit) [[likely]] {
+        if (ray_hit.hit.geomID != RTC_INVALID_GEOMETRY_ID) {
+            const uint32_t raw_inst = ray_hit.hit.instID[0u];
+            const uint32_t inst =
+                raw_inst == RTC_INVALID_GEOMETRY_ID ? ray_hit.hit.geomID :
+                                                      raw_inst;
+            const float v =
+                (self->_has_curve_instances &&
+                 live_instance_is_curve_fast(
+                     ctx.instance_flags, ctx.instance_flags_size,
+                     self->_instance_table, inst)) ?
+                    -1.0f :
+                    ray_hit.hit.v;
+            io->committed_inst = inst;
+            io->committed_prim = ray_hit.hit.primID;
+            io->committed_bary_x = ray_hit.hit.u;
+            io->committed_bary_y = v;
+            io->committed_kind =
+                static_cast<uint32_t>(SIMDHostRayQueryCandidateKind::surface);
+            io->committed_t = ray_hit.ray.tfar;
+        } else {
+            write_miss(io);
+        }
+    } else if (!ctx.hit_committed) {
+        write_miss(io);
+    }
+}
+
+void SIMDAccel::_ray_query_live_pipeline_w1(
+    SIMDHostRayQueryState *state, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQueryW1LiveCandidateHandler *on_candidate,
+    uint32_t flags) noexcept {
+    if (state == nullptr || state->accel == nullptr ||
+        on_candidate == nullptr) {
+        return;
+    }
+    static_cast<void>(flags);
+    const float t_min = state->world_ray[3u];
+    const float t_max = state->world_ray[7u];
+    if (!(t_max >= t_min)) {
+        state->terminated = 1u;
+        return;
+    }
+    auto *self = static_cast<SIMDAccel *>(state->accel);
+    const uint8_t *inst_flags =
+        self->_instance_flags_valid ? self->_instance_flags.data() : nullptr;
+    const size_t inst_flags_size =
+        self->_instance_flags_valid ? self->_instance_flags_size : 0u;
+
+    if (self->_has_procedural_instances) [[unlikely]] {
+        LiveRayQueryContext ctx{};
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+        rtcInitIntersectContext(&ctx.rtc);
+#else
+        rtcInitRayQueryContext(&ctx.rtc);
+#endif
+        ctx.instances = &self->_instance_table;
+        ctx.instance_flags = inst_flags;
+        ctx.instance_flags_size = inst_flags_size;
+        ctx.state = state;
+        ctx.capture = capture;
+        ctx.launch_config = launch_config;
+        ctx.w1_on_candidate = on_candidate;
+        ctx.lane_count = 1u;
+        ctx.lane = 0u;
+        ctx.t_min = t_min;
+        ctx.t_max = t_max;
+        ctx.has_curves = self->_has_curve_instances;
+        ScopedLiveRayQueryContext active_live{ctx};
+        if (state->terminate_on_first != 0u) {
+            state->candidate_kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface);
+            RTCRay ray;
+            ray.org_x = state->world_ray[0u];
+            ray.org_y = state->world_ray[1u];
+            ray.org_z = state->world_ray[2u];
+            ray.tnear = ray_query_embree_tnear(t_min);
+            ray.dir_x = state->world_ray[4u];
+            ray.dir_y = state->world_ray[5u];
+            ray.dir_z = state->world_ray[6u];
+            ray.time = state->time;
+            ray.tfar = t_max;
+            ray.mask = state->visibility_mask;
+            ray.id = 0u;
+            ray.flags = 0u;
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+            ctx.rtc.filter = live_ray_query_occluded_filter;
+            rtcOccluded1(self->_scene, &ctx.rtc, &ray);
+#else
+            RTCOccludedArguments args{};
+            rtcInitOccludedArguments(&args);
+            args.context = &ctx.rtc;
+            args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+            args.filter = live_ray_query_occluded_filter;
+            rtcOccluded1(self->_scene, &ray, &args);
+#endif
+            state->candidate_kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::none);
+            state->candidate_committed = 0u;
+        } else {
+            RTCRayHit ray_hit;
+            ray_hit.ray.org_x = state->world_ray[0u];
+            ray_hit.ray.org_y = state->world_ray[1u];
+            ray_hit.ray.org_z = state->world_ray[2u];
+            ray_hit.ray.tnear = ray_query_embree_tnear(t_min);
+            ray_hit.ray.dir_x = state->world_ray[4u];
+            ray_hit.ray.dir_y = state->world_ray[5u];
+            ray_hit.ray.dir_z = state->world_ray[6u];
+            ray_hit.ray.time = state->time;
+            ray_hit.ray.tfar = t_max;
+            ray_hit.ray.mask = state->visibility_mask;
+            ray_hit.ray.id = 0u;
+            ray_hit.ray.flags = 0u;
+            ray_hit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+            ray_hit.hit.primID = RTC_INVALID_GEOMETRY_ID;
+            for (auto l = 0u; l < RTC_MAX_INSTANCE_LEVEL_COUNT; ++l) {
+                ray_hit.hit.instID[l] = RTC_INVALID_GEOMETRY_ID;
+            }
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+            ctx.rtc.filter = live_ray_query_filter;
+            rtcIntersect1(self->_scene, &ctx.rtc, &ray_hit);
+#else
+            RTCIntersectArguments args{};
+            rtcInitIntersectArguments(&args);
+            args.context = &ctx.rtc;
+            args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+            args.filter = live_ray_query_filter;
+            rtcIntersect1(self->_scene, &ray_hit, &args);
+#endif
+        }
+        state->terminated = 1u;
+        return;
+    }
+
+    LiveRayQueryW1Context ctx{};
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    rtcInitIntersectContext(&ctx.rtc);
+#else
+    rtcInitRayQueryContext(&ctx.rtc);
+#endif
+    ctx.instances = &self->_instance_table;
+    ctx.instance_flags = inst_flags;
+    ctx.instance_flags_size = inst_flags_size;
+    ctx.state = state;
+    ctx.capture = capture;
+    ctx.launch_config = launch_config;
+    ctx.on_candidate = on_candidate;
+    ctx.t_min = t_min;
+    ctx.t_max = t_max;
+    ctx.has_curves = self->_has_curve_instances;
+
+    if (state->terminate_on_first != 0u) {
+        state->candidate_kind = static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::surface);
+        RTCRay ray;
+        ray.org_x = state->world_ray[0u];
+        ray.org_y = state->world_ray[1u];
+        ray.org_z = state->world_ray[2u];
+        ray.tnear = ray_query_embree_tnear(t_min);
+        ray.dir_x = state->world_ray[4u];
+        ray.dir_y = state->world_ray[5u];
+        ray.dir_z = state->world_ray[6u];
+        ray.time = state->time;
+        ray.tfar = t_max;
+        ray.mask = state->visibility_mask;
+        ray.id = 0u;
+        ray.flags = 0u;
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+        ctx.rtc.filter = live_ray_query_occluded_filter_w1;
+        rtcOccluded1(self->_scene, &ctx.rtc, &ray);
+#else
+        RTCOccludedArguments args{};
+        rtcInitOccludedArguments(&args);
+        args.context = &ctx.rtc;
+        args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+        args.filter = live_ray_query_occluded_filter_w1;
+        rtcOccluded1(self->_scene, &ray, &args);
+#endif
+        state->candidate_kind = static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::none);
+        state->candidate_committed = 0u;
+    } else {
+        RTCRayHit ray_hit;
+        ray_hit.ray.org_x = state->world_ray[0u];
+        ray_hit.ray.org_y = state->world_ray[1u];
+        ray_hit.ray.org_z = state->world_ray[2u];
+        ray_hit.ray.tnear = ray_query_embree_tnear(t_min);
+        ray_hit.ray.dir_x = state->world_ray[4u];
+        ray_hit.ray.dir_y = state->world_ray[5u];
+        ray_hit.ray.dir_z = state->world_ray[6u];
+        ray_hit.ray.time = state->time;
+        ray_hit.ray.tfar = t_max;
+        ray_hit.ray.mask = state->visibility_mask;
+        ray_hit.ray.id = 0u;
+        ray_hit.ray.flags = 0u;
+        ray_hit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+        ray_hit.hit.primID = RTC_INVALID_GEOMETRY_ID;
+        for (auto l = 0u; l < RTC_MAX_INSTANCE_LEVEL_COUNT; ++l) {
+            ray_hit.hit.instID[l] = RTC_INVALID_GEOMETRY_ID;
+        }
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+        ctx.rtc.filter = live_ray_query_intersect_filter_w1;
+        rtcIntersect1(self->_scene, &ctx.rtc, &ray_hit);
+#else
+        RTCIntersectArguments args{};
+        rtcInitIntersectArguments(&args);
+        args.context = &ctx.rtc;
+        args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+        args.filter = live_ray_query_intersect_filter_w1;
+        rtcIntersect1(self->_scene, &ray_hit, &args);
+#endif
+    }
+    state->terminated = 1u;
 }
 
 uint64_t simd_host_ray_query_proceed_wide_procedural_fused_status(

@@ -43,6 +43,32 @@ private:
     const Type *_ray_query_any_type;
     const Type *_indirect_dispatch_buffer_type;
     luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
+    struct LoweredRayQueryCapture {
+        Variable caller_variable;
+        Variable callee_variable;
+        bool is_written{false};
+        bool is_buffer{false};
+    };
+    struct LoweredRayQueryInfo {
+        const RayQueryStmt *stmt{nullptr};
+        Function owner_function;
+        Function handler_function;
+        const ScopeStmt *handler_body{nullptr};
+        bool is_wrapped_callable{false};
+        size_t ift_index{0u};
+        luisa::string function_name;
+        bool needs_ift{true};
+        bool has_dynamic_opaque_fast_path{false};
+        luisa::vector<Variable> dynamic_opaque_guards;
+        luisa::vector<LoweredRayQueryCapture> captures;
+        luisa::vector<Variable> inner_locals;
+    };
+    luisa::vector<luisa::string> _intersection_functions;
+    luisa::vector<LoweredRayQueryInfo> _lowered_ray_queries;
+    luisa::unordered_map<const RayQueryStmt *, size_t> _lowered_ray_query_map;
+    luisa::unordered_set<uint64_t> _ift_only_ray_query_uids;
+    luisa::unordered_set<uint64_t> _functions_using_ift;
+    const LoweredRayQueryInfo *_active_lowered_ray_query{nullptr};
 
 private:
     void visit(const UnaryExpr *expr) noexcept override;
@@ -94,6 +120,8 @@ private:
     [[nodiscard]] bool _is_texture_sampled(Variable variable) const noexcept;
     [[nodiscard]] bool _is_texture_written(Function function, Variable variable) const noexcept;
     void _emit_call_argument(const Expression *argument, bool sampled) noexcept;
+    void _analyze_ray_queries(luisa::span<const Function> functions) noexcept;
+    void _emit_lowered_ray_query_functions() noexcept;
     void _emit_swizzle_reference_temporaries(const Expression *expression) noexcept;
     void _emit_swizzle_reference_writebacks(size_t first) noexcept;
 
@@ -105,6 +133,7 @@ public:
 public:
     [[nodiscard]] auto print_formats() const noexcept { return luisa::span{_print_formats}; }
     [[nodiscard]] auto argument_sampled() const noexcept { return luisa::span{_argument_sampled}; }
+    [[nodiscard]] auto intersection_functions() const noexcept { return luisa::span{_intersection_functions}; }
 };
 
 }// namespace luisa::compute::metal

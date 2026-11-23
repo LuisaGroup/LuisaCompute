@@ -12,10 +12,14 @@ constexpr auto metal_accel_default_instance_limit = 1u << 24u;
 }// namespace
 
 MetalAccel::MetalAccel(MetalDevice *device, const AccelOption &option) noexcept
-    : _update{device->builtin_update_accel_instances()},
+    : _device{device},
+      _update{device->builtin_update_accel_instances()},
       _option{option} { _resources.reserve(reserved_primitive_count); }
 
 MetalAccel::~MetalAccel() noexcept {
+    if (_device != nullptr && !_registered_residency.empty()) {
+        _device->unregister_residency(_registered_residency);
+    }
     if (_handle) { _handle->release(); }
     if (_instance_buffer) { _instance_buffer->release(); }
     if (_update_buffer) { _update_buffer->release(); }
@@ -31,17 +35,16 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
     auto instance_count = command->instance_count();
     auto requires_extended_limits = instance_count > metal_accel_default_instance_limit;
     LUISA_ASSERT(instance_count > 0u, "Empty acceleration structure is not allowed.");
-    if (auto size = instance_count * sizeof(MTL::AccelerationStructureInstanceDescriptor);
+    if (auto size = instance_count * sizeof(MTL::AccelerationStructureUserIDInstanceDescriptor);
         _instance_buffer == nullptr || _instance_buffer->length() < size) {
         auto old_instance_buffer = _instance_buffer;
         _instance_buffer = device->newBuffer(size, MTL::ResourceStorageModePrivate |
                                                        MTL::ResourceHazardTrackingModeTracked);
         if (old_instance_buffer) {
-            auto blit_encoder = encoder.command_buffer()->blitCommandEncoder();
+            auto blit_encoder = encoder.blit_encoder();
             blit_encoder->copyFromBuffer(old_instance_buffer, 0u,
                                          _instance_buffer, 0u,
                                          old_instance_buffer->length());
-            blit_encoder->endEncoding();
             encoder.add_callback(FunctionCallbackContext::create([old_instance_buffer] {
                 old_instance_buffer->release();
             }));
@@ -66,7 +69,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
                 updates[i] = m;
             }
             // launch the update kernel
-            auto compute_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
+            auto compute_encoder = encoder.compute_encoder();
             compute_encoder->setComputePipelineState(_update);
             compute_encoder->setBuffer(_instance_buffer, 0u, 0u);
             compute_encoder->setBuffer(mod_buffer->buffer(), mod_buffer->offset(), 1u);
@@ -75,7 +78,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
             auto block_count = (n + block_size - 1u) / block_size;
             compute_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u},
                                                   MTL::Size{block_size, 1u, 1u});
-            compute_encoder->endEncoding();
+            compute_encoder->memoryBarrier(MTL::BarrierScopeBuffers);
         });
     }
 
@@ -109,8 +112,8 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
     _descriptor->setInstanceCount(instance_count);
     _descriptor->setInstanceDescriptorBuffer(_instance_buffer);
     _descriptor->setInstanceDescriptorBufferOffset(0u);
-    _descriptor->setInstanceDescriptorStride(sizeof(MTL::AccelerationStructureInstanceDescriptor));
-    _descriptor->setInstanceDescriptorType(MTL::AccelerationStructureInstanceDescriptorTypeDefault);
+    _descriptor->setInstanceDescriptorStride(sizeof(MTL::AccelerationStructureUserIDInstanceDescriptor));
+    _descriptor->setInstanceDescriptorType(MTL::AccelerationStructureInstanceDescriptorTypeUserID);
     auto usage = 0u;
     switch (_option.hint) {
         case AccelOption::UsageHint::FAST_TRACE:
@@ -150,18 +153,21 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
         }
         _requires_rebuild = false;
     }
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        _sync_residency(encoder);
+    }
 }
 
 void MetalAccel::_do_update(MetalCommandEncoder &encoder) noexcept {
     LUISA_ASSERT(_handle != nullptr, "Acceleration structure is not built.");
     LUISA_ASSERT(_descriptor != nullptr, "Descriptor is not allocated.");
     LUISA_ASSERT(_instance_buffer != nullptr, "Instance buffer is not allocated.");
-    auto command_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+    auto command_encoder = encoder.begin_acceleration_structure_encoder();
     _descriptor->retain();
     _handle->retain();
     if (_update_buffer != nullptr) { _update_buffer->retain(); }
     command_encoder->refitAccelerationStructure(_handle, _descriptor, _handle, _update_buffer, 0u);
-    command_encoder->endEncoding();
+    encoder.end_acceleration_structure_encoder(command_encoder);
     encoder.add_callback(FunctionCallbackContext::create([descriptor = _descriptor,
                                                           handle = _handle,
                                                           update_buffer = _update_buffer] {
@@ -187,17 +193,21 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
             }
         }
     }
-    if (_handle != nullptr) { _handle->release(); }
+    if (auto old_handle = _handle; old_handle != nullptr) {
+        encoder.add_callback(FunctionCallbackContext::create([old_handle] {
+            old_handle->release();
+        }));
+    }
     _handle = device->newAccelerationStructure(sizes.accelerationStructureSize);
     _handle->setLabel(_name);
     auto build_buffer = device->newBuffer(sizes.buildScratchBufferSize,
                                           MTL::ResourceStorageModePrivate |
                                               MTL::ResourceHazardTrackingModeTracked);
-    auto command_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+    auto command_encoder = encoder.begin_acceleration_structure_encoder();
     _descriptor->retain();
     _handle->retain();
     command_encoder->buildAccelerationStructure(_handle, _descriptor, build_buffer, 0u);
-    command_encoder->endEncoding();
+    encoder.end_acceleration_structure_encoder(command_encoder);
     encoder.add_callback(FunctionCallbackContext::create([descriptor = _descriptor,
                                                           handle = _handle,
                                                           build_buffer] {
@@ -217,10 +227,10 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
     if (_option.allow_compaction) {
         encoder.with_download_buffer(sizeof(uint), [&](MetalStageBufferPool::Allocation *size_buffer) noexcept {
             // read back the size of the compacted acceleration structure
-            auto compaction_size_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+            auto compaction_size_encoder = encoder.begin_acceleration_structure_encoder();
             compaction_size_encoder->writeCompactedAccelerationStructureSize(
                 _handle, size_buffer->buffer(), size_buffer->offset(), MTL::DataTypeUInt);
-            compaction_size_encoder->endEncoding();
+            encoder.end_acceleration_structure_encoder(compaction_size_encoder);
             encoder.add_callback(FunctionCallbackContext::create([size_buffer, &compacted_size] {
                 compacted_size = *reinterpret_cast<uint *>(size_buffer->data());
             }));
@@ -230,10 +240,10 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
         // compact the acceleration structure
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
         compacted_handle->setLabel(_name);
-        auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+        auto compact_encoder = encoder.begin_acceleration_structure_encoder();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);
-        compact_encoder->endEncoding();
+        encoder.end_acceleration_structure_encoder(compact_encoder);
         encoder.add_callback(FunctionCallbackContext::create([old_handle = _handle, compacted_handle] {
             old_handle->release();
             compacted_handle->release();
@@ -256,9 +266,43 @@ void MetalAccel::set_name(luisa::string_view name) noexcept {
     if (_handle) { _handle->setLabel(_name); }
 }
 
+void MetalAccel::_sync_residency(MetalCommandEncoder &encoder) noexcept {
+    if (_device == nullptr || _device->residency_set() == nullptr) { return; }
+    luisa::vector<const MTL::Allocation *> next;
+    next.reserve(_resources.size() + 2u);
+    if (_handle != nullptr) { next.emplace_back(_handle); }
+    if (_instance_buffer != nullptr) { next.emplace_back(_instance_buffer); }
+    for (auto *resource : _resources) {
+        if (resource != nullptr) { next.emplace_back(resource); }
+    }
+    luisa::sort(next.begin(), next.end());
+    next.erase(std::unique(next.begin(), next.end()), next.cend());
+    if (!next.empty()) {
+        _device->register_residency(next);
+    }
+    if (!_registered_residency.empty()) {
+        encoder.add_callback(FunctionCallbackContext::create(
+            [device = _device, old = std::move(_registered_residency)] {
+                device->unregister_residency(old);
+            }));
+    }
+    _registered_residency = std::move(next);
+}
+
 void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
                                       MTL::ComputeCommandEncoder *command_encoder,
                                       MTL::ResourceUsage usage) noexcept {
+
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        std::scoped_lock lock{_mutex};
+        if (_handle != nullptr) {
+            command_encoder->useResource(_handle, MTL::ResourceUsageRead);
+        }
+        if (_instance_buffer != nullptr) {
+            command_encoder->useResource(_instance_buffer, usage);
+        }
+        return;
+    }
 
     std::scoped_lock lock{_mutex};
 

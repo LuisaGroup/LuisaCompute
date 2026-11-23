@@ -52,7 +52,8 @@ MetalCompiler::MetalCompiler(const MetalDevice *device) noexcept
 
 void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
                                         const PipelineDescriptorHandle &desc,
-                                        const MetalShaderMetadata &metadata) const noexcept {
+                                        const MetalShaderMetadata &metadata,
+                                        MTL::Library *library) const noexcept {
 
     // create a binary archive
     NS::Error *error = nullptr;
@@ -81,6 +82,22 @@ void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
             "archive for '{}': {}.",
             name, error->localizedDescription()->utf8String());
         return;
+    }
+    if (library != nullptr) {
+        for (const auto &fn_name : metadata.intersection_functions) {
+            auto ifn_desc = NS::TransferPtr(
+                MTL::IntersectionFunctionDescriptor::alloc()->init());
+            ifn_desc->setName(NS::String::string(fn_name.c_str(), NS::UTF8StringEncoding));
+            ifn_desc->setOptions(MTL::FunctionOptionCompileToBinary);
+            archive->addFunction(ifn_desc.get(), library, &error);
+            if (error != nullptr) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to store Metal intersection function '{}' "
+                    "in archive for '{}': {}.",
+                    fn_name, name, error->localizedDescription()->utf8String());
+                return;
+            }
+        }
     }
 
     // dump library
@@ -204,6 +221,14 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
     metadata.argument_usages = std::move(file_metadata->argument_usages);
     metadata.argument_sampled = std::move(file_metadata->argument_sampled);
     metadata.format_types = std::move(file_metadata->format_types);
+    if (metadata.intersection_functions.empty()) {
+        metadata.intersection_functions = std::move(file_metadata->intersection_functions);
+    } else if (metadata.intersection_functions != file_metadata->intersection_functions) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to load Metal shader archive for '{}': intersection function metadata mismatch.",
+            name);
+        return {};
+    }
 
     // load library
     auto library_data = luisa::span<std::byte>{buffer}.subspan(sizeof(size_t) + metadata_size);
@@ -262,7 +287,8 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
         NS::UTF8StringEncoding, false);
     library->setLabel(ns_name);
     ns_name->release();
-    auto [pipeline_desc, pipeline] = _load_kernels_from_library(library.get(), metadata.block_size);
+    auto [pipeline_desc, pipeline] = _load_kernels_from_library(
+        library.get(), metadata.block_size, metadata.intersection_functions);
     if (pipeline.entry && pipeline.indirect_entry) {
         LUISA_VERBOSE(
             "Loaded Metal shader archive for '{}' in {} ms.",
@@ -272,10 +298,16 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
 }
 
 std::pair<MetalCompiler::PipelineDescriptorHandle, MetalShaderHandle>
-MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_size) const noexcept {
+MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_size,
+                                           luisa::span<const luisa::string> intersection_functions) const noexcept {
 
-    auto load = [&](NS::String *name, bool is_indirect) noexcept -> std::pair<NS::SharedPtr<MTL::ComputePipelineDescriptor>,
-                                                                              NS::SharedPtr<MTL::ComputePipelineState>> {
+    struct LoadedKernel {
+        NS::SharedPtr<MTL::ComputePipelineDescriptor> desc;
+        NS::SharedPtr<MTL::ComputePipelineState> pipeline;
+        luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>> tables;
+    };
+
+    auto load = [&](NS::String *name, bool is_indirect) noexcept -> LoadedKernel {
         auto label = is_indirect ?
                          library->label()->stringByAppendingString(MTLSTR(" (indirect)")) :
                          library->label();
@@ -298,23 +330,83 @@ MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_siz
         }
         function->setLabel(label);
         compute_pipeline_desc->setComputeFunction(function.get());
+
+        luisa::vector<NS::SharedPtr<MTL::Function>> linked_ifns;
+        NS::SharedPtr<MTL::LinkedFunctions> linked_functions;
+        if (!intersection_functions.empty()) {
+            linked_ifns.reserve(intersection_functions.size());
+            luisa::vector<const NS::Object *> fn_objects;
+            fn_objects.reserve(intersection_functions.size());
+            for (const auto &fn_name : intersection_functions) {
+                auto ifn_desc = NS::TransferPtr(MTL::IntersectionFunctionDescriptor::alloc()->init());
+                ifn_desc->setName(NS::String::string(fn_name.c_str(), NS::UTF8StringEncoding));
+                ifn_desc->setOptions(MTL::FunctionOptionCompileToBinary);
+                error = nullptr;
+                auto ifn = NS::TransferPtr(library->newIntersectionFunction(ifn_desc.get(), &error));
+                if (error != nullptr || !ifn) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Error during creating Metal intersection function '{}': {}.",
+                        fn_name,
+                        error == nullptr ? "Metal returned no function" :
+                                           error->localizedDescription()->utf8String());
+                    return {};
+                }
+                fn_objects.emplace_back(ifn.get());
+                linked_ifns.emplace_back(std::move(ifn));
+            }
+            linked_functions = NS::TransferPtr(MTL::LinkedFunctions::alloc()->init());
+            linked_functions->setBinaryFunctions(
+                NS::Array::array(fn_objects.data(), fn_objects.size()));
+            compute_pipeline_desc->setLinkedFunctions(linked_functions.get());
+        }
+
+        error = nullptr;
         auto pipeline = NS::TransferPtr(_device->handle()->newComputePipelineState(
             compute_pipeline_desc.get(), MTL::PipelineOptionNone, nullptr, &error));
-        if (error != nullptr) {
+        if (error != nullptr || !pipeline) {
             LUISA_WARNING_WITH_LOCATION(
                 "Error during creating Metal compute pipeline: {}.",
-                error->localizedDescription()->utf8String());
+                error == nullptr ? "Metal returned no pipeline" :
+                                   error->localizedDescription()->utf8String());
+            return {};
         }
-        return std::make_pair(std::move(compute_pipeline_desc),
-                              std::move(pipeline));
+
+        luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>> tables;
+        tables.reserve(linked_ifns.size());
+        for (auto i = 0u; i < linked_ifns.size(); i++) {
+            auto table_desc = NS::TransferPtr(MTL::IntersectionFunctionTableDescriptor::alloc()->init());
+            table_desc->setFunctionCount(1u);
+            auto table = NS::TransferPtr(pipeline->newIntersectionFunctionTable(table_desc.get()));
+            if (!table) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to create Metal intersection function table for '{}'.",
+                    intersection_functions[i]);
+                return {};
+            }
+            auto fn_handle = pipeline->functionHandle(linked_ifns[i].get());
+            if (fn_handle == nullptr) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Metal compute pipeline did not expose function handle for '{}'.",
+                    intersection_functions[i]);
+                return {};
+            }
+            table->setFunction(fn_handle, 0u);
+            tables.emplace_back(std::move(table));
+        }
+
+        return LoadedKernel{std::move(compute_pipeline_desc),
+                            std::move(pipeline),
+                            std::move(tables)};
     };
-    auto [compute_pipeline_desc, pipeline] = load(MTLSTR("kernel_main"), false);
-    auto [compute_pipeline_desc_indirect, pipeline_indirect] = load(MTLSTR("kernel_main_indirect"), true);
+    auto direct = load(MTLSTR("kernel_main"), false);
+    auto indirect = load(MTLSTR("kernel_main_indirect"), true);
     return std::make_pair(
-        PipelineDescriptorHandle{std::move(compute_pipeline_desc),
-                                 std::move(compute_pipeline_desc_indirect)},
-        MetalShaderHandle{std::move(pipeline),
-                          std::move(pipeline_indirect)});
+        PipelineDescriptorHandle{std::move(direct.desc),
+                                 std::move(indirect.desc)},
+        MetalShaderHandle{std::move(direct.pipeline),
+                          std::move(indirect.pipeline),
+                          std::move(direct.tables),
+                          std::move(indirect.tables)});
 }
 
 MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
@@ -416,7 +508,7 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         library->setLabel(NS::String::string(name.c_str(), NS::UTF8StringEncoding));
 
         auto [pso_desc, pso] = _load_kernels_from_library(
-            library.get(), metadata.block_size);
+            library.get(), metadata.block_size, metadata.intersection_functions);
 
         // create pso
         if ((!pso.entry || !pso.indirect_entry) && diagnostic != nullptr) {
@@ -428,7 +520,7 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
 
         // store the library
         if (uses_cache) {
-            _store_disk_archive(name, is_aot, pso_desc, metadata);
+            _store_disk_archive(name, is_aot, pso_desc, metadata, library.get());
         }
         _cache.update(hash, pso);
         return pso;

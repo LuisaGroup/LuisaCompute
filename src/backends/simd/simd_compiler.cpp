@@ -161,10 +161,417 @@ namespace {
         procedural_block);
 
     builder.SetInsertPoint(surface_block);
-    builder.CreateCall(on_surface, call_arguments);
+    auto *surface_call = builder.CreateCall(on_surface, call_arguments);
+    surface_call->addFnAttr(::llvm::Attribute::AlwaysInline);
     builder.CreateRetVoid();
     builder.SetInsertPoint(procedural_block);
-    builder.CreateCall(on_procedural, call_arguments);
+    auto *procedural_call = builder.CreateCall(on_procedural, call_arguments);
+    procedural_call->addFnAttr(::llvm::Attribute::AlwaysInline);
+    builder.CreateRetVoid();
+    builder.SetInsertPoint(invalid_block);
+    builder.CreateUnreachable();
+    return wrapper;
+}
+
+struct W1LiveCaptureClassification {
+    std::vector<uint8_t> modes{};
+    std::vector<::llvm::Type *> scalar_types{};
+};
+
+[[nodiscard]] W1LiveCaptureClassification classify_w1_live_captures(
+    const schedule::Function &owner_sched,
+    uint32_t pipeline_index,
+    const schedule::Function &on_surface_sched,
+    const schedule::Function &on_procedural_sched,
+    ::llvm::Function *on_surface_llvm,
+    bool proc_empty) noexcept {
+    W1LiveCaptureClassification out;
+    if (on_surface_llvm == nullptr || on_surface_llvm->arg_size() < 4u) {
+        return out;
+    }
+    const auto capture_count = on_surface_llvm->arg_size() - 4u;
+    out.modes.assign(capture_count, uint8_t{0u});
+    out.scalar_types.assign(capture_count, nullptr);
+    if (capture_count == 0u) { return out; }
+
+    auto &context = on_surface_llvm->getContext();
+    auto *ptr_ty = ::llvm::PointerType::getUnqual(context);
+    auto *vec1_ptr = ::llvm::FixedVectorType::get(ptr_ty, 1u);
+    auto *vec1_i64 = ::llvm::FixedVectorType::get(
+        ::llvm::Type::getInt64Ty(context), 1u);
+    auto is_w1_lvalue_handle = [&](::llvm::Type *ty) noexcept {
+        auto *st = ::llvm::dyn_cast<::llvm::StructType>(ty);
+        return st != nullptr && st->getNumElements() == 2u &&
+               st->getElementType(0u) == vec1_ptr &&
+               st->getElementType(1u) == vec1_i64;
+    };
+    auto scalar_mode2_type = [&](const Type *ty) noexcept -> ::llvm::Type * {
+        if (ty == nullptr) { return nullptr; }
+        if (ty->is_int32() || ty->is_uint32()) {
+            return ::llvm::Type::getInt32Ty(context);
+        }
+        if (ty->is_float32()) {
+            return ::llvm::Type::getFloatTy(context);
+        }
+        if (ty->is_int64() || ty->is_uint64()) {
+            return ::llvm::Type::getInt64Ty(context);
+        }
+        return nullptr;
+    };
+    auto collect_params = [&](const schedule::Function &fn) noexcept {
+        std::vector<const schedule::Value *> params(capture_count, nullptr);
+        for (auto &&val : fn.values()) {
+            if (val.origin != schedule::ValueOrigin::parameter) { continue; }
+            if (auto *md = std::get_if<schedule::ParameterValueMetadata>(
+                    &val.metadata)) {
+                if (md->index >= 1u && md->index <= capture_count) {
+                    params[md->index - 1u] = &val;
+                }
+            }
+        }
+        return params;
+    };
+    auto is_load_only_param = [](const schedule::Function &fn,
+                                 schedule::ValueId param_id) noexcept {
+        if (!param_id.valid()) { return false; }
+        auto check_edge = [&](const schedule::ControlEdge &edge) noexcept {
+            for (auto &&a : edge.assignments) {
+                if (a.destination == param_id || a.source == param_id) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        for (auto &&blk : fn.blocks()) {
+            for (auto &&inst : blk.instructions) {
+                if (inst.participant_mask &&
+                    *inst.participant_mask == param_id) {
+                    return false;
+                }
+                if (inst.result && *inst.result == param_id) {
+                    return false;
+                }
+                const bool is_load =
+                    inst.opcode == schedule::Opcode::load &&
+                    inst.operands.size() == 1u;
+                for (auto k = size_t{0u}; k < inst.operands.size(); ++k) {
+                    if (inst.operands[k] == param_id &&
+                        !(is_load && k == 0u)) {
+                        return false;
+                    }
+                }
+            }
+            if (auto *br = std::get_if<schedule::BranchTerminator>(
+                    &blk.terminator)) {
+                if (!check_edge(br->edge)) { return false; }
+            } else if (auto *sp = std::get_if<schedule::SplitTerminator>(
+                           &blk.terminator)) {
+                if (sp->condition == param_id ||
+                    !check_edge(sp->true_edge) ||
+                    !check_edge(sp->false_edge)) {
+                    return false;
+                }
+            } else if (auto *sw = std::get_if<schedule::SwitchTerminator>(
+                           &blk.terminator)) {
+                if (sw->selector == param_id ||
+                    !check_edge(sw->default_edge)) {
+                    return false;
+                }
+                for (auto &&c : sw->cases) {
+                    if (!check_edge(c.edge)) { return false; }
+                }
+            } else if (auto *jn = std::get_if<schedule::JoinTerminator>(
+                           &blk.terminator)) {
+                for (auto &&a : jn->assignments) {
+                    if (a.destination == param_id || a.source == param_id) {
+                        return false;
+                    }
+                }
+            } else if (auto *lb = std::get_if<schedule::LoopBackTerminator>(
+                           &blk.terminator)) {
+                for (auto &&a : lb->assignments) {
+                    if (a.destination == param_id || a.source == param_id) {
+                        return false;
+                    }
+                }
+            } else if (auto *bb = std::get_if<schedule::BlockBarrierTerminator>(
+                           &blk.terminator)) {
+                if (!check_edge(bb->resume_edge)) { return false; }
+            } else if (auto *ret = std::get_if<schedule::ReturnTerminator>(
+                           &blk.terminator)) {
+                if (ret->value && *ret->value == param_id) { return false; }
+            }
+        }
+        return true;
+    };
+
+    auto surf_params = collect_params(on_surface_sched);
+    auto proc_params =
+        proc_empty ? std::vector<const schedule::Value *>{} :
+                     collect_params(on_procedural_sched);
+    std::vector<uint8_t> load_only(capture_count, uint8_t{0u});
+    bool has_writable_ref = false;
+    for (auto i = size_t{0u}; i < capture_count; ++i) {
+        if (!is_w1_lvalue_handle(
+                on_surface_llvm->getFunctionType()->getParamType(
+                    static_cast<unsigned>(4u + i)))) {
+            continue;
+        }
+        out.modes[i] = uint8_t{1u};
+        const auto *sv = surf_params[i];
+        if (sv == nullptr) {
+            has_writable_ref = true;
+            continue;
+        }
+        auto *md = std::get_if<schedule::ParameterValueMetadata>(&sv->metadata);
+        if (md == nullptr ||
+            static_cast<xir::DerivedArgumentTag>(md->argument_tag) !=
+                xir::DerivedArgumentTag::REFERENCE) {
+            has_writable_ref = true;
+            continue;
+        }
+        auto *scalar_ty = scalar_mode2_type(sv->type);
+        bool ok =
+            scalar_ty != nullptr && is_load_only_param(on_surface_sched, sv->id);
+        if (ok && !proc_empty) {
+            const auto *pv = proc_params[i];
+            ok = pv != nullptr &&
+                 is_load_only_param(on_procedural_sched, pv->id);
+        }
+        if (ok) {
+            load_only[i] = uint8_t{1u};
+            out.scalar_types[i] = scalar_ty;
+        } else {
+            has_writable_ref = true;
+        }
+    }
+
+    std::unordered_map<uint32_t, const schedule::Instruction *> def_map;
+    std::vector<const schedule::Instruction *> pipeline_insts;
+    for (auto &&blk : owner_sched.blocks()) {
+        for (auto &&inst : blk.instructions) {
+            if (inst.result && inst.result->valid()) {
+                def_map[inst.result->value] = &inst;
+            }
+            if (inst.opcode == schedule::Opcode::ray_query_pipeline &&
+                inst.source_op && *inst.source_op == pipeline_index) {
+                pipeline_insts.emplace_back(&inst);
+            }
+        }
+    }
+    auto trace_alloca_root = [&](schedule::ValueId id) noexcept -> uint32_t {
+        uint32_t steps = 0u;
+        while (id.valid() && steps++ < 64u) {
+            auto it = def_map.find(id.value);
+            if (it == def_map.end()) {
+                return schedule::invalid_schedule_id;
+            }
+            const auto *inst = it->second;
+            if (inst->opcode == schedule::Opcode::alloca) {
+                return id.value;
+            }
+            if (inst->opcode == schedule::Opcode::gep &&
+                !inst->operands.empty()) {
+                id = inst->operands[0u];
+                continue;
+            }
+            return schedule::invalid_schedule_id;
+        }
+        return schedule::invalid_schedule_id;
+    };
+
+    for (auto i = size_t{0u}; i < capture_count; ++i) {
+        if (load_only[i] == 0u) {
+            out.scalar_types[i] = nullptr;
+            continue;
+        }
+        bool alias_safe = true;
+        if (has_writable_ref) {
+            if (pipeline_insts.empty()) {
+                alias_safe = false;
+            }
+            for (const auto *p_inst : pipeline_insts) {
+                if (p_inst->operands.size() != capture_count + 1u) {
+                    alias_safe = false;
+                    break;
+                }
+                const auto root_i =
+                    trace_alloca_root(p_inst->operands[1u + i]);
+                if (root_i == schedule::invalid_schedule_id) {
+                    alias_safe = false;
+                    break;
+                }
+                for (auto j = size_t{0u}; j < capture_count; ++j) {
+                    if (j == i || out.modes[j] != 1u || load_only[j] != 0u) {
+                        continue;
+                    }
+                    const auto root_j =
+                        trace_alloca_root(p_inst->operands[1u + j]);
+                    if (root_j == schedule::invalid_schedule_id ||
+                        root_j == root_i) {
+                        alias_safe = false;
+                        break;
+                    }
+                }
+                if (!alias_safe) { break; }
+            }
+        }
+        if (alias_safe) {
+            out.modes[i] = uint8_t{2u};
+        } else {
+            out.scalar_types[i] = nullptr;
+        }
+    }
+    return out;
+}
+
+[[nodiscard]] ::llvm::Function *build_live_ray_query_w1_direct_thunk(
+    ::llvm::Module &module, ::llvm::Function *on_surface,
+    ::llvm::Function *on_procedural,
+    const W1LiveCaptureClassification &captures,
+    bool proc_empty,
+    luisa::string_view name) {
+    if (on_surface == nullptr || on_procedural == nullptr ||
+        on_surface->arg_size() < 4u ||
+        on_surface->arg_size() != on_procedural->arg_size() ||
+        !on_surface->getReturnType()->isVoidTy() ||
+        !on_procedural->getReturnType()->isVoidTy()) {
+        return nullptr;
+    }
+    for (auto i = 0u; i < on_surface->arg_size(); i++) {
+        if (on_surface->getFunctionType()->getParamType(i) !=
+            on_procedural->getFunctionType()->getParamType(i)) {
+            return nullptr;
+        }
+    }
+    auto capture_count = on_surface->arg_size() - 4u;
+    if (captures.modes.size() != capture_count ||
+        captures.scalar_types.size() != capture_count) {
+        return nullptr;
+    }
+
+    auto &context = module.getContext();
+    auto *pointer_type = ::llvm::PointerType::getUnqual(context);
+    auto *i32_type = ::llvm::Type::getInt32Ty(context);
+    auto *i64_type = ::llvm::Type::getInt64Ty(context);
+    auto *wrapper_type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(context),
+        {pointer_type, pointer_type, pointer_type, i32_type},
+        false);
+    auto *wrapper = ::llvm::Function::Create(
+        wrapper_type, ::llvm::GlobalValue::InternalLinkage,
+        name, module);
+    wrapper->setDSOLocal(true);
+    wrapper->addParamAttr(0u, ::llvm::Attribute::NonNull);
+    wrapper->addParamAttr(0u, ::llvm::Attribute::NoAlias);
+    if (capture_count != 0u) {
+        wrapper->addParamAttr(1u, ::llvm::Attribute::NonNull);
+        wrapper->addParamAttr(1u, ::llvm::Attribute::ReadOnly);
+        wrapper->addParamAttr(1u, ::llvm::Attribute::NoAlias);
+    }
+    wrapper->addParamAttr(2u, ::llvm::Attribute::NonNull);
+
+    auto argument = wrapper->arg_begin();
+    auto *state = &*argument++;
+    state->setName("state");
+    auto *capture = &*argument++;
+    capture->setName("capture");
+    auto *launch_config = &*argument++;
+    launch_config->setName("launch_config");
+    auto *candidate_kind = &*argument;
+    candidate_kind->setName("candidate_kind");
+
+    auto *entry = ::llvm::BasicBlock::Create(context, "entry", wrapper);
+    ::llvm::IRBuilder<> builder{entry};
+    auto *state_pointer = builder.CreateAlloca(
+        pointer_type, nullptr, "state.pointer");
+    state_pointer->setAlignment(::llvm::Align{alignof(void *)});
+    auto *state_store = builder.CreateStore(state, state_pointer);
+    state_store->setAlignment(::llvm::Align{alignof(void *)});
+
+    std::vector<::llvm::Value *> call_arguments{
+        builder.getInt32(1u), builder.getInt64(1u),
+        state_pointer, launch_config};
+    call_arguments.reserve(on_surface->arg_size());
+    if (capture_count != 0u) {
+        std::vector<::llvm::Type *> capture_types;
+        capture_types.reserve(capture_count);
+        for (auto i = 0u; i < capture_count; i++) {
+            const auto mode = captures.modes[i];
+            if (mode == 1u) {
+                capture_types.emplace_back(pointer_type);
+            } else if (mode == 2u && captures.scalar_types[i] != nullptr) {
+                capture_types.emplace_back(captures.scalar_types[i]);
+            } else {
+                capture_types.emplace_back(
+                    on_surface->getFunctionType()->getParamType(i + 4u));
+            }
+        }
+        auto *capture_type = ::llvm::StructType::get(
+            context, capture_types, false);
+        auto *vec1_ptr = ::llvm::FixedVectorType::get(pointer_type, 1u);
+        auto *zero_off = ::llvm::Constant::getNullValue(
+            ::llvm::FixedVectorType::get(i64_type, 1u));
+        auto make_handle = [&](::llvm::Type *orig_ty,
+                               ::llvm::Value *ptr_val) noexcept {
+            auto *vec_ptr = builder.CreateInsertElement(
+                ::llvm::PoisonValue::get(vec1_ptr), ptr_val, uint64_t{0u});
+            auto *handle = static_cast<::llvm::Value *>(
+                ::llvm::PoisonValue::get(orig_ty));
+            handle = builder.CreateInsertValue(handle, vec_ptr, {0u});
+            return builder.CreateInsertValue(handle, zero_off, {1u});
+        };
+        for (auto i = 0u; i < capture_count; i++) {
+            auto *field_ptr = builder.CreateStructGEP(
+                capture_type, capture, i);
+            auto *loaded = builder.CreateLoad(capture_types[i], field_ptr);
+            auto *orig_ty = on_surface->getFunctionType()->getParamType(i + 4u);
+            const auto mode = captures.modes[i];
+            if (mode == 1u) {
+                call_arguments.emplace_back(make_handle(orig_ty, loaded));
+            } else if (mode == 2u && captures.scalar_types[i] != nullptr) {
+                auto *slot = builder.CreateAlloca(
+                    captures.scalar_types[i], nullptr,
+                    "capture.scalar." + std::to_string(i));
+                builder.CreateStore(loaded, slot);
+                call_arguments.emplace_back(make_handle(orig_ty, slot));
+            } else {
+                call_arguments.emplace_back(loaded);
+            }
+        }
+    }
+
+    if (proc_empty) {
+        auto *surface_call = builder.CreateCall(on_surface, call_arguments);
+        surface_call->addFnAttr(::llvm::Attribute::AlwaysInline);
+        builder.CreateRetVoid();
+        return wrapper;
+    }
+
+    auto *surface_block = ::llvm::BasicBlock::Create(
+        context, "surface", wrapper);
+    auto *procedural_block = ::llvm::BasicBlock::Create(
+        context, "procedural", wrapper);
+    auto *invalid_block = ::llvm::BasicBlock::Create(
+        context, "invalid", wrapper);
+    auto *dispatch = builder.CreateSwitch(
+        candidate_kind, invalid_block, 2u);
+    dispatch->addCase(
+        builder.getInt32(static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::surface)),
+        surface_block);
+    dispatch->addCase(
+        builder.getInt32(static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::procedural)),
+        procedural_block);
+
+    builder.SetInsertPoint(surface_block);
+    auto *surface_call = builder.CreateCall(on_surface, call_arguments);
+    surface_call->addFnAttr(::llvm::Attribute::AlwaysInline);
+    builder.CreateRetVoid();
+    builder.SetInsertPoint(procedural_block);
+    auto *procedural_call = builder.CreateCall(on_procedural, call_arguments);
+    procedural_call->addFnAttr(::llvm::Attribute::AlwaysInline);
     builder.CreateRetVoid();
     builder.SetInsertPoint(invalid_block);
     builder.CreateUnreachable();
@@ -174,6 +581,7 @@ namespace {
 [[nodiscard]] ::llvm::Function *build_live_ray_query_handler_thunk(
     ::llvm::Module &module, ::llvm::Function *on_surface,
     ::llvm::Function *on_procedural,
+    uint32_t warp_width,
     luisa::string_view name) {
     if (on_surface == nullptr || on_procedural == nullptr ||
         on_surface->arg_size() < 4u ||
@@ -202,6 +610,13 @@ namespace {
         name, module);
     wrapper->setDSOLocal(true);
     wrapper->addParamAttr(2u, ::llvm::Attribute::NonNull);
+    wrapper->addParamAttr(2u, ::llvm::Attribute::ReadOnly);
+    wrapper->addParamAttr(2u, ::llvm::Attribute::NoAlias);
+    if (on_surface->arg_size() > 4u) {
+        wrapper->addParamAttr(3u, ::llvm::Attribute::NonNull);
+        wrapper->addParamAttr(3u, ::llvm::Attribute::ReadOnly);
+        wrapper->addParamAttr(3u, ::llvm::Attribute::NoAlias);
+    }
     wrapper->addParamAttr(4u, ::llvm::Attribute::NonNull);
 
     auto argument = wrapper->arg_begin();
@@ -221,8 +636,25 @@ namespace {
     auto *entry = ::llvm::BasicBlock::Create(
         context, "entry", wrapper);
     ::llvm::IRBuilder<> builder{entry};
+    if (warp_width == 1u) {
+        auto *active = builder.CreateICmpNE(
+            builder.CreateAnd(active_lane_mask, builder.getInt64(1u)),
+            builder.getInt64(0u));
+        auto *dispatch_bb = ::llvm::BasicBlock::Create(
+            context, "dispatch", wrapper);
+        auto *inactive_bb = ::llvm::BasicBlock::Create(
+            context, "inactive", wrapper);
+        builder.CreateCondBr(active, dispatch_bb, inactive_bb);
+        builder.SetInsertPoint(inactive_bb);
+        builder.CreateRetVoid();
+        builder.SetInsertPoint(dispatch_bb);
+    }
     std::vector<::llvm::Value *> call_arguments{
-        lane_count, active_lane_mask, states, launch_config};
+        warp_width == 1u ? static_cast<::llvm::Value *>(builder.getInt32(1u)) :
+                           lane_count,
+        warp_width == 1u ? static_cast<::llvm::Value *>(builder.getInt64(1u)) :
+                           active_lane_mask,
+        states, launch_config};
     auto capture_count = on_surface->arg_size() - 4u;
     call_arguments.reserve(on_surface->arg_size());
     if (capture_count != 0u) {
@@ -259,10 +691,12 @@ namespace {
         procedural_block);
 
     builder.SetInsertPoint(surface_block);
-    builder.CreateCall(on_surface, call_arguments);
+    auto *surface_call = builder.CreateCall(on_surface, call_arguments);
+    surface_call->addFnAttr(::llvm::Attribute::AlwaysInline);
     builder.CreateRetVoid();
     builder.SetInsertPoint(procedural_block);
-    builder.CreateCall(on_procedural, call_arguments);
+    auto *procedural_call = builder.CreateCall(on_procedural, call_arguments);
+    procedural_call->addFnAttr(::llvm::Attribute::AlwaysInline);
     builder.CreateRetVoid();
     builder.SetInsertPoint(invalid_block);
     builder.CreateUnreachable();
@@ -1717,7 +2151,8 @@ SIMDCompiledKernel compile_simd_kernel(
         }
     }
     auto jit = luisa::make_unique<LLVMJIT>(
-        capture_assembly || capture_object);
+        capture_assembly || capture_object, enable_fast_math,
+        warp_width == 1u);
     if (!jit->succeeded()) {
         result.diagnostics.emplace_back(jit->error());
         return result;
@@ -1811,7 +2246,8 @@ SIMDCompiledKernel compile_simd_kernel(
                 use_paired_leaf_gather,
                 dispatch_worker_count,
                 use_native_predicated_loop,
-                pipeline_print_formats.size());
+                pipeline_print_formats.size(),
+                kind == "surface");
         };
         auto surface = lower_handler(
             pipeline_schedules[pipeline_index].on_surface,
@@ -1984,10 +2420,28 @@ SIMDCompiledKernel compile_simd_kernel(
             }
         }
         auto *candidate_live = static_cast<::llvm::Function *>(nullptr);
-        if (warp_width >= 2u &&
-            pipeline_schedules[pipeline_index].live_embree_safe &&
+        auto *candidate_live_w1 = static_cast<::llvm::Function *>(nullptr);
+        W1LiveCaptureClassification live_w1_captures;
+        if (pipeline_schedules[pipeline_index].live_embree_safe &&
             !pipeline_schedules[pipeline_index].surface_exclusion.has_value()) {
-            if (!detail::env_flag("LUISA_SIMD_DISABLE_W1_LIVE_CALLBACK")) {
+            if (warp_width == 1u) {
+                auto &ps_live = pipeline_schedules[pipeline_index];
+                live_w1_captures = classify_w1_live_captures(
+                    *schedule_result.function,
+                    static_cast<uint32_t>(pipeline_index),
+                    ps_live.on_surface, ps_live.on_procedural,
+                    surface_entry, ps_live.procedural_handler_empty);
+                candidate_live_w1 = build_live_ray_query_w1_direct_thunk(
+                    *module, surface_entry, procedural_entry,
+                    live_w1_captures, ps_live.procedural_handler_empty,
+                    surface_entry->getName().str() + ".live.w1.direct.callback");
+                if (candidate_live_w1 == nullptr) {
+                    result.diagnostics.emplace_back(
+                        "failed to build W1 direct live ray-query thunk");
+                    return result;
+                }
+            } else if (warp_width > 1u &&
+                       !detail::env_flag("LUISA_SIMD_DISABLE_W1_LIVE_CALLBACK")) {
                 auto &ps_live = pipeline_schedules[pipeline_index];
                 auto w1_opts = schedule_options;
                 w1_opts.logical_warp_width = 1u;
@@ -2012,7 +2466,8 @@ SIMDCompiledKernel compile_simd_kernel(
                         use_paired_leaf_gather,
                         dispatch_worker_count,
                         use_native_predicated_loop,
-                        pipeline_print_formats.size());
+                        pipeline_print_formats.size(),
+                        /*is_surface_handler=*/true);
                     auto w1_proc = lower_ray_query_handler_schedule_to_llvm(
                         *module, *w1_proc_sched.function, 1u, w1_proc_name,
                         enable_fast_math, static_block_size,
@@ -2044,6 +2499,7 @@ SIMDCompiledKernel compile_simd_kernel(
             if (candidate_live == nullptr) {
                 candidate_live = build_live_ray_query_handler_thunk(
                     *module, surface_entry, procedural_entry,
+                    warp_width,
                     surface_entry->getName().str() + ".live.callback");
             }
             if (candidate_live == nullptr) {
@@ -2063,6 +2519,20 @@ SIMDCompiledKernel compile_simd_kernel(
                 return result;
             }
         }
+        auto schedule_reads_candidate_object_ray = [](const schedule::Function &fn) noexcept {
+            for (auto &&block : fn.blocks()) {
+                for (auto &&inst : block.instructions) {
+                    if (inst.opcode == schedule::Opcode::ray_query_read &&
+                        inst.source_op &&
+                        static_cast<xir::RayQueryObjectReadOp>(*inst.source_op) ==
+                            xir::RayQueryObjectReadOp::
+                                RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
         auto &ps = pipeline_schedules[pipeline_index];
         LLVMSIMDRayQueryPipelineHandlers handler_record{
             .on_surface = surface_entry,
@@ -2078,7 +2548,14 @@ SIMDCompiledKernel compile_simd_kernel(
             .surface_handler_empty =
                 ps.surface_handler_empty,
             .on_candidate_live = candidate_live,
+            .on_candidate_live_w1 = candidate_live_w1,
+            .live_w1_capture_modes = std::move(live_w1_captures.modes),
+            .live_w1_capture_scalar_types =
+                std::move(live_w1_captures.scalar_types),
             .live_embree_safe = ps.live_embree_safe,
+            .handler_reads_object_ray =
+                schedule_reads_candidate_object_ray(ps.on_surface) ||
+                schedule_reads_candidate_object_ray(ps.on_procedural),
             .procedural_handler_empty = ps.procedural_handler_empty,
             .surface_exclusion_safe = ps.surface_exclusion.has_value(),
         };
@@ -2392,7 +2869,8 @@ SIMDCompiledKernel compile_simd_kernel(
                     target_width == warp_width ? use_paired_leaf_gather : false,
                     dispatch_worker_count,
                     target_width == warp_width ? use_native_predicated_loop : false,
-                    pipeline_print_formats.size());
+                    pipeline_print_formats.size(),
+                    /*is_surface_handler=*/true);
                 if (!surf_llvm.succeeded()) {
                     out_error = "outlined ray-query surface LLVM lowering failed: " +
                                 surf_llvm.error;
@@ -2421,25 +2899,19 @@ SIMDCompiledKernel compile_simd_kernel(
                     std::make_move_iterator(proc_llvm.print_formats.begin()),
                     std::make_move_iterator(proc_llvm.print_formats.end()));
 
+                ::llvm::Function *cand_w1 = nullptr;
                 if (target_width == 1u) {
-                    auto *cand_w1 = build_w1_ray_query_handler_thunk(
+                    cand_w1 = build_w1_ray_query_handler_thunk(
                         *module, surf_llvm.entry, proc_llvm.entry,
                         surf_llvm.entry->getName().str() + ".candidate.callback");
                     if (cand_w1 == nullptr) {
                         out_error = "failed to build outlined W1 ray-query handler thunk";
                         return false;
                     }
-                    out_handlers.emplace_back(LLVMSIMDRayQueryPipelineHandlers{
-                        .on_surface = surf_llvm.entry,
-                        .on_procedural = proc_llvm.entry,
-                        .on_candidate_w1 = cand_w1,
-                        .procedural_handler_empty =
-                            ray_query_handler_is_empty(pipeline->on_procedural_function()),
-                    });
-                    continue;
                 }
 
                 auto filter_safe =
+                    target_width >= 2u &&
                     ray_query_surface_filter_is_order_independent(pipeline);
                 auto proc_empty =
                     ray_query_handler_is_empty(pipeline->on_procedural_function());
@@ -2476,8 +2948,26 @@ SIMDCompiledKernel compile_simd_kernel(
                     }
                 }
                 ::llvm::Function *cand_live = nullptr;
+                ::llvm::Function *cand_live_w1 = nullptr;
+                W1LiveCaptureClassification live_w1_captures;
                 if (live_safe && !surf_excl.has_value()) {
-                    if (!detail::env_flag("LUISA_SIMD_DISABLE_W1_LIVE_CALLBACK")) {
+                    if (target_width == 1u) {
+                        live_w1_captures = classify_w1_live_captures(
+                            owner_sched, static_cast<uint32_t>(p_idx),
+                            *surf_sched.function, *proc_sched.function,
+                            surf_llvm.entry, proc_empty);
+                        cand_live_w1 = build_live_ray_query_w1_direct_thunk(
+                            *module, surf_llvm.entry, proc_llvm.entry,
+                            live_w1_captures, proc_empty,
+                            surf_llvm.entry->getName().str() +
+                                ".live.w1.direct.callback");
+                        if (cand_live_w1 == nullptr) {
+                            out_error =
+                                "failed to build outlined W1 direct live ray-query thunk";
+                            return false;
+                        }
+                    } else if (target_width > 1u &&
+                               !detail::env_flag("LUISA_SIMD_DISABLE_W1_LIVE_CALLBACK")) {
                         auto w1_opts = schedule_options;
                         w1_opts.logical_warp_width = 1u;
                         auto w1_param_classes = param_classes;
@@ -2500,7 +2990,8 @@ SIMDCompiledKernel compile_simd_kernel(
                                 enable_lane_affine_buffer,
                                 use_paired_leaf_gather, dispatch_worker_count,
                                 use_native_predicated_loop,
-                                pipeline_print_formats.size());
+                                pipeline_print_formats.size(),
+                                /*is_surface_handler=*/true);
                             auto w1_pl = lower_ray_query_handler_schedule_to_llvm(
                                 *module, *w1_p.function, 1u,
                                 name_prefix + ".rq." + std::to_string(p_idx) + ".procedural.live_w1",
@@ -2527,6 +3018,7 @@ SIMDCompiledKernel compile_simd_kernel(
                     if (cand_live == nullptr) {
                         cand_live = build_live_ray_query_handler_thunk(
                             *module, surf_llvm.entry, proc_llvm.entry,
+                            target_width,
                             surf_llvm.entry->getName().str() + ".live.callback");
                     }
                     if (cand_live == nullptr) {
@@ -2534,14 +3026,36 @@ SIMDCompiledKernel compile_simd_kernel(
                         return false;
                     }
                 }
+                auto schedule_reads_candidate_object_ray = [](const schedule::Function &fn) noexcept {
+                    for (auto &&block : fn.blocks()) {
+                        for (auto &&inst : block.instructions) {
+                            if (inst.opcode == schedule::Opcode::ray_query_read &&
+                                inst.source_op &&
+                                static_cast<xir::RayQueryObjectReadOp>(*inst.source_op) ==
+                                    xir::RayQueryObjectReadOp::
+                                        RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
                 LLVMSIMDRayQueryPipelineHandlers hr{
                     .on_surface = surf_llvm.entry,
                     .on_procedural = proc_llvm.entry,
                     .on_surface_filter = sf_entry,
+                    .on_candidate_w1 = cand_w1,
                     .embree_surface_filter_safe = filter_safe,
                     .surface_handler_empty = surf_empty,
                     .on_candidate_live = cand_live,
+                    .on_candidate_live_w1 = cand_live_w1,
+                    .live_w1_capture_modes = std::move(live_w1_captures.modes),
+                    .live_w1_capture_scalar_types =
+                        std::move(live_w1_captures.scalar_types),
                     .live_embree_safe = live_safe,
+                    .handler_reads_object_ray =
+                        schedule_reads_candidate_object_ray(*surf_sched.function) ||
+                        schedule_reads_candidate_object_ray(*proc_sched.function),
                     .procedural_handler_empty = proc_empty,
                     .surface_exclusion_safe = surf_excl.has_value(),
                 };
@@ -3142,8 +3656,7 @@ SIMDCompiledKernel compile_simd_kernel(
     // while one 108-instruction handler does so by itself (procedural). W1's
     // resident provider and W2's packet path remain profitable without this
     // gate. The diagnostic override retains a same-binary direct oracle.
-    const bool live_w8_ray_query_pipeline =
-        warp_width == 8u &&
+    const bool live_ray_query_pipeline =
         !detail::env_flag("LUISA_SIMD_DISABLE_LIVE_RAY_QUERY_PIPELINE");
     auto ray_query_pipeline_options =
         xir::LowerRayQueryToPipelineOptions{
@@ -3151,17 +3664,17 @@ SIMDCompiledKernel compile_simd_kernel(
                 enable_captured_ray_query_pipeline ?
                     (force_captured_ray_query_pipeline ?
                          std::numeric_limits<size_t>::max() :
-                         (live_w8_ray_query_pipeline ? size_t{64u} :
+                         (live_ray_query_pipeline ? size_t{64u} :
                           warp_width == 8u ? size_t{16u} : size_t{4u})) :
                     0u,
             .min_handler_instruction_count =
                 enable_ray_query_pipeline_profitability &&
                         warp_width >= 4u &&
-                        !live_w8_ray_query_pipeline ?
+                        !live_ray_query_pipeline ?
                     24u :
                     0u,
             .min_small_handler_loop_count =
-                live_w8_ray_query_pipeline ? size_t{1u} : size_t{2u}};
+                live_ray_query_pipeline ? size_t{1u} : size_t{2u}};
     auto direct_ray_query_pipeline =
         xir::LowerRayQueryToPipelineInfo{};
     if (!detail::env_flag(

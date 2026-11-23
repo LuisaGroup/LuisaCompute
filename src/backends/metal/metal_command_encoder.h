@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/vector.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/backends/ext/dstorage_cmd.h>
@@ -8,22 +9,47 @@
 
 namespace luisa::compute::metal {
 
+class MetalBindlessArray;
+
 class MetalCommandEncoder : public MutableCommandVisitor {
 
 private:
     MetalStream *_stream;
     MTL::CommandBuffer *_command_buffer{nullptr};
+    MTL::ComputeCommandEncoder *_open_compute_encoder{nullptr};
+    MTL::BlitCommandEncoder *_open_blit_encoder{nullptr};
     luisa::vector<MetalCallbackContext *> _callbacks;
+    luisa::fixed_vector<const MTL::Resource *, 128u> _written_buffers;
+    luisa::fixed_vector<const MTL::Resource *, 32u> _written_textures;
+    bool _written_buffers_overflow{false};
+    bool _written_textures_overflow{false};
+    bool _wrote_bindless{false};
 
 protected:
     void _prepare_command_buffer() noexcept;
 
 public:
     explicit MetalCommandEncoder(MetalStream *stream) noexcept;
-    ~MetalCommandEncoder() noexcept override = default;
+    ~MetalCommandEncoder() noexcept override;
     [[nodiscard]] auto stream() const noexcept { return _stream; }
+    [[nodiscard]] auto owner_device() const noexcept { return _stream->owner_device(); }
     [[nodiscard]] auto device() const noexcept { return _stream->device(); }
     [[nodiscard]] MTL::CommandBuffer *command_buffer() noexcept;
+    [[nodiscard]] MTL::ComputeCommandEncoder *compute_encoder() noexcept;
+    [[nodiscard]] MTL::BlitCommandEncoder *blit_encoder() noexcept;
+    void close_compute_encoder() noexcept;
+    void close_blit_encoder() noexcept;
+    void close_encoders() noexcept;
+    [[nodiscard]] MTL::AccelerationStructureCommandEncoder *begin_acceleration_structure_encoder() noexcept;
+    void end_acceleration_structure_encoder(MTL::AccelerationStructureCommandEncoder *encoder) noexcept;
+    void record_written_buffer(const MTL::Resource *resource) noexcept;
+    void record_written_texture(const MTL::Resource *resource) noexcept;
+    void record_written_bindless() noexcept;
+    void prepare_compute_dispatch_barriers(MTL::ComputeCommandEncoder *compute_encoder,
+                                           luisa::span<MetalBindlessArray *const> read_bindless_arrays,
+                                           bool reads_any_buffer,
+                                           bool reads_any_texture) noexcept;
+    void set_command_buffer_label(NS::String *label) noexcept;
     void visit(BufferUploadCommand *command) noexcept override;
     void visit(BufferDownloadCommand *command) noexcept override;
     void visit(BufferCopyCommand *command) noexcept override;

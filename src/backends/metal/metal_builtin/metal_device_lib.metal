@@ -95,6 +95,7 @@ struct LCBuffer<const T> {
     const device T *data;
     ulong size;
 
+    LCBuffer() = default;
     LCBuffer(LCBuffer<T> buffer)
         : data{buffer.data}, size{buffer.size} {}
 };
@@ -905,15 +906,16 @@ struct LCProceduralHit {
     uint m1;// primitive index
 };
 
-struct alignas(16) LCInstance {
+struct alignas(4) LCInstance {
     array<float, 12> transform;
     uint options;
     uint mask;
     uint intersection_function_offset;
     uint mesh_index;
+    uint user_id;
 };
 
-static_assert(sizeof(LCInstance) == 64u, "");
+static_assert(sizeof(LCInstance) == 68u, "");
 
 struct LCAccel {
 #ifdef LUISA_ENABLE_MOTION_BLUR
@@ -1059,14 +1061,35 @@ struct LCRayQuery {
     thread intersection_query<triangle_data, instancing LC_EXTENDED_LIMITS_TAG> *i;
 #endif
 #endif
+    LCCommittedHit ift_hit;
+    bool has_ift_hit;
 };
 
+struct LCTriangleIsectResult {
+    bool accept_intersection [[accept_intersection]];
+    bool continue_search [[continue_search]];
+};
+
+template<typename Res>
+[[nodiscard]] inline auto lc_committed_hit_from_triangle_result(Res res) {
+    if (res.type == intersection_type::none) {
+        return LCCommittedHit{0xffffffffu, 0xffffffffu, float2(0.f), 0u, 0.f};
+    }
+    return LCCommittedHit{res.instance_id,
+                          res.primitive_id,
+                          res.triangle_barycentric_coord,
+                          1u,
+                          res.distance};
+}
+
 [[nodiscard]] inline auto accel_query_all_impl(LCAccel accel, LCRay ray, uint mask, float time) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, time, false, nullptr};
+    return LCRayQuery{accel.handle, make_ray(ray), mask, time, false, nullptr,
+                      LCCommittedHit{0xffffffffu, 0xffffffffu, float2(0.f), 0u, 0.f}, false};
 }
 
 [[nodiscard]] inline auto accel_query_any_impl(LCAccel accel, LCRay ray, uint mask, float time) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, time, true, nullptr};
+    return LCRayQuery{accel.handle, make_ray(ray), mask, time, true, nullptr,
+                      LCCommittedHit{0xffffffffu, 0xffffffffu, float2(0.f), 0u, 0.f}, false};
 }
 
 [[nodiscard]] inline auto accel_query_all(LCAccel accel, LCRay ray, uint mask) {
@@ -1220,6 +1243,7 @@ void ray_query_init(thread LCRayQuery &q,
 }
 
 [[nodiscard]] inline auto ray_query_committed_hit(LCRayQuery q) {
+    if (q.has_ift_hit) { return q.ift_hit; }
     auto type = q.i->get_committed_intersection_type();
 #ifdef LUISA_ENABLE_CURVE
     auto kind = type == intersection_type::none     ? 0u :
@@ -1281,11 +1305,11 @@ inline void ray_query_terminate(LCRayQuery q) {
 }
 
 [[nodiscard]] inline auto accel_instance_user_id(LCAccel accel, uint i) {
-    return accel.instances[i].intersection_function_offset;
+    return accel.instances[i].user_id;
 }
 
 inline void accel_set_instance_user_id(LCAccel accel, uint i, uint user_id) {
-    accel.instances[i].intersection_function_offset = user_id;
+    accel.instances[i].user_id = user_id;
 }
 
 inline void accel_set_instance_transform(LCAccel accel, uint i, float4x4 m) {

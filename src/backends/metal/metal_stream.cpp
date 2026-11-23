@@ -16,6 +16,7 @@
 #include "metal_texture.h"
 #include "metal_swapchain.h"
 #include "metal_command_encoder.h"
+#include "metal_device.h"
 #include "metal_stream.h"
 
 namespace luisa::compute::metal {
@@ -146,7 +147,26 @@ MetalStream::MetalStream(MTL::Device *device,
                  device->newCommandQueue() :
                  device->newCommandQueue(max_commands)} {}
 
+MetalStream::MetalStream(MetalDevice *owner_device,
+                         size_t max_commands) noexcept
+    : _owner_device{owner_device},
+      _queue{max_commands == 0u ?
+                 owner_device->handle()->newCommandQueue() :
+                 owner_device->handle()->newCommandQueue(max_commands)} {
+    if (_owner_device != nullptr && _owner_device->residency_set() != nullptr) {
+        _queue->addResidencySet(_owner_device->residency_set());
+        _fence = _queue->device()->newFence();
+    }
+}
+
 MetalStream::~MetalStream() noexcept {
+    if (_owner_device != nullptr && _owner_device->residency_set() != nullptr) {
+        _queue->removeResidencySet(_owner_device->residency_set());
+    }
+    if (_fence != nullptr) {
+        _fence->release();
+        _fence = nullptr;
+    }
     _queue->release();
 }
 
@@ -323,6 +343,9 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
                 profiler.record_gpu(label_name, (end - begin) * 1.0e3);
             }
         });
+    }
+    if (_owner_device != nullptr) {
+        _owner_device->commit_residency_if_needed();
     }
     command_buffer->commit();
 }

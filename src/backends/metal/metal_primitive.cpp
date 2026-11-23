@@ -55,11 +55,11 @@ void MetalPrimitive::_do_build(MetalCommandEncoder &encoder,
     auto build_buffer = device->newBuffer(sizes.buildScratchBufferSize,
                                           MTL::ResourceHazardTrackingModeTracked |
                                               MTL::ResourceStorageModePrivate);
-    auto build_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+    auto build_encoder = encoder.begin_acceleration_structure_encoder();
     _handle->retain();
     descriptor->retain();
     build_encoder->buildAccelerationStructure(_handle, descriptor, build_buffer, 0u);
-    build_encoder->endEncoding();
+    encoder.end_acceleration_structure_encoder(build_encoder);
     encoder.add_callback(FunctionCallbackContext::create([handle = _handle,
                                                           build_buffer = build_buffer,
                                                           descriptor] {
@@ -72,10 +72,10 @@ void MetalPrimitive::_do_build(MetalCommandEncoder &encoder,
     if (option().allow_compaction) {
         // read back the size of the compacted acceleration structure
         encoder.with_download_buffer(sizeof(uint), [&](MetalStageBufferPool::Allocation *size_buffer) noexcept {
-            auto size_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+            auto size_encoder = encoder.begin_acceleration_structure_encoder();
             size_encoder->writeCompactedAccelerationStructureSize(
                 _handle, size_buffer->buffer(), size_buffer->offset(), MTL::DataTypeUInt);
-            size_encoder->endEncoding();
+            encoder.end_acceleration_structure_encoder(size_encoder);
             encoder.add_callback(FunctionCallbackContext::create([size_buffer, &compacted_size] {
                 compacted_size = *reinterpret_cast<uint *>(size_buffer->data());
             }));
@@ -84,10 +84,10 @@ void MetalPrimitive::_do_build(MetalCommandEncoder &encoder,
         submitted_command_buffer->waitUntilCompleted();
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
         compacted_handle->setLabel(_name);
-        auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+        auto compact_encoder = encoder.begin_acceleration_structure_encoder();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);
-        compact_encoder->endEncoding();
+        encoder.end_acceleration_structure_encoder(compact_encoder);
         encoder.add_callback(FunctionCallbackContext::create([old_handle = _handle,
                                                               compacted_handle] {
             old_handle->release();
@@ -103,12 +103,12 @@ void MetalPrimitive::_do_update(MetalCommandEncoder &encoder,
     LUISA_ASSERT(_handle != nullptr, "Acceleration structure not built yet.");
     LUISA_ASSERT(descriptor != nullptr, "Invalid acceleration structure descriptor.");
 
-    auto refit_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+    auto refit_encoder = encoder.begin_acceleration_structure_encoder();
     _handle->retain();
     if (_update_buffer != nullptr) { _update_buffer->retain(); }
     descriptor->retain();
     refit_encoder->refitAccelerationStructure(_handle, descriptor, _handle, _update_buffer, 0u);
-    refit_encoder->endEncoding();
+    encoder.end_acceleration_structure_encoder(refit_encoder);
     encoder.add_callback(FunctionCallbackContext::create([handle = _handle,
                                                           update_buffer = _update_buffer,
                                                           descriptor] {

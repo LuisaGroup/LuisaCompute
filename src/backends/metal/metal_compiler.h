@@ -34,10 +34,12 @@ private:
 
     void _store_disk_archive(luisa::string_view name, bool is_aot,
                              const PipelineDescriptorHandle &desc,
-                             const MetalShaderMetadata &metadata) const noexcept;
+                             const MetalShaderMetadata &metadata,
+                             MTL::Library *library) const noexcept;
 
     [[nodiscard]] std::pair<PipelineDescriptorHandle, MetalShaderHandle>
-    _load_kernels_from_library(MTL::Library *library, uint3 block_size) const noexcept;
+    _load_kernels_from_library(MTL::Library *library, uint3 block_size,
+                               luisa::span<const luisa::string> intersection_functions = {}) const noexcept;
 
 public:
     explicit MetalCompiler(const MetalDevice *device) noexcept;

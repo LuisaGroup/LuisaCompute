@@ -1,6 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
 #include <limits>
+#include <llvm/IR/MDBuilder.h>
 
 #include "../../common/env_flag.h"
 #include <luisa/core/stl/string.h>
@@ -563,7 +564,7 @@ namespace {
         return nullptr;
     }
     auto packed_init =
-        _width >= 4u &&
+        (_width == 1u || _width >= 4u) &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_RAY_QUERY_PACKED_INIT");
     auto *i64_lanes = ::llvm::FixedVectorType::get(
@@ -627,18 +628,72 @@ namespace {
                 alignof(float));
         }
     };
+    auto *w1_io =
+        _width == 1u && surface_exclusion_soa_eligible &&
+                status_index < _ray_query_w1_surface_exclusion_io_storage.size() ?
+            _ray_query_w1_surface_exclusion_io_storage[status_index] :
+            nullptr;
     auto *output_packet =
         (output_only_eligible || direct_output_eligible ||
          surface_exclusion_soa_eligible) &&
+                w1_io == nullptr &&
                 status_index < _ray_query_output_packet_storage.size() ?
             _ray_query_output_packet_storage[status_index] :
             nullptr;
     auto *surface_exclusion_soa_input =
-        surface_exclusion_soa_eligible &&
+        surface_exclusion_soa_eligible && w1_io == nullptr &&
                 status_index <
                     _ray_query_surface_exclusion_soa_input_storage.size() ?
             _ray_query_surface_exclusion_soa_input_storage[status_index] :
             nullptr;
+    auto initialize_w1_surface_exclusion_io = [&]() noexcept {
+        auto store_scalar = [&](::llvm::Value *vec, size_t offset) noexcept {
+            auto *scalar = _builder.CreateExtractElement(vec, uint64_t{0u});
+            auto *pointer =
+                offset == 0u ?
+                    static_cast<::llvm::Value *>(w1_io) :
+                    _builder.CreateConstInBoundsGEP1_64(
+                        _builder.getInt8Ty(), w1_io, offset);
+            _builder.CreateAlignedStore(
+                scalar, pointer, ::llvm::Align{alignof(uint32_t)});
+        };
+        auto *origin_type = _child_type(ray_value->type, 0u);
+        auto *direction_type = _child_type(ray_value->type, 2u);
+        auto *origin = _extract_child(ray, ray_value->type, 0u, true);
+        auto *direction = _extract_child(ray, ray_value->type, 2u, true);
+        auto *t_min = _extract_child(ray, ray_value->type, 1u, true);
+        auto *t_max = _extract_child(ray, ray_value->type, 3u, true);
+        store_scalar(
+            _extract_child(origin, origin_type, 0u, true),
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, org_x));
+        store_scalar(
+            _extract_child(origin, origin_type, 1u, true),
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, org_y));
+        store_scalar(
+            _extract_child(origin, origin_type, 2u, true),
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, org_z));
+        store_scalar(
+            t_min,
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, t_min));
+        store_scalar(
+            _extract_child(direction, direction_type, 0u, true),
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, dir_x));
+        store_scalar(
+            _extract_child(direction, direction_type, 1u, true),
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, dir_y));
+        store_scalar(
+            _extract_child(direction, direction_type, 2u, true),
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, dir_z));
+        store_scalar(
+            t_max,
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, t_max));
+        store_scalar(
+            safe_time,
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, time));
+        store_scalar(
+            visibility,
+            offsetof(SIMDHostRayQueryW1SurfaceExclusionIO, visibility_mask));
+    };
     auto initialize_surface_exclusion_soa_input = [&]() noexcept {
         auto store_field = [&](::llvm::Value *value,
                                size_t offset) noexcept {
@@ -859,11 +914,20 @@ namespace {
             initialize_full_state();
         }
     };
+    const bool live_only_eligible =
+        _width == 1u &&
+        result_id < _ray_query_live_only_state.size() &&
+        _ray_query_live_only_state[result_id] != 0u;
     if (direct_output_eligible || output_only_eligible ||
         surface_exclusion_soa_eligible) {
-        if (output_packet == nullptr ||
-            (surface_exclusion_soa_eligible &&
-             surface_exclusion_soa_input == nullptr)) {
+        if (_width == 1u && surface_exclusion_soa_eligible) {
+            if (w1_io == nullptr) {
+                _fail("W1 surface-exclusion query lost its compact IO slot");
+                return nullptr;
+            }
+        } else if (output_packet == nullptr ||
+                   (surface_exclusion_soa_eligible &&
+                    surface_exclusion_soa_input == nullptr)) {
             _fail("output-only ray query lost its field-major packet");
             return nullptr;
         }
@@ -882,10 +946,92 @@ namespace {
         _builder.CreateCondBr(
             use_output_packet, output_packet_init, operational_init);
         _builder.SetInsertPoint(output_packet_init);
-        initialize_output_packet();
-        if (surface_exclusion_soa_eligible) {
-            initialize_surface_exclusion_soa_input();
+        if (_width == 1u && surface_exclusion_soa_eligible) {
+            initialize_w1_surface_exclusion_io();
+        } else {
+            initialize_output_packet();
+            if (surface_exclusion_soa_eligible) {
+                initialize_surface_exclusion_soa_input();
+            }
         }
+        _builder.CreateBr(state_ready);
+        _builder.SetInsertPoint(operational_init);
+        initialize_operational_state();
+        _builder.CreateBr(state_ready);
+        _builder.SetInsertPoint(state_ready);
+    } else if (live_only_eligible) {
+        auto *live_only_init = ::llvm::BasicBlock::Create(
+            context, "ray.query.live.only.state.init", _entry);
+        auto *operational_init = ::llvm::BasicBlock::Create(
+            context, "ray.query.operational.state.init", _entry);
+        auto *state_ready = ::llvm::BasicBlock::Create(
+            context, "ray.query.state.ready", _entry);
+        auto *use_live_only = _builder.CreateICmpNE(
+            ray_query_live, null_pointer, "ray.query.live.only");
+        auto *br = _builder.CreateCondBr(
+            use_live_only, live_only_init, operational_init);
+        br->setMetadata(
+            ::llvm::LLVMContext::MD_prof,
+            ::llvm::MDBuilder{context}.createBranchWeights(1000000u, 1u));
+        _builder.SetInsertPoint(live_only_init);
+        auto *state_ptr = _builder.CreateExtractElement(
+            states, uint64_t{0u}, "ray.query.live.state.ptr");
+        auto store_state_scalar = [&](::llvm::Value *val, size_t offset,
+                                      size_t align) noexcept {
+            auto *ptr = _builder.CreateConstInBoundsGEP1_64(
+                _builder.getInt8Ty(), state_ptr, offset);
+            _builder.CreateAlignedStore(val, ptr, ::llvm::Align{align});
+        };
+        store_state_scalar(
+            _builder.getInt64(-1),
+            offsetof(SIMDHostRayQueryState, committed), 4u);
+        store_state_scalar(
+            _builder.getInt64(0),
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, bary),
+            4u);
+        store_state_scalar(
+            _builder.getInt64(0),
+            offsetof(SIMDHostRayQueryState, committed) +
+                offsetof(SIMDHostRayQueryCommittedHit, kind),
+            4u);
+        store_state_scalar(
+            object, offsetof(SIMDHostRayQueryState, accel), alignof(void *));
+        auto *origin_type = _child_type(ray_value->type, 0u);
+        auto *direction_type = _child_type(ray_value->type, 2u);
+        auto *origin = _extract_child(ray, ray_value->type, 0u, true);
+        auto *direction = _extract_child(ray, ray_value->type, 2u, true);
+        auto *t_min = _extract_child(ray, ray_value->type, 1u, true);
+        auto *t_max = _extract_child(ray, ray_value->type, 3u, true);
+        auto store_ray_f = [&](::llvm::Value *vec, size_t index) noexcept {
+            store_state_scalar(
+                _builder.CreateExtractElement(vec, uint64_t{0u}),
+                offsetof(SIMDHostRayQueryState, world_ray) +
+                    index * sizeof(float),
+                alignof(float));
+        };
+        store_ray_f(_extract_child(origin, origin_type, 0u, true), 0u);
+        store_ray_f(_extract_child(origin, origin_type, 1u, true), 1u);
+        store_ray_f(_extract_child(origin, origin_type, 2u, true), 2u);
+        store_ray_f(t_min, 3u);
+        store_ray_f(_extract_child(direction, direction_type, 0u, true), 4u);
+        store_ray_f(_extract_child(direction, direction_type, 1u, true), 5u);
+        store_ray_f(_extract_child(direction, direction_type, 2u, true), 6u);
+        store_ray_f(t_max, 7u);
+        store_state_scalar(
+            _builder.CreateExtractElement(safe_time, uint64_t{0u}),
+            offsetof(SIMDHostRayQueryState, time), alignof(float));
+        store_state_scalar(
+            _builder.CreateExtractElement(visibility, uint64_t{0u}),
+            offsetof(SIMDHostRayQueryState, visibility_mask),
+            alignof(uint32_t));
+        store_state_scalar(
+            _builder.getInt32(query_any ? 1u : 0u),
+            offsetof(SIMDHostRayQueryState, terminate_on_first),
+            alignof(uint32_t));
+        store_state_scalar(
+            _builder.getInt32(0u),
+            offsetof(SIMDHostRayQueryState, terminated), alignof(uint32_t));
         _builder.CreateBr(state_ready);
         _builder.SetInsertPoint(operational_init);
         initialize_operational_state();
@@ -1053,6 +1199,11 @@ void ScheduleEmitter::_ray_query_update_status(
                         _ray_query_status_slots
                             [instruction.operands[0u].value] :
                         std::numeric_limits<uint32_t>::max();
+        auto *w1_io =
+            _width == 1u &&
+                    slot < _ray_query_w1_surface_exclusion_io_storage.size() ?
+                _ray_query_w1_surface_exclusion_io_storage[slot] :
+                nullptr;
         auto has_output_callback_storage =
             slot <
                 _ray_query_empty_surface_filter_pipeline_callback_storage
@@ -1063,13 +1214,12 @@ void ScheduleEmitter::_ray_query_update_status(
             slot <
                 _ray_query_surface_exclusion_soa_accel_storage
                     .size();
-        if (slot < _ray_query_output_packet_storage.size() &&
+        auto *output_storage =
+            slot < _ray_query_output_packet_storage.size() ?
+                _ray_query_output_packet_storage[slot] :
+                nullptr;
+        if ((w1_io != nullptr || output_storage != nullptr) &&
             has_output_callback_storage) {
-            auto *output_storage = _ray_query_output_packet_storage[slot];
-            if (output_storage == nullptr) {
-                _fail("output-only committed read lost its packet");
-                return nullptr;
-            }
             auto *callback_lanes = ::llvm::FixedVectorType::get(
                 ::llvm::PointerType::getUnqual(
                     _module.getContext()),
@@ -1110,6 +1260,69 @@ void ScheduleEmitter::_ray_query_update_status(
             auto *has_output = _builder.CreateOrReduce(output_mask);
             auto *has_state = _builder.CreateOrReduce(state_mask);
             auto load_output = [&](::llvm::Value *mask) noexcept {
+                if (w1_io != nullptr) {
+                    auto load_w1_field = [&](size_t offset,
+                                             ::llvm::Type *element) noexcept {
+                        auto *pointer = _builder.CreateConstInBoundsGEP1_64(
+                            _builder.getInt8Ty(), w1_io, offset);
+                        auto *scalar = _builder.CreateAlignedLoad(
+                            element, pointer, ::llvm::Align{4u});
+                        return _builder.CreateVectorSplat(1u, scalar);
+                    };
+                    auto *bary_type = _child_type(result->type, 2u);
+                    auto *bary = _assemble(
+                        bary_type, true,
+                        [&](uint32_t component) noexcept {
+                            return load_w1_field(
+                                component == 0u ?
+                                    offsetof(
+                                        SIMDHostRayQueryW1SurfaceExclusionIO,
+                                        committed_bary_x) :
+                                    offsetof(
+                                        SIMDHostRayQueryW1SurfaceExclusionIO,
+                                        committed_bary_y),
+                                _builder.getFloatTy());
+                        });
+                    if (bary == nullptr) {
+                        return static_cast<::llvm::Value *>(nullptr);
+                    }
+                    auto *value = static_cast<::llvm::Value *>(
+                        ::llvm::PoisonValue::get(
+                            _data_type(result->type, true)));
+                    value = _insert_child(
+                        value,
+                        load_w1_field(
+                            offsetof(
+                                SIMDHostRayQueryW1SurfaceExclusionIO,
+                                committed_inst),
+                            _builder.getInt32Ty()),
+                        result->type, 0u, true);
+                    value = _insert_child(
+                        value,
+                        load_w1_field(
+                            offsetof(
+                                SIMDHostRayQueryW1SurfaceExclusionIO,
+                                committed_prim),
+                            _builder.getInt32Ty()),
+                        result->type, 1u, true);
+                    value = _insert_child(value, bary, result->type, 2u, true);
+                    value = _insert_child(
+                        value,
+                        load_w1_field(
+                            offsetof(
+                                SIMDHostRayQueryW1SurfaceExclusionIO,
+                                committed_kind),
+                            _builder.getInt32Ty()),
+                        result->type, 3u, true);
+                    return _insert_child(
+                        value,
+                        load_w1_field(
+                            offsetof(
+                                SIMDHostRayQueryW1SurfaceExclusionIO,
+                                committed_t),
+                            _builder.getFloatTy()),
+                        result->type, 4u, true);
+                }
                 auto load_field = [&](size_t offset,
                                       ::llvm::Type *element) noexcept {
                     auto *pointer = _builder.CreateGEP(
@@ -1507,26 +1720,39 @@ void ScheduleEmitter::_ray_query_write(
             return;
         }
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE: {
-            auto *surface = _ray_query_status_mask(
-                instruction.operands[0u],
-                simd_host_ray_query_surface_status_shift);
-            if (surface == nullptr) {
-                auto *kinds = gather_i32(
-                    offsetof(SIMDHostRayQueryState, candidate_kind));
-                surface = _builder.CreateICmpEQ(
-                    kinds,
-                    _builder.CreateVectorSplat(
-                        _width,
-                        _builder.getInt32(static_cast<uint32_t>(
-                            SIMDHostRayQueryCandidateKind::surface))));
+            auto *query_value = _source.value(instruction.operands[0u]);
+            auto *query_param =
+                query_value != nullptr &&
+                        query_value->origin == schedule::ValueOrigin::parameter ?
+                    std::get_if<schedule::ParameterValueMetadata>(
+                        &query_value->metadata) :
+                    nullptr;
+            auto known_surface_candidate =
+                _is_ray_query_surface_handler_entry() &&
+                query_param != nullptr && query_param->index == 0u;
+            ::llvm::Value *commit_mask = _active_mask;
+            if (!known_surface_candidate) {
+                auto *surface = _ray_query_status_mask(
+                    instruction.operands[0u],
+                    simd_host_ray_query_surface_status_shift);
+                if (surface == nullptr) {
+                    auto *kinds = gather_i32(
+                        offsetof(SIMDHostRayQueryState, candidate_kind));
+                    surface = _builder.CreateICmpEQ(
+                        kinds,
+                        _builder.CreateVectorSplat(
+                            _width,
+                            _builder.getInt32(static_cast<uint32_t>(
+                                SIMDHostRayQueryCandidateKind::surface))));
+                }
+                auto *invalid = _builder.CreateAnd(
+                    _active_mask, _builder.CreateNot(surface));
+                _trap_if(
+                    _builder.CreateOrReduce(invalid),
+                    "ray.query.commit.triangle.without.candidate");
+                commit_mask = _builder.CreateAnd(
+                    _active_mask, surface);
             }
-            auto *invalid = _builder.CreateAnd(
-                _active_mask, _builder.CreateNot(surface));
-            _trap_if(
-                _builder.CreateOrReduce(invalid),
-                "ray.query.commit.triangle.without.candidate");
-            auto *commit_mask = _builder.CreateAnd(
-                _active_mask, surface);
             scatter(
                 _builder.getInt32(1u),
                 offsetof(SIMDHostRayQueryState, candidate_committed),

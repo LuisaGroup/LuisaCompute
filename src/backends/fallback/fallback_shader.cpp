@@ -8,6 +8,18 @@
 #include <memory>
 #include <utility>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
+
 #include <llvm/ADT/FloatingPointMode.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Config/llvm-config.h>
@@ -20,7 +32,12 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/IR/Attributes.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Support/MathExtras.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -141,9 +158,254 @@ namespace luisa::compute::fallback {
 
 namespace {
 
+template<typename Fn>
+void run_with_compiler_stack(Fn &&fn) noexcept {
+    constexpr size_t compiler_stack_bytes = 16u * 1024u * 1024u;
+    struct Context {
+        std::remove_reference_t<Fn> *fn;
+    } ctx{&fn};
+#ifdef _WIN32
+    auto proc = [](LPVOID param) noexcept -> DWORD {
+        (*static_cast<Context *>(param)->fn)();
+        return 0u;
+    };
+    HANDLE thread = ::CreateThread(
+        nullptr, compiler_stack_bytes, proc, &ctx,
+        STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (thread != nullptr) {
+        ::WaitForSingleObject(thread, INFINITE);
+        ::CloseHandle(thread);
+        return;
+    }
+    fn();
+#else
+    auto proc = [](void *param) noexcept -> void * {
+        (*static_cast<Context *>(param)->fn)();
+        return nullptr;
+    };
+    pthread_attr_t attr{};
+    if (::pthread_attr_init(&attr) == 0) {
+        ::pthread_attr_setstacksize(&attr, compiler_stack_bytes);
+        pthread_t thread{};
+        if (::pthread_create(&thread, &attr, proc, &ctx) == 0) {
+            ::pthread_join(thread, nullptr);
+            ::pthread_attr_destroy(&attr);
+            return;
+        }
+        ::pthread_attr_destroy(&attr);
+    }
+    fn();
+#endif
+}
+
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 27u;
+static constexpr auto fallback_shader_cache_abi = 28u;
+
+// LLVM's ArgumentPromotion pass can turn indirect pointer arguments (e.g. from
+// [4 x float] or { float, float, float } allocas) into by-value <3 x T>
+// arguments on internal helpers after fallback codegen's ABI normalization.
+// Passing >8 SIMD args where a <3 x T> spills to stack crashes LLVM 23 AArch64
+// SelectionDAG (WidenVectorResult). Re-widen non-power-of-two vectors on internal
+// function boundaries back to power-of-two (<3 x T> -> <4 x T>) after O2/O3.
+void normalize_internal_non_pow2_vector_abi(::llvm::Module &module) noexcept {
+    auto widen_type = [](::llvm::Type *ty) noexcept -> ::llvm::Type * {
+        auto *vt = ::llvm::dyn_cast<::llvm::FixedVectorType>(ty);
+        if (vt == nullptr || vt->getNumElements() < 3u ||
+            ::llvm::isPowerOf2_32(vt->getNumElements())) {
+            return ty;
+        }
+        auto widened_lanes = static_cast<unsigned>(
+            ::llvm::NextPowerOf2(vt->getNumElements() - 1u));
+        return ::llvm::FixedVectorType::get(vt->getElementType(), widened_lanes);
+    };
+    auto widen_vec_value = [](::llvm::IRBuilder<> &builder,
+                              ::llvm::Value *val,
+                              ::llvm::FixedVectorType *dst_ty) noexcept -> ::llvm::Value * {
+        auto *src_ty = ::llvm::cast<::llvm::FixedVectorType>(val->getType());
+        auto src_n = src_ty->getNumElements();
+        auto dst_n = dst_ty->getNumElements();
+        ::llvm::SmallVector<int, 8u> mask;
+        mask.reserve(dst_n);
+        for (unsigned i = 0u; i < src_n; ++i) {
+            mask.push_back(static_cast<int>(i));
+        }
+        for (unsigned i = src_n; i < dst_n; ++i) {
+            mask.push_back(::llvm::PoisonMaskElem);
+        }
+        return builder.CreateShuffleVector(
+            val, ::llvm::PoisonValue::get(src_ty), mask);
+    };
+    auto narrow_vec_value = [](::llvm::IRBuilder<> &builder,
+                               ::llvm::Value *val,
+                               ::llvm::FixedVectorType *dst_ty) noexcept -> ::llvm::Value * {
+        auto *src_ty = ::llvm::cast<::llvm::FixedVectorType>(val->getType());
+        auto dst_n = dst_ty->getNumElements();
+        ::llvm::SmallVector<int, 8u> mask;
+        mask.reserve(dst_n);
+        for (unsigned i = 0u; i < dst_n; ++i) {
+            mask.push_back(static_cast<int>(i));
+        }
+        return builder.CreateShuffleVector(
+            val, ::llvm::PoisonValue::get(src_ty), mask);
+    };
+
+    ::llvm::SmallVector<::llvm::Function *, 8u> candidates;
+    for (auto &fn : module) {
+        if (fn.isDeclaration() || fn.empty() || !fn.hasLocalLinkage() ||
+            fn.hasAddressTaken() || fn.isPresplitCoroutine() || fn.isVarArg()) {
+            continue;
+        }
+        auto changed = widen_type(fn.getReturnType()) != fn.getReturnType();
+        for (auto *param_ty : fn.getFunctionType()->params()) {
+            changed = changed || (widen_type(param_ty) != param_ty);
+        }
+        if (!changed) { continue; }
+        auto all_direct_calls = true;
+        for (auto &use : fn.uses()) {
+            auto *call = ::llvm::dyn_cast<::llvm::CallInst>(use.getUser());
+            if (call == nullptr || !call->isCallee(&use)) {
+                all_direct_calls = false;
+                break;
+            }
+        }
+        if (all_direct_calls) {
+            candidates.push_back(&fn);
+        }
+    }
+
+    for (auto *fn : candidates) {
+        auto *old_ret_ty = fn->getReturnType();
+        auto *new_ret_ty = widen_type(old_ret_ty);
+        auto ret_widened = new_ret_ty != old_ret_ty;
+        ::llvm::SmallVector<::llvm::Type *, 16u> new_param_types;
+        ::llvm::SmallVector<bool, 16u> param_widened;
+        new_param_types.reserve(fn->arg_size());
+        param_widened.reserve(fn->arg_size());
+        for (auto *param_ty : fn->getFunctionType()->params()) {
+            auto *widened = widen_type(param_ty);
+            param_widened.push_back(widened != param_ty);
+            new_param_types.push_back(widened);
+        }
+        auto *new_fn_ty = ::llvm::FunctionType::get(
+            new_ret_ty, new_param_types, false);
+        auto *new_fn = ::llvm::Function::Create(
+            new_fn_ty, fn->getLinkage(), fn->getAddressSpace(),
+            "", &module);
+        new_fn->setCallingConv(fn->getCallingConv());
+        new_fn->setVisibility(fn->getVisibility());
+        new_fn->setUnnamedAddr(fn->getUnnamedAddr());
+        new_fn->setAlignment(fn->getAlign());
+        if (fn->hasSection()) { new_fn->setSection(fn->getSection()); }
+        if (fn->hasPersonalityFn()) { new_fn->setPersonalityFn(fn->getPersonalityFn()); }
+
+        auto old_attrs = fn->getAttributes();
+        for (auto attr : old_attrs.getFnAttrs()) {
+            new_fn->addFnAttr(attr);
+        }
+        if (!ret_widened) {
+            for (auto attr : old_attrs.getRetAttrs()) {
+                new_fn->addRetAttr(attr);
+            }
+        }
+        for (unsigned i = 0u; i < new_param_types.size(); ++i) {
+            if (!param_widened[i]) {
+                for (auto attr : old_attrs.getParamAttrs(i)) {
+                    new_fn->addParamAttr(i, attr);
+                }
+            }
+        }
+
+        new_fn->splice(new_fn->begin(), fn);
+        auto &entry = new_fn->getEntryBlock();
+        auto insert_it = entry.getFirstInsertionPt();
+        while (insert_it != entry.end() &&
+               ::llvm::isa<::llvm::AllocaInst>(*insert_it)) {
+            ++insert_it;
+        }
+        ::llvm::IRBuilder<> entry_builder{&entry, insert_it};
+        for (unsigned i = 0u; i < new_param_types.size(); ++i) {
+            auto *old_arg = fn->getArg(i);
+            auto *new_arg = new_fn->getArg(i);
+            new_arg->setName(old_arg->getName());
+            if (param_widened[i]) {
+                auto *narrowed = narrow_vec_value(
+                    entry_builder, new_arg,
+                    ::llvm::cast<::llvm::FixedVectorType>(old_arg->getType()));
+                old_arg->replaceAllUsesWith(narrowed);
+            } else {
+                old_arg->replaceAllUsesWith(new_arg);
+            }
+        }
+        if (ret_widened) {
+            auto *dst_ret_vt = ::llvm::cast<::llvm::FixedVectorType>(new_ret_ty);
+            for (auto &bb : *new_fn) {
+                if (auto *ret = ::llvm::dyn_cast<::llvm::ReturnInst>(bb.getTerminator())) {
+                    ::llvm::IRBuilder<> ret_builder{ret};
+                    auto *widened_ret = widen_vec_value(
+                        ret_builder, ret->getReturnValue(), dst_ret_vt);
+                    ret->setOperand(0u, widened_ret);
+                }
+            }
+        }
+
+        ::llvm::SmallVector<::llvm::CallInst *, 8u> calls;
+        for (auto *user : fn->users()) {
+            calls.push_back(::llvm::cast<::llvm::CallInst>(user));
+        }
+        for (auto *call : calls) {
+            ::llvm::IRBuilder<> call_builder{call};
+            ::llvm::SmallVector<::llvm::Value *, 16u> new_args;
+            new_args.reserve(new_param_types.size());
+            for (unsigned i = 0u; i < new_param_types.size(); ++i) {
+                auto *arg = call->getArgOperand(i);
+                if (param_widened[i]) {
+                    arg = widen_vec_value(
+                        call_builder, arg,
+                        ::llvm::cast<::llvm::FixedVectorType>(new_param_types[i]));
+                }
+                new_args.push_back(arg);
+            }
+            auto *new_call = call_builder.CreateCall(new_fn, new_args);
+            new_call->setCallingConv(call->getCallingConv());
+            new_call->setTailCallKind(call->getTailCallKind());
+            new_call->setDebugLoc(call->getDebugLoc());
+            new_call->copyMetadata(*call);
+            if (call->getType()->isFPOrFPVectorTy() &&
+                new_call->getType()->isFPOrFPVectorTy()) {
+                new_call->setFastMathFlags(call->getFastMathFlags());
+            }
+            auto call_attrs = call->getAttributes();
+            for (auto attr : call_attrs.getFnAttrs()) {
+                new_call->addFnAttr(attr);
+            }
+            if (!ret_widened) {
+                for (auto attr : call_attrs.getRetAttrs()) {
+                    new_call->addRetAttr(attr);
+                }
+            }
+            for (unsigned i = 0u; i < new_param_types.size(); ++i) {
+                if (!param_widened[i]) {
+                    for (auto attr : call_attrs.getParamAttrs(i)) {
+                        new_call->addParamAttr(i, attr);
+                    }
+                }
+            }
+            if (ret_widened) {
+                auto *narrowed_ret = narrow_vec_value(
+                    call_builder, new_call,
+                    ::llvm::cast<::llvm::FixedVectorType>(old_ret_ty));
+                call->replaceAllUsesWith(narrowed_ret);
+            } else {
+                call->replaceAllUsesWith(new_call);
+            }
+            call->eraseFromParent();
+        }
+        auto orig_name = fn->getName().str();
+        fn->eraseFromParent();
+        new_fn->setName(orig_name);
+    }
+}
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -941,7 +1203,10 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     } else {
         MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
     }
-    MPM.run(*llvm_module, MAM);
+    run_with_compiler_stack([&]() noexcept {
+        MPM.run(*llvm_module, MAM);
+    });
+    normalize_internal_non_pow2_vector_abi(*llvm_module);
 
     LUISA_VERBOSE("Optimized LLVM module in {} ms.", clk.toc());
     if (::llvm::verifyModule(*llvm_module, &::llvm::errs())) {
@@ -988,7 +1253,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
             LUISA_ERROR_WITH_LOCATION(
                 "Fallback target machine cannot emit object files.");
         }
-        object_pass.run(*llvm_module);
+        run_with_compiler_stack([&]() noexcept {
+            object_pass.run(*llvm_module);
+        });
         LUISA_VERBOSE(
             "Fallback machine object generated in {} ms ({} bytes).",
             object_clock.toc(), object_code.size());
@@ -1029,8 +1296,12 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
                 message);
         }
     }
+    bool entry_found = false;
+    run_with_compiler_stack([&]() noexcept {
+        entry_found = lookup_kernel_entry();
+    });
     LUISA_ASSERT(
-        lookup_kernel_entry(), "Fallback JIT compilation failed.");
+        entry_found, "Fallback JIT compilation failed.");
 }
 
 class FallbackShaderDispatchBuffer {

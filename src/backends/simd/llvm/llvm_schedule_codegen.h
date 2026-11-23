@@ -16,6 +16,7 @@ namespace llvm {
 class Function;
 class Module;
 class StructType;
+class Type;
 }// namespace llvm
 
 namespace luisa::compute {
@@ -213,6 +214,26 @@ struct alignas(64) SIMDHostRayQuerySurfaceExclusionInputPacket {
     std::array<float, 16u> time{};
     std::array<uint32_t, 16u> visibility_mask{};
 };
+
+struct alignas(16) SIMDHostRayQueryW1SurfaceExclusionIO {
+    float org_x{0.0f};
+    float org_y{0.0f};
+    float org_z{0.0f};
+    float t_min{0.0f};
+    float dir_x{0.0f};
+    float dir_y{0.0f};
+    float dir_z{0.0f};
+    float t_max{0.0f};
+    float time{0.0f};
+    uint32_t visibility_mask{0xffu};
+    uint32_t committed_inst{~0u};
+    uint32_t committed_prim{~0u};
+    float committed_bary_x{0.0f};
+    float committed_bary_y{0.0f};
+    uint32_t committed_kind{0u};
+    float committed_t{0.0f};
+};
+static_assert(sizeof(SIMDHostRayQueryW1SurfaceExclusionIO) == 64u);
 
 struct alignas(8) SIMDHostRayQueryProceduralHit {
     uint32_t inst{~0u};
@@ -537,6 +558,10 @@ using SIMDHostRayQueryLiveCandidateHandler = void(
     SIMDHostRayQueryState *const *states, const void *capture,
     const SIMDPacketLaunchConfig *launch_config,
     uint32_t candidate_kind);
+using SIMDHostRayQueryW1LiveCandidateHandler = void(
+    SIMDHostRayQueryState *state, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    uint32_t candidate_kind);
 using SIMDHostAccelRayQuerySurfaceExclusion = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
@@ -551,11 +576,22 @@ using SIMDHostAccelRayQuerySurfaceExclusionSoA = void(
     const uint32_t *excl_inst0, const uint32_t *excl_prim0,
     const uint32_t *excl_inst1, const uint32_t *excl_prim1,
     uint32_t flags);
+using SIMDHostAccelRayQuerySurfaceExclusionW1 = void(
+    void *accel,
+    SIMDHostRayQueryW1SurfaceExclusionIO *io,
+    uint32_t excl_inst0, uint32_t excl_prim0,
+    uint32_t excl_inst1, uint32_t excl_prim1,
+    uint32_t flags);
 using SIMDHostAccelRayQueryLivePipeline = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states, const void *capture,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQueryLiveCandidateHandler *on_candidate,
+    uint32_t flags);
+using SIMDHostAccelRayQueryLivePipelineW1 = void(
+    SIMDHostRayQueryState *state, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQueryW1LiveCandidateHandler *on_candidate,
     uint32_t flags);
 inline constexpr uint32_t
     simd_host_ray_query_live_flag_terminate_on_commit = 1u << 0u;
@@ -568,6 +604,8 @@ struct alignas(16) SIMDHostAccelRayQueryLiveDispatch {
     SIMDHostAccelRayQuerySurfaceExclusion *surface_exclusion{nullptr};
     SIMDHostAccelRayQueryLivePipeline *live_pipeline{nullptr};
     SIMDHostAccelRayQuerySurfaceExclusionSoA *surface_exclusion_soa{nullptr};
+    SIMDHostAccelRayQuerySurfaceExclusionW1 *surface_exclusion_w1{nullptr};
+    SIMDHostAccelRayQueryLivePipelineW1 *live_pipeline_w1{nullptr};
 };
 
 struct alignas(16) SIMDHostAccelView {
@@ -879,7 +917,11 @@ struct LLVMSIMDRayQueryPipelineHandlers {
     // nonempty candidate-local handlers retain the general packet provider.
     bool surface_handler_empty{false};
     ::llvm::Function *on_candidate_live{nullptr};
+    ::llvm::Function *on_candidate_live_w1{nullptr};
+    std::vector<uint8_t> live_w1_capture_modes{};
+    std::vector<::llvm::Type *> live_w1_capture_scalar_types{};
     bool live_embree_safe{false};
+    bool handler_reads_object_ray{false};
     bool procedural_handler_empty{true};
     bool surface_exclusion_safe{false};
     bool surface_exclusion_terminate_on_commit{false};
@@ -1199,7 +1241,8 @@ lower_ray_query_handler_schedule_to_llvm(
     bool enable_paired_leaf_gather = false,
     uint32_t dispatch_worker_count = 1u,
     bool enable_native_predicated_loop = true,
-    size_t print_format_id_base = 0u);
+    size_t print_format_id_base = 0u,
+    bool is_surface_handler = false);
 
 // Direct Embree surface-filter handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

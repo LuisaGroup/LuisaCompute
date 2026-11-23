@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <algorithm>
 #include <cstdlib>
 #include "metal_device.h"
 #include "metal_buffer.h"
@@ -25,7 +26,8 @@ MetalShader::MetalShader(MetalDevice *device,
                          double compile_ms,
                          MetalShaderBinding binding,
                          luisa::vector<uint32_t> buffer_arguments) noexcept
-    : _handle{std::move(handle)},
+    : _device{device},
+      _handle{std::move(handle)},
       _argument_usages{std::move(argument_usages)},
       _argument_sampled{std::move(argument_sampled)},
       _bound_arguments{std::move(bound_arguments)},
@@ -38,6 +40,14 @@ MetalShader::MetalShader(MetalDevice *device,
       _codegen_ms{codegen_ms},
       _compile_ms{compile_ms},
       _prepare_indirect{device->builtin_prepare_indirect_dispatches()} {
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        for (const auto &table : _handle.entry_intersection_tables) {
+            _device->register_residency(table.get());
+        }
+        for (const auto &table : _handle.indirect_intersection_tables) {
+            _device->register_residency(table.get());
+        }
+    }
     if (!print_formats.empty()) {
         luisa::vector<std::pair<luisa::string, const Type *>> fmts;
         fmts.reserve(print_formats.size());
@@ -49,6 +59,14 @@ MetalShader::MetalShader(MetalDevice *device,
 }
 
 MetalShader::~MetalShader() noexcept {
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        for (const auto &table : _handle.entry_intersection_tables) {
+            _device->unregister_residency(table.get());
+        }
+        for (const auto &table : _handle.indirect_intersection_tables) {
+            _device->unregister_residency(table.get());
+        }
+    }
     if (_name) { _name->release(); }
     if (_indirect_name) { _indirect_name->release(); }
 }
@@ -102,8 +120,42 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         std::getenv("LUISA_METAL_COMMAND_BUFFER_PROFILE") != nullptr;
     if (profile_command_buffer) {
         std::scoped_lock lock{_name_mutex};
-        if (_name) { encoder.command_buffer()->setLabel(_name); }
+        if (_name) { encoder.set_command_buffer_label(_name); }
     }
+
+    const bool use_residency = encoder.owner_device() != nullptr &&
+                             encoder.owner_device()->residency_set() != nullptr;
+    auto has_write_usage = [this](size_t index) noexcept {
+        return (to_underlying(_argument_usages[index]) & to_underlying(Usage::WRITE)) != 0u;
+    };
+    auto has_read_usage = [this](size_t index) noexcept {
+        return (to_underlying(_argument_usages[index]) & to_underlying(Usage::READ)) != 0u;
+    };
+    auto record_written_arg = [&](Argument arg, size_t index) noexcept {
+        if (!has_write_usage(index)) { return; }
+        switch (arg.tag) {
+            case Argument::Tag::BUFFER: {
+                if (reinterpret_cast<const MetalBufferBase *>(arg.buffer.handle)->is_indirect()) {
+                    auto buffer = reinterpret_cast<const MetalIndirectDispatchBuffer *>(arg.buffer.handle);
+                    encoder.record_written_buffer(buffer->dispatch_buffer());
+                } else {
+                    auto buffer = reinterpret_cast<const MetalBuffer *>(arg.buffer.handle);
+                    encoder.record_written_buffer(buffer->handle());
+                }
+                break;
+            }
+            case Argument::Tag::TEXTURE: {
+                auto texture = reinterpret_cast<const MetalTexture *>(arg.texture.handle);
+                encoder.record_written_texture(texture->handle());
+                break;
+            }
+            case Argument::Tag::BINDLESS_ARRAY: {
+                encoder.record_written_bindless();
+                break;
+            }
+            default: break;
+        }
+    };
 
     if (_binding == MetalShaderBinding::DIRECT_BUFFERS) {
         LUISA_ASSERT(!command->is_indirect() && !command->is_multiple_dispatch(),
@@ -113,10 +165,13 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                      "Direct-buffer Tile shader ABI mismatch.");
         auto size = command->dispatch_size();
         if (any(size == 0u)) { return; }
-        auto compute_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
+        auto compute_encoder = encoder.compute_encoder();
         {
             std::scoped_lock lock{_name_mutex};
             if (_name) { compute_encoder->setLabel(_name); }
+        }
+        if (use_residency) {
+            encoder.prepare_compute_dispatch_barriers(compute_encoder, {}, true, false);
         }
         compute_encoder->setComputePipelineState(_handle.entry.get());
         for (auto slot = size_t{0u}; slot < _buffer_arguments.size(); slot++) {
@@ -134,12 +189,14 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             if (to_underlying(_argument_usages[index]) & to_underlying(Usage::READ)) { usage |= MTL::ResourceUsageRead; }
             if (to_underlying(_argument_usages[index]) & to_underlying(Usage::WRITE)) { usage |= MTL::ResourceUsageWrite; }
             if (usage != 0u) { compute_encoder->useResource(buffer, usage); }
+            if (use_residency && has_write_usage(index)) {
+                encoder.record_written_buffer(buffer);
+            }
         }
         auto block = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
         LUISA_ASSERT(all(size % block == 0u), "Device artifact requires complete threadgroups.");
         auto grid = size / block;
         compute_encoder->dispatchThreadgroups(MTL::Size{grid.x, grid.y, grid.z}, MTL::Size{block.x, block.y, block.z});
-        compute_encoder->endEncoding();
         return;
     }
 
@@ -280,11 +337,15 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             copy(&binding, sizeof(binding));
             printer_buffer = info.buffer;
         }
+        for (const auto &table : _handle.indirect_intersection_tables) {
+            auto id = table->gpuResourceID();
+            copy(&id, sizeof(id));
+        }
         auto argument_size = luisa::align(argument_offset, argument_alignment);
 
         // update indirect command buffer
         {
-            auto command_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
+            auto command_encoder = encoder.compute_encoder();
             {
                 std::scoped_lock lock{_name_mutex};
                 if (_indirect_name) { command_encoder->setLabel(_indirect_name); }
@@ -306,10 +367,13 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             command_encoder->useResource(indirect_buffer->dispatch_buffer(), MTL::ResourceUsageRead);
             command_encoder->useResource(indirect_buffer->command_buffer(), MTL::ResourceUsageWrite);
             command_encoder->setBytes(argument_buffer.data(), argument_size, 1u);
+            if (use_residency) {
+                encoder.prepare_compute_dispatch_barriers(command_encoder, {}, true, false);
+            }
             constexpr auto block_size = MetalDevice::prepare_indirect_dispatches_block_size;
             auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
             command_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u}, MTL::Size{block_size, 1u, 1u});
-            command_encoder->endEncoding();
+            encoder.close_compute_encoder();
 
             // TODO: is this necessary?
             // auto blit_encoder = encoder.command_buffer()->blitCommandEncoder();
@@ -319,7 +383,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         }
 
         // dispatch indirect
-        auto compute_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
+        auto compute_encoder = encoder.compute_encoder();
         {
             std::scoped_lock lock{_name_mutex};
             if (_name) { compute_encoder->setLabel(_name); }
@@ -328,10 +392,22 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                                                  NS::Range::Make(indirect_binding.offset,
                                                                  indirect_binding.capacity - indirect_binding.offset));
         argument_index = 0u;
-        for (auto arg : _bound_arguments) { mark_usage(compute_encoder, arg, argument_index++); }
-        for (auto arg : command->arguments()) { mark_usage(compute_encoder, arg, argument_index++); }
+        for (auto arg : _bound_arguments) {
+            mark_usage(compute_encoder, arg, argument_index);
+            if (use_residency) { record_written_arg(arg, argument_index); }
+            argument_index++;
+        }
+        for (auto arg : command->arguments()) {
+            mark_usage(compute_encoder, arg, argument_index);
+            if (use_residency) { record_written_arg(arg, argument_index); }
+            argument_index++;
+        }
         if (printer_buffer != nullptr) { compute_encoder->useResource(printer_buffer, mtl_usage(Usage::READ_WRITE)); }
-        compute_encoder->endEncoding();
+        if (!use_residency) {
+            for (const auto &table : _handle.indirect_intersection_tables) {
+                compute_encoder->useResource(table.get(), MTL::ResourceUsageRead);
+            }
+        }
 
     } else {
 
@@ -353,21 +429,45 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             }
         }
 
-        auto compute_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
+        auto compute_encoder = encoder.compute_encoder();
         {
             std::scoped_lock lock{_name_mutex};
             if (_name) { compute_encoder->setLabel(_name); }
         }
         compute_encoder->setComputePipelineState(_handle.entry.get());
 
+        luisa::fixed_vector<MetalBindlessArray *, 8u> read_bindless_arrays;
+        bool reads_any_buffer = false;
+        bool reads_any_texture = false;
+        auto collect_read_arg = [&](Argument arg, size_t index) noexcept {
+            if (!use_residency || !has_read_usage(index)) { return; }
+            switch (arg.tag) {
+                case Argument::Tag::BUFFER: reads_any_buffer = true; break;
+                case Argument::Tag::TEXTURE: reads_any_texture = true; break;
+                case Argument::Tag::BINDLESS_ARRAY: {
+                    auto *arr = reinterpret_cast<MetalBindlessArray *>(arg.bindless_array.handle);
+                    if (std::find(read_bindless_arrays.begin(), read_bindless_arrays.end(), arr) == read_bindless_arrays.end() &&
+                        read_bindless_arrays.size() < read_bindless_arrays.capacity()) {
+                        read_bindless_arrays.emplace_back(arr);
+                    }
+                    break;
+                }
+                default: break;
+            }
+        };
+
         auto argument_index = 0u;
         for (auto arg : _bound_arguments) {
             encode(arg, split_sampled_texture(argument_index, arg));
-            mark_usage(compute_encoder, arg, argument_index++);
+            mark_usage(compute_encoder, arg, argument_index);
+            collect_read_arg(arg, argument_index);
+            argument_index++;
         }
         for (auto arg : command->arguments()) {
             encode(arg, split_sampled_texture(argument_index, arg));
-            mark_usage(compute_encoder, arg, argument_index++);
+            mark_usage(compute_encoder, arg, argument_index);
+            collect_read_arg(arg, argument_index);
+            argument_index++;
         }
 
         // printer
@@ -376,6 +476,21 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             auto binding = info.binding();
             copy(&binding, sizeof(binding));
             compute_encoder->useResource(info.buffer, mtl_usage(Usage::READ_WRITE));
+        }
+        for (const auto &table : _handle.entry_intersection_tables) {
+            auto id = table->gpuResourceID();
+            copy(&id, sizeof(id));
+            if (!use_residency) {
+                compute_encoder->useResource(table.get(), MTL::ResourceUsageRead);
+            }
+        }
+
+        if (use_residency) {
+            encoder.prepare_compute_dispatch_barriers(
+                compute_encoder, read_bindless_arrays, reads_any_buffer, reads_any_texture);
+            auto write_index = size_t{0u};
+            for (auto arg : _bound_arguments) { record_written_arg(arg, write_index++); }
+            for (auto arg : command->arguments()) { record_written_arg(arg, write_index++); }
         }
 
         auto size = luisa::align(argument_offset, argument_alignment);
@@ -390,7 +505,6 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                 MTL::Size{blocks.x, blocks.y, blocks.z},
                 MTL::Size{block_size.x, block_size.y, block_size.z});
         }
-        compute_encoder->endEncoding();
     }
 }
 

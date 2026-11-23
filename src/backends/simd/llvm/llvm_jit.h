@@ -27,6 +27,8 @@ namespace luisa::compute::simd {
 class LLVMJIT {
 
 private:
+    bool _enable_fast_math{false};
+    bool _scalarize_w1{false};
     std::unique_ptr<::llvm::orc::LLJIT> _jit{};
     std::unique_ptr<::llvm::TargetMachine> _target_machine{};
     std::string _target_triple{};
@@ -41,13 +43,16 @@ private:
         ::llvm::Module &module) noexcept;
 
 public:
-    // Full O2 is retained for ordinary kernels. Very large scheduler modules
+    // Full O3 is retained for ordinary kernels. Very large scheduler modules
     // use O1 so compile time remains bounded instead of spending minutes in
     // whole-module IPO over a million-instruction state machine.
     [[nodiscard]] static bool selects_size_bounded_pipeline(
         size_t block_count, size_t instruction_count) noexcept;
 
-    explicit LLVMJIT(bool capture_object = false) noexcept;
+    explicit LLVMJIT(
+        bool capture_object = false,
+        bool enable_fast_math = false,
+        bool scalarize_w1 = false) noexcept;
     ~LLVMJIT() noexcept;
     LLVMJIT(LLVMJIT &&) noexcept;
     LLVMJIT &operator=(LLVMJIT &&) noexcept;

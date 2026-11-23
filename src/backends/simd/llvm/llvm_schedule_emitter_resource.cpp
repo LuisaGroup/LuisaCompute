@@ -14,6 +14,23 @@
 
 namespace luisa::compute::simd::detail {
 
+namespace {
+
+[[nodiscard]] ::llvm::Value *w1_vector_address(
+    ::llvm::IRBuilder<> &builder, ::llvm::Value *base,
+    ::llvm::Value *offsets, size_t leaf_offset, const char *name) noexcept {
+    auto *base_ptr = base->getType()->isVectorTy() ?
+                         builder.CreateExtractElement(base, builder.getInt32(0u)) :
+                         base;
+    auto *off = builder.CreateExtractElement(offsets, builder.getInt32(0u));
+    if (leaf_offset != 0u) {
+        off = builder.CreateAdd(off, builder.getInt64(leaf_offset));
+    }
+    return builder.CreateGEP(builder.getInt8Ty(), base_ptr, off, name);
+}
+
+}// namespace
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_leaf_pointers(
     ::llvm::Value *base, ::llvm::Value *offsets,
     size_t leaf_offset) {
@@ -46,6 +63,31 @@ namespace luisa::compute::simd::detail {
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_data_masked(
     ::llvm::Value *base, ::llvm::Value *offsets,
     const Type *type, ::llvm::Value *mask, size_t leaf_offset) {
+    if (_width == 1u && _vector_storage_component_count(type) != 0u) {
+        auto dim = type->dimension();
+        auto *elem_ty = _data_type(type->element(), false);
+        auto *vec_ty = ::llvm::FixedVectorType::get(elem_ty, dim);
+        auto *addr = w1_vector_address(
+            _builder, base, offsets, leaf_offset, "w1.vec.load.addr");
+        auto *active = _builder.CreateExtractElement(mask, _builder.getInt32(0u));
+        ::llvm::Value *loaded = nullptr;
+        if (auto *ci = ::llvm::dyn_cast<::llvm::ConstantInt>(active);
+            ci != nullptr && ci->isOne()) {
+            loaded = _builder.CreateAlignedLoad(
+                vec_ty, addr, ::llvm::Align{1u}, "w1.vec.load");
+        } else {
+            auto *vmask = _builder.CreateVectorSplat(dim, active);
+            loaded = _builder.CreateMaskedLoad(
+                vec_ty, addr, ::llvm::Align{1u}, vmask,
+                ::llvm::Constant::getNullValue(vec_ty), "w1.vec.mload");
+        }
+        auto *v1_ty = ::llvm::FixedVectorType::get(elem_ty, 1u);
+        return _assemble(type, true, [&](uint32_t i) {
+            auto *s = _builder.CreateExtractElement(loaded, _builder.getInt32(i));
+            return _builder.CreateInsertElement(
+                ::llvm::PoisonValue::get(v1_ty), s, _builder.getInt32(0u));
+        });
+    }
     if (_is_scalar_data(type)) {
         auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
         auto *element = type->is_bool() ?
@@ -626,6 +668,28 @@ void ScheduleEmitter::_scatter_data(
     ::llvm::Value *base, ::llvm::Value *offsets,
     const Type *type, ::llvm::Value *value,
     size_t leaf_offset) {
+    if (_width == 1u && _vector_storage_component_count(type) != 0u) {
+        auto dim = type->dimension();
+        auto *elem_ty = _data_type(type->element(), false);
+        auto *vec_ty = ::llvm::FixedVectorType::get(elem_ty, dim);
+        auto *addr = w1_vector_address(
+            _builder, base, offsets, leaf_offset, "w1.vec.store.addr");
+        ::llvm::Value *packed = ::llvm::PoisonValue::get(vec_ty);
+        for (uint32_t i = 0u; i < dim; ++i) {
+            auto *lane = _extract_child(value, type, i, true);
+            auto *s = _builder.CreateExtractElement(lane, _builder.getInt32(0u));
+            packed = _builder.CreateInsertElement(packed, s, _builder.getInt32(i));
+        }
+        auto *active = _builder.CreateExtractElement(_active_mask, _builder.getInt32(0u));
+        if (auto *ci = ::llvm::dyn_cast<::llvm::ConstantInt>(active);
+            ci != nullptr && ci->isOne()) {
+            _builder.CreateAlignedStore(packed, addr, ::llvm::Align{1u});
+        } else {
+            auto *vmask = _builder.CreateVectorSplat(dim, active);
+            _builder.CreateMaskedStore(packed, addr, ::llvm::Align{1u}, vmask);
+        }
+        return;
+    }
     if (_is_scalar_data(type)) {
         auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
         if (type->is_bool()) {

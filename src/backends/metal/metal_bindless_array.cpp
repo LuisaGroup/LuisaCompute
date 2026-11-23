@@ -32,7 +32,8 @@ static_assert(sizeof(DeviceBindlessSlotModification) == 64u);
 }// namespace
 
 MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcept
-    : _array{device->handle()->newBuffer(
+    : _device{device},
+      _array{device->handle()->newBuffer(
           size * sizeof(Slot), MTL::ResourceStorageModePrivate |
                                    MTL::ResourceHazardTrackingModeTracked)},
       _update{device->builtin_update_bindless_slots()},
@@ -40,9 +41,23 @@ MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcep
     _buffer_slots.resize(size);
     _tex2d_slots.resize(size);
     _tex3d_slots.resize(size);
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        _device->register_residency(_array);
+    }
 }
 
 MetalBindlessArray::~MetalBindlessArray() noexcept {
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        luisa::vector<const MTL::Allocation *> tracked_allocations;
+        tracked_allocations.emplace_back(_array);
+        _buffer_tracker.traverse([&](uint64_t handle) noexcept {
+            tracked_allocations.emplace_back(reinterpret_cast<MTL::Buffer *>(handle));
+        });
+        _texture_tracker.traverse([&](uint64_t handle) noexcept {
+            tracked_allocations.emplace_back(reinterpret_cast<MTL::Texture *>(handle));
+        });
+        _device->unregister_residency(tracked_allocations);
+    }
     _array->release();
 }
 
@@ -67,6 +82,24 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
     auto mods = cmd->steal_modifications();
     luisa::vector<DeviceBindlessSlotModification> device_mods;
     device_mods.reserve(mods.size());
+    const auto use_residency = _device != nullptr && _device->residency_set() != nullptr;
+    luisa::vector<const MTL::Allocation *> added_allocations;
+    luisa::vector<const MTL::Allocation *> removed_allocations;
+    auto retain_buffer = [&](MTL::Buffer *buffer) noexcept {
+        auto key = reinterpret_cast<uint64_t>(buffer);
+        if (use_residency && !_buffer_tracker.contains(key)) {
+            added_allocations.emplace_back(buffer);
+        }
+        _buffer_tracker.retain(key);
+    };
+    auto retain_texture = [&](MTL::Texture *texture) noexcept {
+        auto key = reinterpret_cast<uint64_t>(texture);
+        if (use_residency && !_texture_tracker.contains(key)) {
+            added_allocations.emplace_back(texture);
+        }
+        _texture_tracker.retain(key);
+    };
+
     for (auto &m : mods) {
         device_mods.emplace_back(DeviceBindlessSlotModification{
             .slot = m.slot,
@@ -98,8 +131,10 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
             device_mod.buffer.size_bytes = buffer_size;
             if (auto old_buffer = _buffer_slots[m.slot];
                 old_buffer != buffer) {
-                _buffer_tracker.release(reinterpret_cast<uint64_t>(old_buffer));
-                _buffer_tracker.retain(reinterpret_cast<uint64_t>(buffer));
+                if (old_buffer != nullptr) {
+                    _buffer_tracker.release(reinterpret_cast<uint64_t>(old_buffer));
+                }
+                retain_buffer(buffer);
                 _buffer_slots[m.slot] = buffer;
             }
         } else if (m.buffer.op == Mod::Operation::REMOVE) {
@@ -115,8 +150,10 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
             device_mod.tex2d.handle = luisa::bit_cast<uint64_t>(texture_id);
             if (auto old_texture = _tex2d_slots[m.slot];
                 old_texture != texture) {
-                _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
-                _texture_tracker.retain(reinterpret_cast<uint64_t>(texture));
+                if (old_texture != nullptr) {
+                    _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
+                }
+                retain_texture(texture);
                 _tex2d_slots[m.slot] = texture;
             }
         } else if (m.tex2d.op == Mod::Operation::REMOVE) {
@@ -132,8 +169,10 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
             device_mod.tex3d.handle = luisa::bit_cast<uint64_t>(texture_id);
             if (auto old_texture = _tex3d_slots[m.slot];
                 old_texture != texture) {
-                _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
-                _texture_tracker.retain(reinterpret_cast<uint64_t>(texture));
+                if (old_texture != nullptr) {
+                    _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
+                }
+                retain_texture(texture);
                 _tex3d_slots[m.slot] = texture;
             }
         } else if (m.tex3d.op == Mod::Operation::REMOVE) {
@@ -143,14 +182,33 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
             }
         }
     }
-    _buffer_tracker.commit();
-    _texture_tracker.commit();
+    _buffer_tracker.commit([&](uint64_t handle) noexcept {
+        if (use_residency) {
+            removed_allocations.emplace_back(reinterpret_cast<MTL::Buffer *>(handle));
+        }
+    });
+    _texture_tracker.commit([&](uint64_t handle) noexcept {
+        if (use_residency) {
+            removed_allocations.emplace_back(reinterpret_cast<MTL::Texture *>(handle));
+        }
+    });
+    if (use_residency) {
+        if (!added_allocations.empty()) {
+            _device->register_residency(added_allocations);
+        }
+        if (!removed_allocations.empty()) {
+            encoder.add_callback(FunctionCallbackContext::create(
+                [device = _device, removed = std::move(removed_allocations)] {
+                    device->unregister_residency(removed);
+                }));
+        }
+    }
 
     // update the buffer
     auto size_bytes = luisa::span{device_mods}.size_bytes();
     encoder.with_upload_buffer(size_bytes, [&](auto upload_buffer) noexcept {
         std::memcpy(upload_buffer->data(), device_mods.data(), size_bytes);
-        auto command_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
+        auto command_encoder = encoder.compute_encoder();
         command_encoder->setComputePipelineState(_update);
         command_encoder->setBuffer(_array, 0u, 0u);
         command_encoder->setBuffer(upload_buffer->buffer(), upload_buffer->offset(), 1u);
@@ -160,12 +218,16 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
         auto threadgroup_count = (n + block_size) / block_size;
         command_encoder->dispatchThreadgroups(MTL::Size{threadgroup_count, 1u, 1u},
                                               MTL::Size{block_size, 1u, 1u});
-        command_encoder->endEncoding();
+        command_encoder->memoryBarrier(MTL::BarrierScopeBuffers);
     });
 }
 
 void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encoder,
                                               MTL::ResourceUsage usage) noexcept {
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        encoder->useResource(_array, usage);
+        return;
+    }
     std::scoped_lock lock{_mutex};
     encoder->useResource(_array, MTL::ResourceUsageRead);
     _buffer_tracker.traverse([encoder, usage](auto resource) noexcept {
@@ -175,6 +237,28 @@ void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encode
         encoder->useResource(reinterpret_cast<MTL::Texture *>(resource),
                              MTL::ResourceUsageRead | MTL::ResourceUsageSample);
     });
+}
+
+bool MetalBindlessArray::contains_any_buffer(luisa::span<const MTL::Resource *const> resources) noexcept {
+    if (resources.empty()) { return false; }
+    std::scoped_lock lock{_mutex};
+    for (auto *resource : resources) {
+        if (_buffer_tracker.contains(reinterpret_cast<uint64_t>(resource))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MetalBindlessArray::contains_any_texture(luisa::span<const MTL::Resource *const> resources) noexcept {
+    if (resources.empty()) { return false; }
+    std::scoped_lock lock{_mutex};
+    for (auto *resource : resources) {
+        if (_texture_tracker.contains(reinterpret_cast<uint64_t>(resource))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }// namespace luisa::compute::metal

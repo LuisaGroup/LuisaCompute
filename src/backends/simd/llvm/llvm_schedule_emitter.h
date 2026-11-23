@@ -44,6 +44,7 @@ namespace luisa::compute::simd::detail {
 enum class ScheduleEntryABI {
     packet,
     ray_query_handler,
+    ray_query_surface_handler,
     ray_query_surface_filter_handler,
     outlined_callable,
 };
@@ -150,6 +151,11 @@ private:
         _ray_query_direct_output_surface_filter_state{};
     std::vector<uint8_t>
         _ray_query_surface_exclusion_soa_state{};
+    std::vector<uint8_t> _ray_query_live_only_state{};
+    ::llvm::AllocaInst *_w1_bindless_slot_scratch{nullptr};
+    std::array<::llvm::AllocaInst *, 3u> _w1_bindless_coord_scratch{};
+    ::llvm::AllocaInst *_w1_bindless_sampler_scratch{nullptr};
+    ::llvm::AllocaInst *_w1_bindless_result_scratch{nullptr};
     std::vector<::llvm::AllocaInst *> _ray_query_status_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_callback_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_live_dispatch_storage{};
@@ -170,6 +176,8 @@ private:
         _ray_query_surface_exclusion_soa_input_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_output_packet_storage{};
+    std::vector<::llvm::AllocaInst *>
+        _ray_query_w1_surface_exclusion_io_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_surface_filter_ray_packet_storage{};
     std::vector<::llvm::AllocaInst *>
@@ -832,8 +840,12 @@ private:
     }
     [[nodiscard]] bool _is_ray_query_handler_entry() const noexcept {
         return _entry_abi == ScheduleEntryABI::ray_query_handler ||
+               _entry_abi == ScheduleEntryABI::ray_query_surface_handler ||
                _entry_abi ==
                    ScheduleEntryABI::ray_query_surface_filter_handler;
+    }
+    [[nodiscard]] bool _is_ray_query_surface_handler_entry() const noexcept {
+        return _entry_abi == ScheduleEntryABI::ray_query_surface_handler;
     }
     [[nodiscard]] bool _is_outlined_callable_entry() const noexcept {
         return _entry_abi == ScheduleEntryABI::outlined_callable;

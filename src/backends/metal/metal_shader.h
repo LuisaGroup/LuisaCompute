@@ -13,6 +13,8 @@ class MetalShaderPrinter;
 struct MetalShaderHandle {
     NS::SharedPtr<MTL::ComputePipelineState> entry;
     NS::SharedPtr<MTL::ComputePipelineState> indirect_entry;
+    luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>> entry_intersection_tables;
+    luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>> indirect_intersection_tables;
 };
 
 enum class MetalShaderBinding : uint8_t { ARGUMENT_BUFFER,
@@ -24,6 +26,7 @@ public:
     using Argument = ShaderDispatchCommand::Argument;
 
 private:
+    MetalDevice *_device{nullptr};
     MetalShaderHandle _handle;
     luisa::vector<Usage> _argument_usages{};
     luisa::vector<uint8_t> _argument_sampled{};

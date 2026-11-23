@@ -611,6 +611,18 @@ void ScheduleEmitter::_allocate_state() {
                 ::llvm::Align{alignof(void *)});
             _ray_query_surface_exclusion_soa_accel_storage[slot] = accel;
         }
+        if (slot < _ray_query_w1_surface_exclusion_io_storage.size()) {
+            auto *io_type = ::llvm::ArrayType::get(
+                _builder.getInt8Ty(),
+                sizeof(SIMDHostRayQueryW1SurfaceExclusionIO));
+            auto *io = _builder.CreateAlloca(
+                io_type, nullptr,
+                "ray.query.w1.surface.exclusion.io.slot." +
+                    std::to_string(slot));
+            io->setAlignment(::llvm::Align{
+                alignof(SIMDHostRayQueryW1SurfaceExclusionIO)});
+            _ray_query_w1_surface_exclusion_io_storage[slot] = io;
+        }
         if (slot <
             _ray_query_surface_exclusion_soa_input_storage.size()) {
             auto *input_type = ::llvm::ArrayType::get(
@@ -876,55 +888,55 @@ void ScheduleEmitter::_partition_state_residency() {
                 pin(slot);
             }
         }
-        // Non-escaping UniformSoA private allocas now use direct aligned vector
-        // loads/stores that LLVM SROA would otherwise promote through the
-        // global state-machine dispatcher into tens of thousands of cross-block
-        // PHIs. Pin non-escaping UniformSoA allocas to their L1D stack slots
-        // while keeping escaping allocas (and outlined-callable reference
-        // parameters) non-volatile so intra-block CSE/DSE/LICM remain active.
+        // UniformSoA private allocas use direct aligned vector loads/stores
+        // that LLVM SROA would otherwise promote through the global
+        // state-machine dispatcher into tens of thousands of cross-block PHIs.
+        // Pin all UniformSoA allocas to their L1D stack slots: non-volatile
+        // pinning preserves intra-block CSE/DSE/LICM and outlined-callable
+        // reference arguments without shattering SSA across the scheduler.
         if (!_direct_control_flow) {
-            std::vector<::llvm::Value *> worklist;
-            std::unordered_set<::llvm::Value *> visited;
-            std::vector<::llvm::Instruction *> mem_ops;
-            for (size_t id = 0u; id < _local_allocations.size(); ++id) {
-                auto *alloca_inst = ::llvm::dyn_cast_or_null<::llvm::AllocaInst>(
-                    _local_allocations[id]);
-                if (alloca_inst == nullptr ||
-                    _local_soa_kind_of(
-                        schedule::ValueId{static_cast<uint32_t>(id)}) !=
-                        LocalSoAKind::uniform) {
-                    continue;
-                }
-                worklist.clear();
-                visited.clear();
-                mem_ops.clear();
-                worklist.push_back(alloca_inst);
-                visited.insert(alloca_inst);
-                auto escapes = false;
-                while (!worklist.empty()) {
-                    auto *v = worklist.back();
-                    worklist.pop_back();
-                    for (auto *u : v->users()) {
-                        if (auto *gep =
-                                ::llvm::dyn_cast<::llvm::GetElementPtrInst>(u)) {
-                            if (visited.insert(gep).second) {
-                                worklist.push_back(gep);
-                            }
-                        } else if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(u)) {
-                            mem_ops.push_back(load);
-                        } else if (auto *store = ::llvm::dyn_cast<::llvm::StoreInst>(u)) {
-                            if (store->getPointerOperand() == v) {
-                                mem_ops.push_back(store);
+            if (use_volatile_pin) {
+                std::vector<::llvm::Value *> worklist;
+                std::unordered_set<::llvm::Value *> visited;
+                std::vector<::llvm::Instruction *> mem_ops;
+                for (size_t id = 0u; id < _local_allocations.size(); ++id) {
+                    auto *alloca_inst = ::llvm::dyn_cast_or_null<::llvm::AllocaInst>(
+                        _local_allocations[id]);
+                    if (alloca_inst == nullptr ||
+                        _local_soa_kind_of(
+                            schedule::ValueId{static_cast<uint32_t>(id)}) !=
+                            LocalSoAKind::uniform) {
+                        continue;
+                    }
+                    worklist.clear();
+                    visited.clear();
+                    mem_ops.clear();
+                    worklist.push_back(alloca_inst);
+                    visited.insert(alloca_inst);
+                    auto escapes = false;
+                    while (!worklist.empty()) {
+                        auto *v = worklist.back();
+                        worklist.pop_back();
+                        for (auto *u : v->users()) {
+                            if (auto *gep =
+                                    ::llvm::dyn_cast<::llvm::GetElementPtrInst>(u)) {
+                                if (visited.insert(gep).second) {
+                                    worklist.push_back(gep);
+                                }
+                            } else if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(u)) {
+                                mem_ops.push_back(load);
+                            } else if (auto *store = ::llvm::dyn_cast<::llvm::StoreInst>(u)) {
+                                if (store->getPointerOperand() == v) {
+                                    mem_ops.push_back(store);
+                                } else {
+                                    escapes = true;
+                                }
                             } else {
                                 escapes = true;
                             }
-                        } else {
-                            escapes = true;
                         }
                     }
-                }
-                if (!escapes) {
-                    if (use_volatile_pin) {
+                    if (!escapes) {
                         for (auto *op : mem_ops) {
                             if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(op)) {
                                 load->setVolatile(true);
@@ -932,9 +944,19 @@ void ScheduleEmitter::_partition_state_residency() {
                                 store->setVolatile(true);
                             }
                         }
-                    } else {
-                        pin_alloca_non_volatile(alloca_inst);
                     }
+                }
+            } else {
+                for (size_t id = 0u; id < _local_allocations.size(); ++id) {
+                    auto *alloca_inst = ::llvm::dyn_cast_or_null<::llvm::AllocaInst>(
+                        _local_allocations[id]);
+                    if (alloca_inst == nullptr ||
+                        _local_soa_kind_of(
+                            schedule::ValueId{static_cast<uint32_t>(id)}) !=
+                            LocalSoAKind::uniform) {
+                        continue;
+                    }
+                    pin_alloca_non_volatile(alloca_inst);
                 }
             }
         }

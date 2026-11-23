@@ -1,6 +1,7 @@
 #include "metal_codegen_llvm_impl.h"
 
 #include <cstdlib>
+#include <llvm/IR/CFG.h>
 #include <luisa/xir/metadata/no_inline.h>
 
 namespace luisa::compute::metal::detail {
@@ -367,9 +368,19 @@ llvm::BasicBlock *MetalCodegenLLVMImpl::_translate_function(FunctionContext &con
     IB detached_builder{_context};
     for (auto phi : context.pending_phi_nodes) {
         auto llvm_phi = context.value<llvm::PHINode>(phi);
+        auto *parent_block = llvm_phi->getParent();
         for (auto i = 0u; i < phi->incoming_count(); i++) {
             auto [value, block] = phi->incoming(i);
-            llvm_phi->addIncoming(_value(detached_builder, context, value), context.block_exit(block));
+            auto *incoming_block = context.block_exit(block);
+            if (llvm_phi->getBasicBlockIndex(incoming_block) >= 0) { continue; }
+            auto *incoming_value = _value(detached_builder, context, value);
+            auto edge_count = 0u;
+            for (auto *pred : llvm::predecessors(parent_block)) {
+                if (pred == incoming_block) { ++edge_count; }
+            }
+            for (auto e = 0u; e < std::max(edge_count, 1u); e++) {
+                llvm_phi->addIncoming(incoming_value, incoming_block);
+            }
         }
     }
     for (auto block : function->basic_blocks()) {
@@ -904,13 +915,14 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
             auto instruction = static_cast<const xir::SwitchInst *>(inst);
             auto selector = _value(builder, function, instruction->value());
             auto selector_type = llvm::cast<llvm::IntegerType>(selector->getType());
-            auto llvm_switch = builder.CreateSwitch(selector,
-                                                    function.value<llvm::BasicBlock>(instruction->default_block()),
-                                                    instruction->case_count());
+            auto *default_bb = function.value<llvm::BasicBlock>(instruction->default_block());
+            auto llvm_switch = builder.CreateSwitch(selector, default_bb, instruction->case_count());
             for (auto i = 0u; i < instruction->case_count(); i++) {
+                auto *case_bb = function.value<llvm::BasicBlock>(instruction->case_block(i));
+                if (case_bb == default_bb) { continue; }
                 llvm_switch->addCase(
                     llvm::ConstantInt::get(selector_type, static_cast<uint64_t>(instruction->case_value(i)), false, true),
-                    function.value<llvm::BasicBlock>(instruction->case_block(i)));
+                    case_bb);
             }
             break;
         }
@@ -918,14 +930,15 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
             auto instruction = static_cast<const xir::IndexedBranchInst *>(inst);
             auto selector = _value(builder, function, instruction->value());
             auto selector_type = llvm::cast<llvm::IntegerType>(selector->getType());
+            auto *default_bb = function.value<llvm::BasicBlock>(instruction->default_block());
             auto llvm_switch = builder.CreateSwitch(
-                selector,
-                function.value<llvm::BasicBlock>(instruction->default_block()),
-                instruction->case_count());
+                selector, default_bb, instruction->case_count());
             for (auto i = 0u; i < instruction->case_count(); i++) {
+                auto *case_bb = function.value<llvm::BasicBlock>(instruction->case_block(i));
+                if (case_bb == default_bb) { continue; }
                 llvm_switch->addCase(
                     llvm::ConstantInt::get(selector_type, static_cast<uint64_t>(instruction->case_value(i)), false, true),
-                    function.value<llvm::BasicBlock>(instruction->case_block(i)));
+                    case_bb);
             }
             break;
         }

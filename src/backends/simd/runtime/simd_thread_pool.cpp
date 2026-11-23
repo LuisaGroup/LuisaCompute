@@ -18,6 +18,8 @@
 #elif defined(__linux__)
 #include <pthread.h>
 #include <sched.h>
+#elif defined(__APPLE__)
+#include <pthread.h>
 #endif
 
 namespace luisa::compute::simd {
@@ -89,6 +91,9 @@ SIMDThreadPool::SIMDThreadPool(uint32_t worker_count) noexcept
     _workers.reserve(_worker_count);
     for (auto worker = uint32_t{0u}; worker < _worker_count; worker++) {
         _workers.emplace_back([this, worker]() noexcept {
+#ifdef __APPLE__
+            pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
             pin_worker_thread(worker);
             _worker_loop(worker);
         });

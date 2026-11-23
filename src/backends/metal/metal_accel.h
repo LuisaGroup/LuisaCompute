@@ -18,6 +18,7 @@ public:
     static constexpr auto reserved_primitive_count = 1024u;
 
 private:
+    MetalDevice *_device{nullptr};
     MTL::AccelerationStructure *_handle{nullptr};
     MTL::Buffer *_instance_buffer{nullptr};
     MTL::Buffer *_update_buffer{nullptr};
@@ -25,6 +26,7 @@ private:
     MTL::ComputePipelineState *_update;
     luisa::vector<MetalPrimitive *> _primitives{};
     luisa::vector<MTL::Resource *> _resources{};
+    luisa::vector<const MTL::Allocation *> _registered_residency{};
     NS::String *_name{nullptr};
     AccelOption _option;
     bool _requires_rebuild{true};
@@ -40,6 +42,7 @@ public:
 private:
     void _do_build(MetalCommandEncoder &encoder) noexcept;
     void _do_update(MetalCommandEncoder &encoder) noexcept;
+    void _sync_residency(MetalCommandEncoder &encoder) noexcept;
 
 public:
     MetalAccel(MetalDevice *device, const AccelOption &option) noexcept;

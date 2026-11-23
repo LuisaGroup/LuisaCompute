@@ -190,17 +190,133 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
 
     builtin_library->release();
 
+    auto disable_residency_set = [] {
+        auto v = std::getenv("LUISA_METAL_DISABLE_RESIDENCY_SET");
+        return v != nullptr && v[0] != '\0' && (v[0] != '0' || v[1] != '\0');
+    }();
+    if (!disable_residency_set) {
+        auto residency_desc = NS::TransferPtr(
+            MTL::ResidencySetDescriptor::alloc()->init());
+        residency_desc->setInitialCapacity(256u);
+        residency_desc->setLabel(MTLSTR("LuisaCompute Metal Device ResidencySet"));
+        error = nullptr;
+        _residency_set = _handle->newResidencySet(residency_desc.get(), &error);
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to create Metal device residency set: {}.",
+                error->localizedDescription()->utf8String());
+        }
+        if (_residency_set != nullptr) {
+            _residency_refcounts.reserve(512u);
+            _residency_set->requestResidency();
+        }
+    }
+
     LUISA_INFO("Created Metal device '{}' at index {}.",
                _handle->name()->utf8String(), device_index);
 }
 
 MetalDevice::~MetalDevice() noexcept {
+    _compiler.reset();
+    if (_residency_set != nullptr) {
+        {
+            std::scoped_lock lock{_residency_mutex};
+            for (auto &[alloc, count] : _residency_refcounts) {
+                static_cast<void>(count);
+                _residency_set->removeAllocation(alloc);
+                _pending_residency_releases.emplace_back(alloc);
+            }
+            _residency_refcounts.clear();
+            _residency_set->commit();
+            _residency_set->endResidency();
+            for (auto *alloc : _pending_residency_releases) {
+                const_cast<MTL::Allocation *>(alloc)->release();
+            }
+            _pending_residency_releases.clear();
+            _residency_dirty.store(false, std::memory_order_relaxed);
+        }
+        _residency_set->release();
+        _residency_set = nullptr;
+    }
     _builtin_update_bindless_slots->release();
     _builtin_update_accel_instances->release();
     _builtin_prepare_indirect_dispatches->release();
     _builtin_swapchain_present_ldr->release();
     _builtin_swapchain_present_hdr->release();
     _handle->release();
+}
+
+void MetalDevice::register_residency(const MTL::Allocation *allocation) noexcept {
+    if (allocation == nullptr) { return; }
+    register_residency(luisa::span{&allocation, 1u});
+}
+
+void MetalDevice::register_residency(
+    luisa::span<const MTL::Allocation *const> allocations) noexcept {
+    if (allocations.empty() || _residency_set == nullptr) { return; }
+    std::scoped_lock lock{_residency_mutex};
+    luisa::fixed_vector<const MTL::Allocation *, 64u> newly_added;
+    for (auto *allocation : allocations) {
+        if (allocation == nullptr) { continue; }
+        auto [it, inserted] = _residency_refcounts.try_emplace(allocation, 0u);
+        static_cast<void>(inserted);
+        if (++it->second == 1u) {
+            const_cast<MTL::Allocation *>(allocation)->retain();
+            newly_added.emplace_back(allocation);
+        }
+    }
+    if (!newly_added.empty()) {
+        _residency_set->addAllocations(newly_added.data(), newly_added.size());
+        _residency_dirty.store(true, std::memory_order_release);
+    }
+}
+
+void MetalDevice::unregister_residency(const MTL::Allocation *allocation) noexcept {
+    if (allocation == nullptr) { return; }
+    unregister_residency(luisa::span{&allocation, 1u});
+}
+
+void MetalDevice::unregister_residency(
+    luisa::span<const MTL::Allocation *const> allocations) noexcept {
+    if (allocations.empty() || _residency_set == nullptr) { return; }
+    std::scoped_lock lock{_residency_mutex};
+    luisa::fixed_vector<const MTL::Allocation *, 64u> newly_removed;
+    for (auto *allocation : allocations) {
+        if (allocation == nullptr) { continue; }
+        if (auto it = _residency_refcounts.find(allocation);
+            it != _residency_refcounts.end() && --it->second == 0u) {
+            _residency_refcounts.erase(it);
+            newly_removed.emplace_back(allocation);
+            _pending_residency_releases.emplace_back(allocation);
+        }
+    }
+    if (!newly_removed.empty()) {
+        _residency_set->removeAllocations(newly_removed.data(), newly_removed.size());
+        if (_pending_residency_releases.size() >= 64u) {
+            _residency_set->commit();
+            for (auto *alloc : _pending_residency_releases) {
+                const_cast<MTL::Allocation *>(alloc)->release();
+            }
+            _pending_residency_releases.clear();
+            _residency_dirty.store(false, std::memory_order_release);
+        } else {
+            _residency_dirty.store(true, std::memory_order_release);
+        }
+    }
+}
+
+void MetalDevice::commit_residency_if_needed() noexcept {
+    if (!_residency_dirty.load(std::memory_order_acquire) || _residency_set == nullptr) {
+        return;
+    }
+    std::scoped_lock lock{_residency_mutex};
+    if (!_residency_dirty.load(std::memory_order_relaxed)) { return; }
+    _residency_set->commit();
+    for (auto *alloc : _pending_residency_releases) {
+        const_cast<MTL::Allocation *>(alloc)->release();
+    }
+    _pending_residency_releases.clear();
+    _residency_dirty.store(false, std::memory_order_release);
 }
 
 void *MetalDevice::native_handle() const noexcept {
@@ -253,7 +369,9 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element,
                                               void *external_memory) noexcept {
     return with_autorelease_pool([=, this] {
         if (element == Type::of<void>()) {
-            return create_device_buffer(_handle, 1u, elem_count, external_memory);
+            auto info = create_device_buffer(_handle, 1u, elem_count, external_memory);
+            register_residency(static_cast<MTL::Buffer *>(info.native_handle));
+            return info;
         }
         if (element->is_custom()) {
             // special handling of the indirect dispatch buffer
@@ -262,6 +380,8 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element,
                              "External memory is not supported "
                              "for indirect dispatch buffer.");
                 auto p = new_with_allocator<MetalIndirectDispatchBuffer>(_handle, elem_count);
+                register_residency(p->dispatch_buffer());
+                register_residency(p->command_buffer());
                 BufferCreationInfo info{};
                 info.handle = reinterpret_cast<uint64_t>(p);
                 info.native_handle = p->dispatch_buffer();
@@ -274,13 +394,23 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element,
         }
         // normal buffer
         auto elem_size = MetalCodegenAST::type_size_bytes(element);
-        return create_device_buffer(_handle, elem_size, elem_count, external_memory);
+        auto info = create_device_buffer(_handle, elem_size, elem_count, external_memory);
+        register_residency(static_cast<MTL::Buffer *>(info.native_handle));
+        return info;
     });
 }
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
-    with_autorelease_pool([=] {
+    with_autorelease_pool([=, this] {
         auto buffer = reinterpret_cast<MetalBufferBase *>(handle);
+        if (buffer->is_indirect()) {
+            auto indirect = static_cast<MetalIndirectDispatchBuffer *>(buffer);
+            unregister_residency(indirect->dispatch_buffer());
+            unregister_residency(indirect->command_buffer());
+        } else {
+            auto normal = static_cast<MetalBuffer *>(buffer);
+            unregister_residency(normal->handle());
+        }
         delete_with_allocator(buffer);
     });
 }
@@ -294,6 +424,10 @@ ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimens
         auto texture = new_with_allocator<MetalTexture>(
             _handle, format, dimension, width, height, depth,
             mipmap_levels, allow_simultaneous_access, allow_raster_target);
+        auto levels = texture->mipmap_level_count();
+        for (auto level = 0u; level < levels; level++) {
+            register_residency(texture->handle(level));
+        }
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(texture);
         info.native_handle = texture->handle();
@@ -302,8 +436,12 @@ ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimens
 }
 
 void MetalDevice::destroy_texture(uint64_t handle) noexcept {
-    with_autorelease_pool([=] {
+    with_autorelease_pool([=, this] {
         auto texture = reinterpret_cast<MetalTexture *>(handle);
+        auto levels = texture->mipmap_level_count();
+        for (auto level = 0u; level < levels; level++) {
+            unregister_residency(texture->handle(level));
+        }
         delete_with_allocator(texture);
     });
 }
@@ -329,7 +467,7 @@ void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
 ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
     return with_autorelease_pool([=, this] {
         auto stream = new_with_allocator<MetalStream>(
-            _handle, _inqueue_buffer_limit ? 4u : 0u);
+            this, _inqueue_buffer_limit ? 4u : 0u);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(stream);
         info.native_handle = stream->queue();
@@ -447,6 +585,8 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         auto codegen_ms = codegen_clock.toc();
         metadata.argument_sampled.assign(
             codegen.argument_sampled().begin(), codegen.argument_sampled().end());
+        metadata.intersection_functions.assign(
+            codegen.intersection_functions().begin(), codegen.intersection_functions().end());
 
         // kernel printing
         metadata.format_types.reserve(codegen.print_formats().size());

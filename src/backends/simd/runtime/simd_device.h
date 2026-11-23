@@ -13,7 +13,11 @@ class SIMDThreadPool;
 class SIMDDevice final : public DeviceInterface {
 
 private:
+#if defined(__aarch64__) || defined(_M_ARM64)
+    uint _warp_width{1u};
+#else
     uint _warp_width{8u};
+#endif
     RTCDevice _rtc_device{nullptr};
     luisa::unique_ptr<DefaultBinaryIO> _default_io{};
     const BinaryIO *_io{nullptr};

@@ -97,6 +97,9 @@ private:
     // resize/rebind commands; current in-range opacity still comes directly
     // from the public table.
     luisa::vector<SIMDHostAccelCommittedInstance> _committed_instances;
+    luisa::vector<uint8_t> _instance_flags;
+    size_t _instance_flags_size{0u};
+    bool _instance_flags_valid{false};
     luisa::vector<std::unique_ptr<MotionState>> _motion_states;
     SIMDHostAccelInstanceTable _instance_table{
         .ray_query_proceed_status = simd_host_ray_query_proceed_status,
@@ -177,11 +180,22 @@ private:
         const uint32_t *excl_inst0, const uint32_t *excl_prim0,
         const uint32_t *excl_inst1, const uint32_t *excl_prim1,
         uint32_t flags) noexcept;
+    static void _ray_query_surface_exclusion_w1(
+        void *accel,
+        SIMDHostRayQueryW1SurfaceExclusionIO *io,
+        uint32_t excl_inst0, uint32_t excl_prim0,
+        uint32_t excl_inst1, uint32_t excl_prim1,
+        uint32_t flags) noexcept;
     static void _ray_query_live_pipeline(
         uint32_t lane_count, uint64_t active_mask_bits,
         SIMDHostRayQueryState *const *states, const void *capture,
         const SIMDPacketLaunchConfig *launch_config,
         SIMDHostRayQueryLiveCandidateHandler *on_candidate,
+        uint32_t flags) noexcept;
+    static void _ray_query_live_pipeline_w1(
+        SIMDHostRayQueryState *state, const void *capture,
+        const SIMDPacketLaunchConfig *launch_config,
+        SIMDHostRayQueryW1LiveCandidateHandler *on_candidate,
         uint32_t flags) noexcept;
     static const SIMDHostAccelRayQueryLiveDispatch _live_dispatch;
     static LUISA_FORCE_INLINE void _ray_query_proceed_wide_lane(
@@ -195,6 +209,7 @@ public:
     ~SIMDAccel() noexcept;
 
     void build(const AccelBuildCommand &command) noexcept;
+    void mark_shader_instance_write() noexcept { _instance_flags_valid = false; }
     [[nodiscard]] auto native_handle() const noexcept { return _scene; }
     [[nodiscard]] SIMDHostAccelView host_view() noexcept {
         auto use_triangle_only_provider =

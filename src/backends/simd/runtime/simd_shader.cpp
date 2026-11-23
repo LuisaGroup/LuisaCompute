@@ -34,6 +34,7 @@
 #include "simd_accel.h"
 #include "simd_buffer.h"
 #include "../../common/cpu_fp_control.h"
+#include "../llvm/llvm_schedule_codegen.h"
 #include "simd_thread_pool.h"
 #include "simd_texture.h"
 
@@ -327,7 +328,7 @@ SIMDShader::SIMDShader(
         "SIMD thread block size {} must be a multiple of warp width {}.",
         block_threads, warp_width);
     _enable_packet_batch_entry =
-        warp_width != 1u && block_threads > warp_width &&
+        block_threads > warp_width &&
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY");
     _enable_block_batch_entry =
@@ -354,7 +355,7 @@ SIMDShader::SIMDShader(
     auto report_optimizations =
         detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
 
-    static constexpr uint32_t simd_shader_cache_abi = 14u;
+    static constexpr uint32_t simd_shader_cache_abi = 26u;
     const auto cache_enabled =
         binary_io != nullptr &&
         option.enable_cache &&
@@ -364,11 +365,30 @@ SIMDShader::SIMDShader(
         !report_optimizations &&
         !detail::env_flag("LUISA_SIMD_DISABLE_SHADER_CACHE");
 
+    const auto sparse_w1_max_lanes =
+        warp_width > 1u ? simd_sparse_w1_outlined_max_lanes() : 0u;
+    const char *w1_all_lanes_raw =
+        warp_width > 1u ? std::getenv("LUISA_SIMD_W1_ALL_LANES_NAME") : nullptr;
+    const luisa::string_view w1_all_lanes_name{
+        w1_all_lanes_raw != nullptr ? w1_all_lanes_raw : ""};
+    const uint64_t w1_all_lanes_hash = [&]() noexcept {
+        uint64_t h = 14695981039346656037ull;
+        for (const unsigned char ch : w1_all_lanes_name) {
+            h ^= ch;
+            h *= 1099511628211ull;
+        }
+        return h;
+    }();
+    const uint32_t opt_level_o2 =
+        detail::env_flag("LUISA_SIMD_OPT_LEVEL_O2") ? 1u : 0u;
+
     const auto cache_stem = cache_enabled ?
                                 luisa::format(
-                                    "kernel.{:016x}.w{}.fm{}.simd",
+                                    "kernel.{:016x}.w{}.fm{}.sw1_{}.w1a{:016x}.o{}.simd",
                                     kernel.hash(), warp_width,
-                                    option.enable_fast_math ? 1u : 0u) :
+                                    option.enable_fast_math ? 1u : 0u,
+                                    sparse_w1_max_lanes, w1_all_lanes_hash,
+                                    opt_level_o2) :
                                 luisa::string{};
     const auto cache_object_name =
         cache_enabled ? cache_stem + ".obj" : luisa::string{};
@@ -376,20 +396,21 @@ SIMDShader::SIMDShader(
         cache_enabled ? cache_stem + ".meta" : luisa::string{};
     auto build_cache_key = [&](std::string_view triple) {
         return luisa::format(
-            "abi={}|hash={:016x}|w={}|workers={}|bs={}x{}x{}|fm={}|pb={}|bb={}|triple={}",
+            "abi={}|hash={:016x}|w={}|workers={}|bs={}x{}x{}|fm={}|pb={}|bb={}|sw1={}|w1all={}|o2={}|triple={}",
             simd_shader_cache_abi, kernel.hash(), warp_width,
             dispatch_worker_count,
             _block_size.x, _block_size.y, _block_size.z,
             option.enable_fast_math ? 1u : 0u,
             _enable_packet_batch_entry ? 1u : 0u,
             _enable_block_batch_entry ? 1u : 0u,
+            sparse_w1_max_lanes, w1_all_lanes_name, opt_level_o2,
             triple);
     };
 
     bool loaded_from_cache = false;
     if (cache_enabled) {
         Clock cache_clock;
-        auto probe_jit = luisa::make_unique<LLVMJIT>(false);
+        auto probe_jit = luisa::make_unique<LLVMJIT>(false, option.enable_fast_math);
         if (probe_jit->succeeded()) {
             const auto expected_key =
                 build_cache_key(probe_jit->target_triple());
@@ -1002,7 +1023,12 @@ void SIMDShader::dispatch(
         offset = align_up(offset + size, 16u);
         return result;
     };
+    size_t arg_index = 0u;
     auto encode = [&](const Argument &argument) noexcept {
+        LUISA_ASSERT(
+            arg_index < _argument_usages.size(),
+            "SIMD shader argument index out of range.");
+        const auto usage = _argument_usages[arg_index++];
         switch (argument.tag) {
             case Argument::Tag::BUFFER: {
                 auto *buffer = reinterpret_cast<SIMDBuffer *>(
@@ -1050,6 +1076,10 @@ void SIMDShader::dispatch(
             case Argument::Tag::ACCEL: {
                 auto *accel = reinterpret_cast<SIMDAccel *>(
                     argument.accel.handle);
+                if ((luisa::to_underlying(usage) &
+                     luisa::to_underlying(Usage::WRITE)) != 0u) {
+                    accel->mark_shader_instance_write();
+                }
                 auto view = accel->host_view();
                 std::memcpy(
                     allocate(sizeof(view)), &view, sizeof(view));

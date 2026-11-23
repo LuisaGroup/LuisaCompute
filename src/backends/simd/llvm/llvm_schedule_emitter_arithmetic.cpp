@@ -100,6 +100,96 @@ namespace luisa::compute::simd::detail {
             operands[1u], operand_types[1u],
             operands[2u], operand_types[2u], varying, leaf);
     };
+    const bool w1_vec_f32_eligible =
+        _width == 1u && varying && result->type != nullptr &&
+        result->type->is_vector() && result->type->element()->is_float32() &&
+        result->type->dimension() >= 2u && result->type->dimension() <= 4u;
+    using NativeUnaryEmitFn = ::llvm::Value *(*)(
+        ::llvm::Module &, ::llvm::IRBuilder<> &,
+        ::llvm::Value *, cpu::LLVMNativeMathMode);
+    using NativeBinaryEmitFn = ::llvm::Value *(*)(
+        ::llvm::Module &, ::llvm::IRBuilder<> &,
+        ::llvm::Value *, ::llvm::Value *, cpu::LLVMNativeMathMode);
+    auto w1_pack_vec_f32 = [&](::llvm::Value *val, const Type *ty,
+                               uint32_t dim, uint32_t vec_w,
+                               ::llvm::Value *active,
+                               double neutral) noexcept -> ::llvm::Value * {
+        auto *f32_ty = _builder.getFloatTy();
+        auto *vec_ty = ::llvm::FixedVectorType::get(f32_ty, vec_w);
+        auto *neutral_val = ::llvm::ConstantFP::get(f32_ty, neutral);
+        if (_is_scalar_data(ty)) {
+            auto *scalar = _builder.CreateExtractElement(val, _builder.getInt32(0u));
+            auto *safe_scalar = _builder.CreateSelect(active, scalar, neutral_val);
+            auto *splat = _builder.CreateVectorSplat(vec_w, safe_scalar);
+            if (dim < vec_w) {
+                for (uint32_t i = dim; i < vec_w; ++i) {
+                    splat = _builder.CreateInsertElement(
+                        splat, neutral_val, _builder.getInt32(i));
+                }
+            }
+            return splat;
+        }
+        ::llvm::Value *packed = ::llvm::PoisonValue::get(vec_ty);
+        for (uint32_t i = 0u; i < vec_w; ++i) {
+            if (i < dim) {
+                auto *lane = _extract_child(val, ty, i, true);
+                auto *scalar = _builder.CreateExtractElement(lane, _builder.getInt32(0u));
+                auto *safe_scalar = _builder.CreateSelect(active, scalar, neutral_val);
+                packed = _builder.CreateInsertElement(
+                    packed, safe_scalar, _builder.getInt32(i));
+            } else {
+                packed = _builder.CreateInsertElement(
+                    packed, neutral_val, _builder.getInt32(i));
+            }
+        }
+        return packed;
+    };
+    auto w1_unpack_vec_f32 = [&](::llvm::Value *native, uint32_t dim) noexcept {
+        auto *f32x1_ty = ::llvm::FixedVectorType::get(_builder.getFloatTy(), 1u);
+        auto *res = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(_data_type(result->type, true)));
+        for (uint32_t i = 0u; i < dim; ++i) {
+            auto *elem = _builder.CreateExtractElement(native, _builder.getInt32(i));
+            auto *v1 = _builder.CreateInsertElement(
+                ::llvm::PoisonValue::get(f32x1_ty), elem, _builder.getInt32(0u));
+            res = _insert_child(res, v1, result->type, i, true);
+        }
+        return res;
+    };
+    auto w1_vec_unary = [&](NativeUnaryEmitFn emit_fn,
+                            double neutral,
+                            const char *err_msg) -> ::llvm::Value * {
+        if (!require(1u)) { return nullptr; }
+        const uint32_t dim = result->type->dimension();
+        const uint32_t vec_w = dim == 2u ? 2u : 4u;
+        auto *active = _builder.CreateExtractElement(_active_mask, _builder.getInt32(0u));
+        auto *safe = w1_pack_vec_f32(
+            operands[0u], operand_types[0u], dim, vec_w, active, neutral);
+        auto *native = emit_fn(_module, _builder, safe, native_math_mode);
+        if (native == nullptr) {
+            _fail(err_msg);
+            return nullptr;
+        }
+        return w1_unpack_vec_f32(native, dim);
+    };
+    auto w1_vec_binary = [&](NativeBinaryEmitFn emit_fn,
+                             double neutral_a, double neutral_b,
+                             const char *err_msg) -> ::llvm::Value * {
+        if (!require(2u)) { return nullptr; }
+        const uint32_t dim = result->type->dimension();
+        const uint32_t vec_w = dim == 2u ? 2u : 4u;
+        auto *active = _builder.CreateExtractElement(_active_mask, _builder.getInt32(0u));
+        auto *safe_a = w1_pack_vec_f32(
+            operands[0u], operand_types[0u], dim, vec_w, active, neutral_a);
+        auto *safe_b = w1_pack_vec_f32(
+            operands[1u], operand_types[1u], dim, vec_w, active, neutral_b);
+        auto *native = emit_fn(_module, _builder, safe_a, safe_b, native_math_mode);
+        if (native == nullptr) {
+            _fail(err_msg);
+            return nullptr;
+        }
+        return w1_unpack_vec_f32(native, dim);
+    };
     auto intrinsic = [&](::llvm::Intrinsic::ID id,
                          std::initializer_list<::llvm::Value *> args) {
         std::vector<::llvm::Value *> values{args};
@@ -616,6 +706,11 @@ namespace luisa::compute::simd::detail {
                 return _builder.CreateFCmpOEQ(absolute, infinity);
             });
         case xir::ArithmeticOp::ACOS:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_acos_f32, 0.0,
+                    "native SIMD acos requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -633,6 +728,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::acos, {value});
             });
         case xir::ArithmeticOp::ASIN:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_asin_f32, 0.0,
+                    "native SIMD asin requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -650,6 +750,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::asin, {value});
             });
         case xir::ArithmeticOp::ATAN:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_atan_f32, 0.0,
+                    "native SIMD atan requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -667,6 +772,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::atan, {value});
             });
         case xir::ArithmeticOp::ATAN2:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_binary(
+                    &cpu::LLVMNativeMath::emit_atan2_f32, 0.0, 1.0,
+                    "native SIMD atan2 requires fixed f32 vectors");
+            }
             return binary([&](::llvm::Value *y, ::llvm::Value *x,
                               const Type *y_type, const Type *)
                               -> ::llvm::Value * {
@@ -688,6 +798,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::atan2, {y, x});
             });
         case xir::ArithmeticOp::COS:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_cos_f32, 0.0,
+                    "native SIMD cos requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -705,6 +820,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::cos, {value});
             });
         case xir::ArithmeticOp::SIN:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_sin_f32, 0.0,
+                    "native SIMD sin requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -725,6 +845,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::sin, {value});
             });
         case xir::ArithmeticOp::TAN:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_tan_f32, 0.0,
+                    "native SIMD tan requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -742,6 +867,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::tan, {value});
             });
         case xir::ArithmeticOp::COSH:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_cosh_f32, 0.0,
+                    "native SIMD cosh requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -758,6 +888,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::cosh, {value});
             });
         case xir::ArithmeticOp::SINH:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_sinh_f32, 0.0,
+                    "native SIMD sinh requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -774,6 +909,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::sinh, {value});
             });
         case xir::ArithmeticOp::TANH:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_tanh_f32, 0.0,
+                    "native SIMD tanh requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -790,6 +930,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::tanh, {value});
             });
         case xir::ArithmeticOp::ASINH:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_asinh_f32, 0.0,
+                    "native SIMD asinh requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -806,6 +951,11 @@ namespace luisa::compute::simd::detail {
                 return scalar_libm("asinh", value);
             });
         case xir::ArithmeticOp::ACOSH:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_acosh_f32, 1.0,
+                    "native SIMD acosh requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -822,6 +972,11 @@ namespace luisa::compute::simd::detail {
                 return scalar_libm("acosh", value);
             });
         case xir::ArithmeticOp::ATANH:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_atanh_f32, 0.0,
+                    "native SIMD atanh requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -862,6 +1017,11 @@ namespace luisa::compute::simd::detail {
                 return scalar_libm("expm1", value);
             });
         case xir::ArithmeticOp::EXP:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_exp_f32, 0.0,
+                    "native SIMD exp requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -879,6 +1039,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::exp, {value});
             });
         case xir::ArithmeticOp::EXP2:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_exp2_f32, 0.0,
+                    "native SIMD exp2 requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -896,6 +1061,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::exp2, {value});
             });
         case xir::ArithmeticOp::EXP10:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_exp10_f32, 0.0,
+                    "native SIMD exp10 requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -913,6 +1083,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::exp10, {value});
             });
         case xir::ArithmeticOp::LOG:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_log_f32, 1.0,
+                    "native SIMD log requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -930,6 +1105,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::log, {value});
             });
         case xir::ArithmeticOp::LOG2:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_log2_f32, 1.0,
+                    "native SIMD log2 requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -947,6 +1127,11 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::log2, {value});
             });
         case xir::ArithmeticOp::LOG10:
+            if (w1_vec_f32_eligible) {
+                return w1_vec_unary(
+                    &cpu::LLVMNativeMath::emit_log10_f32, 1.0,
+                    "native SIMD log10 requires fixed f32 vectors");
+            }
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
                 if (varying && type->is_float32()) {
@@ -964,6 +1149,41 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(::llvm::Intrinsic::log10, {value});
             });
         case xir::ArithmeticOp::POW:
+            if (w1_vec_f32_eligible && operands.size() == 2u) {
+                auto is_fast_pow_scalar = [&](::llvm::Constant *c) noexcept {
+                    if (c == nullptr) { return false; }
+                    auto *cfp = ::llvm::dyn_cast<::llvm::ConstantFP>(c);
+                    if (cfp == nullptr) {
+                        cfp = ::llvm::dyn_cast_or_null<::llvm::ConstantFP>(
+                            c->getSplatValue());
+                    }
+                    if (cfp == nullptr) { return false; }
+                    const double v = cfp->getValueAPF().convertToDouble();
+                    return v == 2.0 || v == 3.0 || v == 4.0 || v == 5.0 ||
+                           (v == 0.5 && _enable_fast_math);
+                };
+                bool fast_const_exp = false;
+                if (auto *exp_const = ::llvm::dyn_cast<::llvm::Constant>(operands[1u])) {
+                    if (_is_scalar_data(operand_types[1u])) {
+                        fast_const_exp = is_fast_pow_scalar(exp_const);
+                    } else if (operand_types[1u] != nullptr &&
+                               operand_types[1u]->is_vector()) {
+                        const uint32_t dim = result->type->dimension();
+                        fast_const_exp = true;
+                        for (uint32_t i = 0u; i < dim; ++i) {
+                            if (!is_fast_pow_scalar(exp_const->getAggregateElement(i))) {
+                                fast_const_exp = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!fast_const_exp) {
+                    return w1_vec_binary(
+                        &cpu::LLVMNativeMath::emit_pow_f32, 1.0, 0.0,
+                        "native SIMD pow requires fixed f32 vectors");
+                }
+            }
             return binary([&](::llvm::Value *base,
                               ::llvm::Value *exponent,
                               const Type *base_type, const Type *)

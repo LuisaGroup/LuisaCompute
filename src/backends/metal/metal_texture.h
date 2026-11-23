@@ -28,6 +28,7 @@ public:
     ~MetalTexture() noexcept;
     [[nodiscard]] MTL::Texture *handle(uint level = 0u) const noexcept;
     [[nodiscard]] Binding binding(uint level = 0u) const noexcept;
+    [[nodiscard]] auto mipmap_level_count() const noexcept { return static_cast<uint>(_maps[0u]->mipmapLevelCount()); }
     [[nodiscard]] auto format() const noexcept { return _format; }
     [[nodiscard]] auto storage() const noexcept { return pixel_format_to_storage(_format); }
     void set_name(luisa::string_view name) noexcept;
