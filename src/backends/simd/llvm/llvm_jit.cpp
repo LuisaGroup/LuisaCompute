@@ -272,9 +272,16 @@ bool scalarize_v1_instructions(::llvm::Function &function) noexcept {
                 bool valid_preds = true;
                 for (unsigned i = 0u; i < phi.getNumIncomingValues(); ++i) {
                     auto *term = phi.getIncomingBlock(i)->getTerminator();
+#if LLVM_VERSION_MAJOR >= 24
+                    if (term == nullptr ||
+                        (!::llvm::isa<::llvm::UncondBrInst>(term) &&
+                         !::llvm::isa<::llvm::CondBrInst>(term) &&
+                         !::llvm::isa<::llvm::SwitchInst>(term))) {
+#else
                     if (term == nullptr ||
                         (!::llvm::isa<::llvm::BranchInst>(term) &&
                          !::llvm::isa<::llvm::SwitchInst>(term))) {
+#endif
                         valid_preds = false;
                         break;
                     }
@@ -283,7 +290,12 @@ bool scalarize_v1_instructions(::llvm::Function &function) noexcept {
                 auto *elt_ty = ::llvm::cast<::llvm::FixedVectorType>(phi.getType())
                                    ->getElementType();
                 auto *new_phi = ::llvm::PHINode::Create(
-                    elt_ty, phi.getNumIncomingValues(), phi.getName(), &phi);
+                    elt_ty, phi.getNumIncomingValues(), phi.getName(),
+#if LLVM_VERSION_MAJOR >= 24
+                    phi.getIterator());
+#else
+                    &phi);
+#endif
                 ::llvm::IRBuilder<> b_wrap{&bb, bb.getFirstInsertionPt()};
                 auto *wrapped = wrap_v1(b_wrap, new_phi);
                 phi.replaceAllUsesWith(wrapped);
