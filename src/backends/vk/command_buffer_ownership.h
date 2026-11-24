@@ -34,4 +34,20 @@ plan_command_buffer_retirement(
                               ownership == CommandBufferOwnership::PERSISTENT};
 }
 
+// Whether `CommandBuffer::release_native_batch()` may hand this buffer (and its
+// state, and therefore the command pool the buffer was allocated from) to a replay
+// graph. Only a PERSISTENT buffer qualifies:
+//   * a BACKEND buffer is owned by the stream's retirement FIFO or by
+//     `~CommandBuffer`, which both free it against the same pool - releasing it
+//     would produce a second free of the same native handle;
+//   * a BORROWED buffer belongs to the config ext's pool, which the backend created
+//     neither for this recording nor for a resubmission, so it must never be freed
+//     here at all (`free_native_buffer` is false for it by design).
+// This is the sole acquisition path of a recording (`Stream::_begin_batch_record`
+// with PERSISTENT), stated as a predicate so a test can assert it without a device.
+[[nodiscard]] constexpr bool may_release_native_batch(
+    CommandBufferOwnership ownership) noexcept {
+    return ownership == CommandBufferOwnership::PERSISTENT;
+}
+
 }// namespace lc::vk::detail

@@ -1,3 +1,11 @@
+// Everything in this file is behind the Vulkan submit profiler's private
+// compile-time macro LUISA_VULKAN_PROFILE_SUBMIT (default 0), because the
+// assertions below read the profiler's `vk_profile_*` counters: with the macro
+// off those keys answer the empty string, so the test would assert nothing.
+// A default build therefore gets a `main` that only prints that requirement.
+// The macro is a source-level opt-in: it is deliberately not an XMake/CMake
+// option and not an environment variable.
+//
 // Runtime test for the capability-adaptive queue submission of the Vulkan backend
 // (plan P2.1: vkQueueSubmit2 + VkSemaphoreSubmitInfo stage masks on a
 // synchronization2 device, unchanged vkQueueSubmit on the Vulkan 1.2 floor).
@@ -21,6 +29,13 @@
 // The present path is not exercised: it needs a window/swapchain, which this
 // environment does not have (see the report); the present submission *shape* is
 // covered on the host by test_vk_queue_submit_plan.
+// The gate of the instrument (same default as src/backends/vk/submit_profile.h).
+#if !defined(LUISA_VULKAN_PROFILE_SUBMIT)
+#define LUISA_VULKAN_PROFILE_SUBMIT 0
+#endif
+
+#if LUISA_VULKAN_PROFILE_SUBMIT
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 
@@ -46,15 +61,8 @@ namespace {
 
 constexpr auto kThreadsPerDispatch = 32u;
 
-// The profiler latches on first use, so the variable has to be set before the
-// backend records anything - in practice before the device exists.
-void latch_profile_mode() noexcept {
-#ifdef _WIN32
-    _putenv_s("LUISA_VULKAN_PROFILE_SUBMIT", "1");
-#else
-    setenv("LUISA_VULKAN_PROFILE_SUBMIT", "1", 1);
-#endif
-}
+// Nothing latches the mode: it is compiled in, so the counters this test reads
+// exist exactly when the backend library was built with the same macro.
 
 [[nodiscard]] uint64_t counter(Device &device, const char *key) noexcept {
     auto text = device.query(key);
@@ -361,7 +369,6 @@ void reg_repeated_event_rounds(Device &device) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    latch_profile_mode();
     // `--min-api 1.2` forces the legacy submission path in the same build: it is a
     // device-creation input, so it is parsed here and removed from argv.
     auto requested_1_2 = false;
@@ -400,3 +407,24 @@ int main(int argc, char *argv[]) {
     reg_repeated_event_rounds(device);
     return 0;
 }
+
+
+#else// !LUISA_VULKAN_PROFILE_SUBMIT
+
+// The submission counters this test reads are part of the compile-time submit
+// profiler (see src/backends/vk/submit_profile.h), so a default build has
+// nothing to check and - more importantly - must not pretend that it did: the
+// binary prints what it needs and exits successfully.
+#include <cstdio>
+
+int main() {
+    std::fprintf(stderr,
+                 "test_vk_queue_submit_runtime: nothing was tested. This binary "
+                 "needs the compile-time macro LUISA_VULKAN_PROFILE_SUBMIT=1 in the "
+                 "backend library *and* in this test; it is a private source-level "
+                 "opt-in, deliberately not an XMake/CMake option and not an "
+                 "environment variable.\n");
+    return 0;
+}
+
+#endif// LUISA_VULKAN_PROFILE_SUBMIT

@@ -47,6 +47,7 @@
 #include <limits>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/vstl/vector.h>
 
@@ -95,15 +96,15 @@ private:
     // terminates on an empty slot.
     vstd::vector<Slot> _slots;
     size_t _consumed{0u};
-    // TODO: use luisa::hash API here
+    // The slot of a command identity. `luisa::hash` covers raw pointers, so it
+    // hashes the pointer value through the project's seeded 64-bit mixer instead of
+    // a local one; the mixer is the avalanche step of the open-addressing table, and
+    // the low bits it produces are what the probe uses. The table semantics are
+    // unaffected: keys are only ever compared for equality, never ordered, so the
+    // only requirement on this function is that it is stable for one pointer and
+    // spreads distinct pointers over the slot array.
     [[nodiscard]] static size_t _hash(Command const *command) noexcept {
-        // Commands are aligned heap objects, so the low pointer bits carry no
-        // information; drop them and mix what is left.
-        auto value = reinterpret_cast<uintptr_t>(command) / sizeof(void *);
-        value ^= value >> 17u;
-        value *= static_cast<uintptr_t>(0x9e3779b97f4a7c15ull);
-        value ^= value >> 17u;
-        return static_cast<size_t>(value);
+        return static_cast<size_t>(luisa::hash<Command const *>{}(command));
     }
 
     // Smallest power of two >= count + ceil(count / 2) + 1, at least 64: enough

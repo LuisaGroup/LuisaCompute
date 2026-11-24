@@ -33,10 +33,24 @@
 // Examples:
 //   xmake run benchmark_command_reorder_host vk
 //   xmake run benchmark_command_reorder_host dx 1 256 200 32 5
+// Everything this benchmark added for the Vulkan profiling work (the
+// descriptor-path A/B switches, their device config and the restore-cost report)
+// is gated by the submit profiler's private compile-time macro
+// LUISA_VULKAN_PROFILE_SUBMIT (default 0). The reorder measurement itself is
+// untouched and always available. The macro is a source-level opt-in: it is
+// deliberately not an XMake/CMake option and not an environment variable.
+#if !defined(LUISA_VULKAN_PROFILE_SUBMIT)
+#define LUISA_VULKAN_PROFILE_SUBMIT 0
+#endif
+
 #include "ut/ut.hpp"// boost.ut cfg used by test_device.h
 #include "test_device.h"
 #include <luisa/backends/ext/command_reorder_ext.h>
+// The A/B switch is a VulkanDeviceConfigExt and the profiler report reads Vulkan
+// capability keys, so both only exist in a profiler-enabled build.
+#if LUISA_VULKAN_PROFILE_SUBMIT
 #include <luisa/backends/ext/vk_config_ext.h>
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/sugar.h>
@@ -49,8 +63,10 @@
 #include <luisa/core/stl/string.h>
 #include <algorithm>
 #include <charconv>
-#include <cstdlib>
-#include <cstring>
+#if LUISA_VULKAN_PROFILE_SUBMIT
+#include <cstdlib>// std::strtoull, profiler report only
+#include <cstring>// std::strcmp, the A/B command line only
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
 #include <numeric>
 using namespace luisa;
 using namespace luisa::compute;
@@ -77,6 +93,7 @@ struct Options {
     return parse_uint(text, name, 1u);
 }
 
+#if LUISA_VULKAN_PROFILE_SUBMIT
 // Plan P2.2 A/B switch: `--descriptor-update-template` (anywhere after the backend
 // argument) answers VulkanDeviceConfigExt::enable_descriptor_update_template()
 // with true, so every per-dispatch set-0 update goes through a cached
@@ -104,6 +121,7 @@ struct Options {
          return _push;
      }
  };
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
 
 struct Statistics {
     double min{};
@@ -180,6 +198,7 @@ int main(int argc, char *argv[]) {
             argv[0]);
         return 1;
     }
+#if LUISA_VULKAN_PROFILE_SUBMIT
     // Strip the P2.2 switch (and only it) before the positional arguments are
     // read, so `... vk 0 256 200 32 5 --descriptor-update-template` and
     // `... vk 0 256 200 32 5` describe the same workload.
@@ -210,6 +229,7 @@ int main(int argc, char *argv[]) {
         argv[kept] = nullptr;
         argc = kept;
     }
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
 
     Options opt;
     if (argc > 2) {
@@ -236,7 +256,8 @@ int main(int argc, char *argv[]) {
     } else {
         log_level_info();
     }
-    // P2.2 A/B: with `--descriptor-update-template` every per-dispatch set-0
+#if LUISA_VULKAN_PROFILE_SUBMIT
+ // P2.2/P2.3 A/B: with `--descriptor-update-template` every per-dispatch set-0
     // update goes through a cached VkDescriptorUpdateTemplate; without it the
     // library default (legacy vkUpdateDescriptorSets, the measured-faster path)
     // runs. Both use the same creation helper otherwise.
@@ -261,6 +282,12 @@ int main(int argc, char *argv[]) {
  device.query("vk_descriptor_update_template_path"),
  device.query("vk_push_descriptor_path"),
  device.query("vk_push_descriptor_max_count"));
+#else
+ // The descriptor-path A/B harness and the report above belong to the gated block:
+ // a default build creates the device exactly as it always did - no config
+ // extension and no descriptor-path query.
+ auto [context, device] = test::create_device(argc, argv);
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
     auto stream = device.create_stream();
 
     auto *reorder_ext = device.extension<CommandReorderExt>();
@@ -318,13 +345,14 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Host cost ratio (median, disabled / enabled): {:.2f}x",
                off.median / on.median);
 
-    // Plan phase-3 gate (§5.1): the same run, with LUISA_VULKAN_PROFILE_SUBMIT=1,
-    // attributes the host encode window. The restore barrier of F5 is the one
-    // cost phase 3 could remove, so it is reported as ns per restore, ns per
-    // batch and as a fraction of the measured host encode time. These counters
-    // are cumulative for the process, which is why this block prints them only
-    // when the caller latched the mode: the timing groups above were measured
-    // with the counters *off* in a separate run.
+#if LUISA_VULKAN_PROFILE_SUBMIT
+ // Plan phase-3 gate (§5.1): the same run, in a profiler-enabled build, attributes
+ // the host encode window. The restore barrier of F5 is the one cost phase 3 could
+ // remove, so it is reported as ns per restore, ns per batch and as a fraction of
+ // the measured host encode time. The whole block exists only with
+ // LUISA_VULKAN_PROFILE_SUBMIT=1 (without it there are no counters to read), and
+ // the counters are cumulative for the process, so the timing groups above should
+ // be measured in a run built without the macro.
     if (device.query("vk_profile_enabled") == "1") {
         auto read_counter = [&device](const char *key) {
             auto text = device.query(key);
@@ -362,5 +390,6 @@ int main(int argc, char *argv[]) {
                    restores == 0u ? 0.0 : static_cast<double>(state_buffers) / static_cast<double>(restores),
                    restores == 0u ? 0.0 : static_cast<double>(state_mips) / static_cast<double>(restores));
     }
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
     return 0;
 }

@@ -12,11 +12,14 @@
 //
 // This extension splits the work of a *batch* of requests into two phases:
 //
-//  1. **prepare** (parallel, on a device-owned bounded worker pool): everything
-//     that produces host data - the XIR -> SPIR-V route decision, the shader-cache
+//  1. **prepare** (parallel, on bounded preparation lanes): everything that
+//     produces host data - the XIR -> SPIR-V route decision, the shader-cache
 //     lookup, code generation, the SPIR-V optimizer and validator, and the
 //     encoding of the bytecode artifact. No Vulkan object is created here, so a
-//     worker thread never enters the driver.
+//     preparation lane never enters the driver. The lanes run on the marl fiber
+//     scheduler captured on the Device constructor thread when one was bound;
+//     otherwise the device owns std::thread workers. A captured scheduler is
+//     external and must outlive the Device and every batch.
 //  2. **publish** (serial, in request order, on the calling thread):
 //     `vkCreateShaderModule`, `vkCreateComputePipelines` (through the device
 //     pipeline cache's external-synchronization lease), the interned-layout
@@ -51,16 +54,21 @@
 //
 // Threading contract
 // ------------------
-//  * `compile_shaders()` is synchronous and must be called from a non-worker
-//    thread. It may be called concurrently from several threads; each call
-//    prepares on the shared pool and publishes its own requests in its own order.
+//  * `compile_shaders()` is synchronous. It may be called concurrently from
+//    several threads or scheduler fibers; each call prepares on the shared pool
+//    and publishes its own requests in its own order. A call made re-entrantly
+//    from one of this pool's preparation lanes falls back to serial compilation
+//    instead of waiting for the pool itself. A scheduler captured with zero
+//    worker threads likewise uses serial preparation and never creates an
+//    owning std::thread fallback.
 //  * The caller must keep every request's AST alive for the duration of the call
 //    (the same rule as `Device::compile`, which needs the DSL kernel object to
 //    outlive the call). The requests are not consumed.
 //  * `shutdown_pool()` is idempotent and may be called while a batch is in
 //    flight: already-queued requests still complete, and every later request
 //    reports `POOL_SHUTDOWN`. `~Device` calls it before it destroys the
-//    pipeline cache, the interned layouts and the BinaryIO.
+//    pipeline cache, the interned layouts and the BinaryIO. Shutdown joins only
+//    workers owned by the pool; an external fiber scheduler remains caller-owned.
 //  * The extension holds no per-call state of its own: it is a view over the
 //    device, like `VulkanReplayExt`.
 //
@@ -132,8 +140,8 @@ struct VulkanShaderCompileCapabilities {
     // a worker (per-worker DXC context). False means such a request always
     // reports `serial_fallback`.
     bool parallel_hlsl_compatibility_route{false};
-    // Upper bound of `worker_count` a caller may ask for; the effective count is
-    // clamped to it and to the hardware concurrency.
+    // Upper bound of `worker_count` a caller may ask for; the effective lane
+    // count is clamped to it and to the available hardware/scheduler concurrency.
     uint32_t max_workers{32u};
 };
 
@@ -167,9 +175,10 @@ public:
     // Compile `requests` and publish the shaders in request order on the calling
     // thread. `results` is resized to `requests.size()`; `results[i]` describes
     // `requests[i]`. `worker_count == 0` means "use the device default"
-    // (`luisa::max(1u, hardware_concurrency - 1)`, clamped to
-    // `capabilities().max_workers`); `worker_count == 1` runs the same two-phase
-    // machinery with a single worker, which is the A/B control for the pool.
+    // (one fewer than hardware_concurrency for owned threads, or the captured
+    // scheduler's worker count for fibers, clamped to `capabilities().max_workers`);
+    // `worker_count == 1` runs the same two-phase machinery with a single lane,
+    // which is the A/B control for the pool.
     virtual VulkanShaderCompileStatus compile_shaders(
         luisa::span<const VulkanShaderCompileRequest> requests,
         luisa::vector<VulkanShaderCompileResult> &results,

@@ -2053,6 +2053,19 @@ void CommandBufferState::reset(
     bind_state.reset();
 }
 bool CommandBuffer::retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees) {
+    // A retired batch always holds both halves of its native state. The guard is
+    // what the retirement thread relies on after a move: `release_native_batch()`
+    // empties this object (so the graph owns the state) and a moved-from or
+    // already-released buffer must be neither reset nor recycled - and must never
+    // reach `*device()` / `_state->reset()`, which would be null dereferences.
+    if (_cmdbuffer == VK_NULL_HANDLE || _state == nullptr) { return false; }
+    // A recording is handed straight to its graph and never enters the retirement
+    // FIFO, so its state is never reset here. If it ever did, `_state->reset()`
+    // below would wipe the descriptor pools of a command buffer a graph resubmits.
+    LUISA_ASSERT(!detail::may_release_native_batch(_ownership),
+                 "Vulkan: a replay recording (PERSISTENT) must never be retired "
+                 "and recycled by a stream; its native state belongs to a replay "
+                 "graph.");
     auto retirement = detail::plan_command_buffer_retirement(_ownership);
     if (retirement.reset_native_buffer) {
         VK_CHECK_RESULT(vkResetCommandBuffer(_cmdbuffer, 0));
@@ -2605,13 +2618,35 @@ void Stream::dispatch(
 
     _mtx.unlock();
 }
-CommandBuffer Stream::_begin_batch_record(VkCommandBufferUsageFlags flags) {
+CommandBuffer Stream::_begin_batch_record(
+    detail::CommandBufferOwnership ownership,
+    VkCommandBufferUsageFlags flags) {
     // Extracted verbatim from `Stream::dispatch` (plan P4): a recycled command
-    // buffer if the pool has one, a fresh one otherwise.
+    // buffer if the pool has one, a fresh one otherwise - unless this is a replay
+    // recording, which is the one case where neither of those is allowed.
+    auto const persistent =
+        ownership == detail::CommandBufferOwnership::PERSISTENT;
     CommandBuffer cmdbuffer = [&]() {
+        if (persistent) {
+            // A recording is recorded once, submitted N times and freed by the
+            // graph that owns it, so it can be neither a recycled buffer nor a
+            // borrowed one:
+            //   * the retirement FIFO only ever holds buffers whose state belongs to
+            //     a submission that already completed (`CommandBufferState::reset`
+            //     ran, descriptor pools were reset, the trailing restore was
+            //     recorded) - a graph must not adopt that state;
+            //   * `borrow_command_buffer()` is a one-shot contract: its buffer
+            //     comes from a pool the backend does not own, so a graph that later
+            //     freed it with `state->pool` would free foreign native memory (and
+            //     `CommandBufferOwnership::BORROWED` deliberately never frees).
+            // A fresh PERSISTENT construction gets its own pool without the reset
+            // bit and its own descriptor pools - exactly the state the recorded
+            // commands keep referencing until the graph is destroyed.
+            return CommandBuffer{*this, detail::CommandBufferOwnership::PERSISTENT};
+        }
         auto p = _cmdbuffers.dequeue();
         if (p) return std::move(*p);
-        return CommandBuffer{*this};
+        return CommandBuffer{*this, detail::CommandBufferOwnership::BACKEND};
     }();
     _scratch_buffer_alloc_visitor.cmdbuffer = &cmdbuffer;
     _scratch_buffer_alloc_visitor.device = device();
@@ -2671,7 +2706,12 @@ detail::RecordedBatch Stream::record_replay_batch(
         submit_profile::flush();
     });
     auto const profile_record_begin = submit_profile::timing_begin();
+    // PERSISTENT: a dedicated backend-owned command buffer whose state the graph
+    // adopts. Asking for PERSISTENT is what makes the acquisition refuse both the
+    // stream's recycled buffers and the config ext's borrowed ones - the defect
+    // this parameter exists to fix.
     auto cmdbuffer = _begin_batch_record(
+        detail::CommandBufferOwnership::PERSISTENT,
         VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
     cmdbuffer.execute(cmds);
     _finish_batch_record(cmdbuffer);
@@ -3212,6 +3252,17 @@ detail::RecordedBatch CommandBuffer::release_native_batch() noexcept {
     // descriptor pools and sets, argument staging, retained pipelines, image
     // views). This object is empty afterwards, so its destructor neither frees the
     // buffer nor resets the state.
+    //
+    // The graph frees the native buffer against `state->pool`, so handing out a
+    // buffer whose pool this object does not own would be a defect rather than a
+    // trade-off: a BACKEND buffer is freed by the retirement FIFO / destructor
+    // (second free) and a BORROWED buffer belongs to the config ext forever. Only
+    // a recording (`PERSISTENT`, see `Stream::record_replay_batch`) qualifies, and
+    // by construction this function has exactly that one caller.
+    LUISA_ASSERT(detail::may_release_native_batch(_ownership),
+                 "Vulkan: release_native_batch() is only valid for a PERSISTENT "
+                 "replay recording; a BACKEND or BORROWED command buffer must not "
+                 "be handed to a replay graph.");
     auto batch = detail::RecordedBatch{_cmdbuffer, _state.release()};
     _cmdbuffer = VK_NULL_HANDLE;
     return batch;

@@ -25,25 +25,56 @@ RecordedBatch &RecordedBatch::operator=(RecordedBatch &&rhs) noexcept {
 }
 
 void RecordedBatch::reset() noexcept {
-    if (command_buffer != VK_NULL_HANDLE && state != nullptr && state->device != nullptr) {
-        // The buffer was submitted `submits` times and never reset, so it is in
-        // the executable state; freeing it is legal exactly once no submission
-        // still refers to it - which the graph's BUSY check established.
-        vkFreeCommandBuffers(state->device->logic_device(), state->pool, 1, &command_buffer);
-        submit_profile::record_replay_release();
-    }
+    // Detach both halves first: every path below (including the failure paths) has
+    // to leave this object empty, and `~RecordedBatch` calls this function a second
+    // time on an already-reset batch.
+    auto buffer = command_buffer;
     command_buffer = VK_NULL_HANDLE;
-    if (state != nullptr) {
-        // The state's destructor releases the retained PipelineRefs and destroys
-        // the command pool (and, with it, every command buffer allocated from it)
-        // plus the descriptor pools, which is also what frees the descriptor sets
-        // the recorded buffer bound. It does not touch the interned layouts: the
-        // graph releases those after this. The holder carries the allocator the
-        // state was created with (`vstd::make_unique` in the CommandBuffer
-        // constructor), so the deallocation matches the allocation.
-        vstd::unique_ptr<CommandBufferState> holder{state};
-        state = nullptr;
+    auto *recorded_state = state;
+    state = nullptr;
+    if (buffer == VK_NULL_HANDLE && recorded_state == nullptr) { return; }
+    if (recorded_state == nullptr) {
+        // `CommandBuffer::release_native_batch` moves the buffer *and* the state out
+        // together, so this can only be a recorder bug. The owning pool of `buffer`
+        // is unknown here: freeing it against a guessed pool would corrupt the
+        // backend allocator, and dropping it silently would hide the bug. Fail
+        // closed instead of guessing.
+        LUISA_ERROR(
+            "Vulkan replay: a recorded batch holds a native command buffer without "
+            "the command-buffer state that owns it; the pool is unknown, so the "
+            "buffer is not freed.");
     }
+    // The state frees everything the recorded commands still reference - the command
+    // pool (and with it every buffer allocated from it), the descriptor pools and
+    // sets, the staging buffers, the retained PipelineRefs and the image views -
+    // exactly once, with the allocator it was created with (`vstd::make_unique` in
+    // the `CommandBuffer` constructor). Holding it in a `vstd::unique_ptr` is what
+    // makes "freed exactly once, never twice" independent of the paths below.
+    auto holder = vstd::unique_ptr<CommandBufferState>{recorded_state};
+    if (buffer == VK_NULL_HANDLE) {
+        // A batch whose recording never produced a native buffer still owns its
+        // state (pool, descriptor pools, retained pipelines); the holder destroys it
+        // on return. Nothing was freed, so no release is counted.
+        return;
+    }
+    if (recorded_state->device == nullptr) {
+        // Registry teardown that happened after the logical device was gone: the
+        // pool cannot be destroyed and no Vulkan entry point may be called. The
+        // state holder only drops the host-side objects and the leak is reported
+        // here rather than turned into a use-after-free of the logical device.
+        LUISA_WARNING(
+            "Vulkan replay: a recorded batch is being dropped without its logical "
+            "device; its native command buffer, pool and descriptor pools leak.");
+        return;
+    }
+    // The buffer was submitted `submits` times and never reset, so it is in
+    // the executable state; freeing it is legal exactly once no submission
+    // still refers to it - which the graph's BUSY check established. Freeing it
+    // explicitly (and only then destroying the pool with the holder above) is what
+    // makes the release observable exactly once; the pool destruction afterwards
+    // only frees whatever is left.
+    vkFreeCommandBuffers(recorded_state->device->logic_device(), recorded_state->pool, 1, &buffer);
+    submit_profile::record_replay_release();
 }
 
 ReplayGraph::~ReplayGraph() noexcept {
@@ -82,6 +113,14 @@ ReplayRegistry::~ReplayRegistry() noexcept {
             _graphs.size());
         for (auto &&entry : _graphs) {
             entry.second->device = nullptr;
+            // The recorded batch's state carries its own `Device *` (that is what
+            // `RecordedBatch::reset` frees the native buffer against). Clearing it
+            // is what turns this already-broken path from "call vkFreeCommandBuffers
+            // / vkDestroyCommandPool on a destroyed logical device" into the leak
+            // this warning reports.
+            if (entry.second->batch.state != nullptr) {
+                entry.second->batch.state->device = nullptr;
+            }
             delete entry.second;
         }
         _graphs.clear();

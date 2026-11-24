@@ -75,7 +75,9 @@ enum class TextureLayoutContract : uint8_t {
 //     with and without the extension, and a barrier is still recorded for
 //     every hazard - including the "oldLayout == newLayout" case, which Vulkan
 //     explicitly allows so that availability/visibility can be expressed
-//     without a transition;
+//     without a transition. Which barriers may be *elided* is decided by a
+//     separate, conservative gate (`can_elide_resource_barrier`) that never
+//     looks at this policy;
 //   * `TextureLayoutContract::EXPLICIT_NATIVE` contracts (custom commands,
 //     before/after states, bindless descriptor snapshots) keep the exact
 //     VkImageLayout they publish, because a descriptor or a render-pass state
@@ -176,8 +178,10 @@ struct ImageBarrierPlan {
     VkImageLayout old_layout{VK_IMAGE_LAYOUT_UNDEFINED};
     VkImageLayout new_layout{VK_IMAGE_LAYOUT_UNDEFINED};
     // Vulkan 1.3/1.4 allow oldLayout == newLayout; such a barrier only makes
-    // earlier accesses available and visible. It is still required, so the
-    // tracker never drops a barrier because the layout happens to match.
+    // earlier accesses available and visible. It is still *required* by a write,
+    // so the tracker never drops a barrier because the layout happens to match;
+    // dropping one additionally requires the conservative read/read gate in
+    // `can_elide_resource_barrier`.
     [[nodiscard]] constexpr bool transitions_layout() const noexcept {
         return old_layout != new_layout;
     }
@@ -201,6 +205,170 @@ struct ImageBarrierPlan {
         after_access,
         before_layout,
         limit_texture_layout_to_access(after_layout, after_access)};
+}
+
+// ---------------------------------------------------------------------------
+// Conservative barrier elision
+// ---------------------------------------------------------------------------
+//
+// A tracked barrier exists for one of three independent reasons: it transitions
+// an image layout, it publishes an earlier *write* (WAR/RAW/WAW), or it orders
+// two accesses of one resource. Only the last one can ever be dropped: two
+// reads of the same subresource never race with each other, and with
+// `oldLayout == newLayout` there is no transition to perform either.
+//
+// `oldLayout == newLayout` on its own is *not* a permission to elide: Vulkan
+// explicitly allows such a barrier to express availability/visibility without a
+// transition, and that is exactly the shape the tracker emits after a write
+// (see `ImageBarrierPlan::transitions_layout`). The gate below therefore asks
+// for four independent facts at once and names every one of them, so a host
+// test can pin *why* a barrier survives instead of asserting one anonymous
+// boolean. All inputs are the already-normalized (`barrier_filter`-ed) scopes,
+// which is why the buffer path, the image path and the tests agree bit for bit.
+
+// Every access bit that observes a *write* of the resource. This is the single
+// definition shared by the bindless memory-barrier path, the per-resource
+// buffer/image barriers and the elision gate; keeping one copy means a newly
+// added write bit cannot silently reach only some of those paths.
+inline constexpr VkAccessFlags2 write_access_mask =
+    VK_ACCESS_2_SHADER_WRITE_BIT |
+    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+    VK_ACCESS_2_TRANSFER_WRITE_BIT |
+    VK_ACCESS_2_HOST_WRITE_BIT |
+    VK_ACCESS_2_MEMORY_WRITE_BIT |
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+[[nodiscard]] constexpr bool has_write_access(VkAccessFlags2 access) noexcept {
+    return (access & write_access_mask) != 0u;
+}
+
+// The NVIDIA copy-source workaround (see `ResourceBarrier::_update_state`
+// for the observed behavior): a readback copy whose destination scope is only
+// VK_PIPELINE_STAGE_2_COPY_BIT / VK_ACCESS_2_TRANSFER_READ_BIT can observe the
+// pre-dispatch contents of a buffer written earlier in the same command buffer.
+// Buffer barriers widen that destination scope; image barriers never widen, but
+// they must not be elided either, so both paths share this predicate.
+[[nodiscard]] constexpr bool needs_nvidia_transfer_read_widening(
+    uint32_t vendor_id, VkAccessFlags2 dst_access) noexcept {
+    return vendor_id == 0x10deu &&
+           (dst_access & VK_ACCESS_2_TRANSFER_READ_BIT) != 0u;
+}
+
+enum class BarrierElisionBlocker : uint8_t {
+    NONE,
+    // oldLayout != newLayout: the barrier *is* a layout transition.
+    LAYOUT_TRANSITION,
+    // The normalized source scope still contains a write whose availability the
+    // dependency has to publish.
+    SOURCE_WRITE,
+    // The normalized destination scope contains a write (RAW/WAW).
+    DESTINATION_WRITE,
+    // The caller supplied the before-state explicitly (`set_res`,
+    // `set_bindless_before_state`, a custom/native command contract). Such a
+    // scope claims to describe work this tracker did not observe, so the
+    // dependency is kept even when both scopes look read-only.
+    EXTERNAL_BEFORE_STATE,
+    // The destination scope is the NVIDIA copy-source case above.
+    VENDOR_TRANSFER_READ
+};
+
+struct BarrierElisionInput {
+    VkAccessFlags2 src_access{0u};
+    VkAccessFlags2 dst_access{0u};
+    // True when the barrier would not change an image layout. Buffer barriers
+    // have no layout and always pass `true`.
+    bool layout_unchanged{false};
+    bool before_state_supplied{false};
+    bool vendor_transfer_read_widened{false};
+};
+
+[[nodiscard]] constexpr BarrierElisionBlocker
+barrier_elision_blocker(BarrierElisionInput input) noexcept {
+    // Ordered from "structurally impossible to elide" to "policy says no";
+    // `barrier_elision_blocker` is a pure function of its inputs, so the order
+    // only decides which reason is reported when several apply at once.
+    if (!input.layout_unchanged) { return BarrierElisionBlocker::LAYOUT_TRANSITION; }
+    if (has_write_access(input.src_access)) { return BarrierElisionBlocker::SOURCE_WRITE; }
+    if (has_write_access(input.dst_access)) { return BarrierElisionBlocker::DESTINATION_WRITE; }
+    if (input.before_state_supplied) { return BarrierElisionBlocker::EXTERNAL_BEFORE_STATE; }
+    if (input.vendor_transfer_read_widened) { return BarrierElisionBlocker::VENDOR_TRANSFER_READ; }
+    return BarrierElisionBlocker::NONE;
+}
+
+[[nodiscard]] constexpr bool
+can_elide_resource_barrier(BarrierElisionInput input) noexcept {
+    return barrier_elision_blocker(input) == BarrierElisionBlocker::NONE;
+}
+
+// The tracker writeback of one barrier - the half of the elision that must not
+// be skipped. The caller always stores the result in the tracked before scope
+// and then clears after_stage/after_access (and, for an image, keeps the layout
+// it already committed to):
+//   * an emitted barrier makes exactly its destination scope visible, so that is
+//     what the next layer has to order against;
+//   * an elided barrier is a read/read transaction, and a later write still has
+//     to order against *every* earlier reader, so both read scopes are unioned
+//     instead of being overwritten by the destination scope alone.
+[[nodiscard]] constexpr QueueScope tracked_after_barrier_scope(
+    bool elided,
+    VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access,
+    VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access) noexcept {
+    if (elided) {
+        return QueueScope{src_stages | dst_stages, src_access | dst_access};
+    }
+    return QueueScope{dst_stages, dst_access};
+}
+
+// ---------------------------------------------------------------------------
+// VkImageMemoryBarrier2 coalescing
+// ---------------------------------------------------------------------------
+//
+// The tracker records one VkImageMemoryBarrier2 per tracked mip, so sampling a
+// descriptor over a mip chain, uploading it mip by mip or reaching it through a
+// bindless array produces N structs whose only difference is `baseMipLevel`.
+// Vulkan lets a single barrier cover a contiguous subresource range, so those N
+// structs can be folded into one.
+//
+// A barrier is a tuple of (sync scope, layouts, subresource, queue ownership,
+// pNext chain) and VkImageSubresourceRange is the only part a merge may widen.
+// Two structs may therefore be merged only when every other field is identical
+// and the mip ranges are adjacent - never across a gap, because the gap is a
+// subresource the caller deliberately did not synchronize.
+[[nodiscard]] constexpr bool can_merge_image_barriers(
+    VkImageMemoryBarrier2 const &first,
+    VkImageMemoryBarrier2 const &second) noexcept {
+    // A chained barrier could carry a VkMemoryBarrierAccessFlags3KHR or any
+    // auxiliary structure whose equality cannot be inspected generically, so an
+    // extended chain is never merged.
+    if (first.pNext != nullptr || second.pNext != nullptr) { return false; }
+    return first.image == second.image &&
+           first.srcStageMask == second.srcStageMask &&
+           first.dstStageMask == second.dstStageMask &&
+           first.srcAccessMask == second.srcAccessMask &&
+           first.dstAccessMask == second.dstAccessMask &&
+           first.oldLayout == second.oldLayout &&
+           first.newLayout == second.newLayout &&
+           first.srcQueueFamilyIndex == second.srcQueueFamilyIndex &&
+           first.dstQueueFamilyIndex == second.dstQueueFamilyIndex &&
+           first.subresourceRange.aspectMask ==
+               second.subresourceRange.aspectMask &&
+           first.subresourceRange.baseArrayLayer ==
+               second.subresourceRange.baseArrayLayer &&
+           first.subresourceRange.layerCount ==
+               second.subresourceRange.layerCount &&
+           first.subresourceRange.baseMipLevel +
+                   first.subresourceRange.levelCount ==
+               second.subresourceRange.baseMipLevel;
+}
+
+// Fold `second` into `first` after `can_merge_image_barriers` accepted the
+// pair: only the mip range grows, every other field stays `first`'s.
+inline void absorb_image_barrier_range(
+    VkImageMemoryBarrier2 &first,
+    VkImageMemoryBarrier2 const &second) noexcept {
+    first.subresourceRange.levelCount += second.subresourceRange.levelCount;
 }
 
 // Vulkan non-dispatchable handles are either opaque pointers or uint64_t

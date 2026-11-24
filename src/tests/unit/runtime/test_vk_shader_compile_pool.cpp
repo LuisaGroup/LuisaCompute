@@ -16,8 +16,23 @@
 // - ordinary `Device::create_shader` calls from several threads are safe and
 //   ordered: every handle works, and no batch is involved
 // - `shutdown_pool()` while a batch is in flight drains that batch (all handles
-//   valid) and rejects every later batch with `POOL_SHUTDOWN` without creating
-//   anything
+// valid) and rejects every later batch with `POOL_SHUTDOWN` without creating
+// anything
+// - the executor is selected on the *device-constructing* thread and never
+// re-selected: a device created with no marl scheduler bound reports
+// `vk_shader_compile_executor=std_thread` and owns its worker threads, while a
+// device created with a scheduler bound reports `fiber` and runs preparation as
+// marl tasks on that captured scheduler (no thread of its own). Both executors
+// publish in request order, count the same things and shut down the same way
+// - a batch submitted *from a scheduler fiber* completes: the publisher waits for
+// its lanes through marl events, so it suspends its fiber instead of blocking the
+// OS worker under it, and a second batch contending for the batch lock from a fiber
+// does not starve the first batch's lanes
+// - a batch started from one of the pool's own preparation lanes - through the public
+// `BinaryIO` shader-cache callback, which is where a consumer's nested compile really
+// happens - is compiled serially on that lane and reports `FELL_BACK_TO_SERIAL`,
+// while the outer batch still prepares on a lane, publishes in request order, counts
+// both prepares, and both shaders work
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -36,6 +51,7 @@
 
 #include <luisa/backends/ext/vk_shader_compile_ext.h>
 #include <luisa/core/binary_io.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
@@ -79,7 +95,7 @@ public:
     ~MemoryBinaryStream() noexcept override = default;
 };
 
-class MemoryBinaryIO final : public BinaryIO {
+class MemoryBinaryIO : public BinaryIO {
 private:
     mutable std::unordered_map<std::string, std::vector<std::byte>> _entries;
 public:
@@ -126,6 +142,88 @@ public:
         auto iterator = _entries.find(std::string{name});
         return iterator == _entries.end() ? nullptr : &iterator->second;
     }
+};
+
+// A `BinaryIO` that starts a nested `compile_shaders()` batch from inside the first
+// shader-cache read the pool performs - the public `BinaryIO` seam. That read runs on
+// a *preparation lane* of the pool, i.e. on a flow that belongs to the batch waiting
+// for it, which is exactly the shape a nested batch has to recognise: waiting for a
+// lane (or for the batch gate) from there would wait for itself.
+//
+// `configure_nested()` is called after the `Device` exists - the extension is a view
+// over it - and before the outer batch, so nothing the device does while it
+// constructs itself can start a batch. Only the *first* cache read after that
+// triggers: the nested batch's own reads re-enter these two overrides, and the
+// one-shot flag is set before the nested call, so they cannot start further batches.
+// Everything else is inherited unchanged, so the artifacts are stored exactly as a
+// plain `MemoryBinaryIO` stores them.
+class NestedCompileBinaryIO final : public MemoryBinaryIO {
+private:
+    struct NestedBatch {
+        // Null means "not armed yet"; `configure_nested` sets both members.
+        VulkanShaderCompileExt *ext{nullptr};
+        Function kernel;
+    };
+    mutable NestedBatch _nested;
+    // One-shot guard. Exchanged *before* the nested batch runs, so a nested cache read
+    // that comes back through the overrides below cannot start another batch.
+    mutable std::atomic<bool> _nested_started{false};
+    mutable std::atomic<uint32_t> _cache_reads{0u};
+    // The answer of the nested batch, for the fixture to assert on.
+    mutable VulkanShaderCompileStatus _nested_status{
+        VulkanShaderCompileStatus::INVALID_ARGUMENT};
+    mutable luisa::vector<VulkanShaderCompileResult> _nested_results;
+    // The flow that started the nested batch: a preparation lane, not the caller.
+    mutable std::thread::id _nested_thread{};
+
+    // Every cache read goes through here: trigger the nested batch if it is armed and
+    // has not run yet, then forward the read to the in-memory store unchanged.
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    load_after_nested_batch(luisa::string_view name) const noexcept {
+        _cache_reads.fetch_add(1u, std::memory_order_relaxed);
+        if (_nested.ext != nullptr &&
+            !_nested_started.exchange(true, std::memory_order_acq_rel)) {
+            _nested_thread = std::this_thread::get_id();
+            VulkanShaderCompileRequest request{
+                .option = ShaderOption{}, .kernel = _nested.kernel};
+            _nested_results.clear();
+            _nested_status = _nested.ext->compile_shaders(
+                luisa::span<const VulkanShaderCompileRequest>{&request, 1u},
+                _nested_results, 1u);
+        }
+        // Qualified: the derived overrides must not be re-entered for this read.
+        return MemoryBinaryIO::read_shader_bytecode(name);
+    }
+
+public:
+    // Arm the nested batch: one request for `kernel`, one lane, started by this
+    // BinaryIO's next cache read. The caller keeps `kernel`'s AST alive.
+    void configure_nested(VulkanShaderCompileExt *ext, Function kernel) noexcept {
+        _nested.ext = ext;
+        _nested.kernel = kernel;
+        _nested_started.store(false, std::memory_order_relaxed);
+    }
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_shader_bytecode(luisa::string_view name) const noexcept override {
+        return load_after_nested_batch(name);
+    }
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_shader_cache(luisa::string_view name) const noexcept override {
+        return load_after_nested_batch(name);
+    }
+    [[nodiscard]] bool nested_started() const noexcept {
+        return _nested_started.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint32_t cache_reads() const noexcept {
+        return _cache_reads.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] VulkanShaderCompileStatus nested_status() const noexcept {
+        return _nested_status;
+    }
+    [[nodiscard]] luisa::vector<VulkanShaderCompileResult> const &nested_results() const noexcept {
+        return _nested_results;
+    }
+    [[nodiscard]] std::thread::id nested_thread() const noexcept { return _nested_thread; }
 };
 
 // -------------------------------------------------------------- kernels ---
@@ -647,6 +745,96 @@ static void test_repeated_batch_uses_the_cache() {
     };
 }
 
+// A batch that is started from one of the pool's own preparation lanes must be
+// compiled serially on that lane: the lane belongs to the batch the caller is waiting
+// for, so waiting for a lane - or for the batch gate - would wait for itself. The
+// seam used here is the public `BinaryIO` shader-cache callback, which the pool calls
+// from the lane, and on the first read of a real batch it starts a nested batch.
+static void test_nested_prepare_serial_fallback() {
+    "vk_shader_compile_nested_prepare_serial_fallback"_test = [] {
+        NestedCompileBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        // Nothing is bound to this thread, so the pool owns a `std::thread` worker and
+        // the outer request is really prepared on a lane of the pool.
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        expect(device.query("vk_shader_compile_executor") == "std_thread")
+            << "this fixture needs the executor that owns its own preparation lane";
+        expect(device.query("vk_shader_compile_pool_state") == "not_created")
+            << "constructing the device must not start the pool";
+        auto kernels = make_kernels(2u);
+        // Two distinct kernels, so the outer request and the nested batch share no
+        // cache key and no artifact. Arming happens after the device exists (the
+        // extension is a view over it) and before the outer batch.
+        binary_io.configure_nested(ext, kernels[1].function()->function());
+        luisa::vector<VulkanShaderCompileRequest> requests{
+            VulkanShaderCompileRequest{
+                .option = ShaderOption{},
+                .kernel = kernels[0].function()->function()}};
+        luisa::vector<VulkanShaderCompileResult> results;
+        // One lane, one request: the cache read of that lane's prepare is the first
+        // read after arming, so it starts the nested batch from inside the lane.
+        auto status = ext->compile_shaders(
+            luisa::span<const VulkanShaderCompileRequest>{requests}, results, 1u);
+        expect(status == VulkanShaderCompileStatus::SUCCESS)
+            << "the outer batch must complete, got status "
+            << static_cast<uint32_t>(status);
+        expect(results.size() == 1u);
+        expect(results[0].status == VulkanShaderCompileStatus::SUCCESS)
+            << "the outer request must publish a shader";
+        expect(results[0].shader.handle != 0u);
+        expect(!results[0].serial_fallback)
+            << "the outer request must be prepared on a lane, not on the caller";
+        // The nested batch: really started by a preparation lane, exactly once, from
+        // the cache read rather than from the caller.
+        expect(binary_io.nested_started())
+            << "the outer prepare must read the shader cache through the BinaryIO seam";
+        expect(binary_io.cache_reads() >= 2u);
+        expect(binary_io.nested_thread() != std::this_thread::get_id())
+            << "the nested batch must be started by a pool lane, not by the caller";
+        auto nested_status = binary_io.nested_status();
+        expect(nested_status == VulkanShaderCompileStatus::FELL_BACK_TO_SERIAL)
+            << "a batch started on a lane of the batch that owns it must be compiled "
+               "serially on that lane, got status "
+            << static_cast<uint32_t>(nested_status);
+        auto &nested_results = binary_io.nested_results();
+        expect(nested_results.size() == 1u);
+        expect(nested_results[0].status == VulkanShaderCompileStatus::SUCCESS);
+        expect(nested_results[0].serial_fallback)
+            << "the nested request must be reported as prepared on the calling flow";
+        expect(nested_results[0].shader.handle != 0u)
+            << "a nested serial fallback must still produce a shader";
+        expect(binary_io.size() >= 2u)
+            << "both shaders must persist their artifact";
+        // The counters say where each request was really prepared: the outer request
+        // on a lane of the pool, the nested request on the flow that asked for it.
+        auto stats = ext->stats();
+        expect(stats.worker_count == 1u);
+        expect(stats.pool_created);
+        expect(stats.batches == 2u) << "the outer and the nested batch must both count";
+        expect(stats.requests == 2u);
+        expect(stats.parallel_prepares == 1u)
+            << "the outer request must still be prepared in parallel";
+        expect(stats.serial_prepares == 1u)
+            << "only the nested request must be prepared serially";
+        // Both handles are working shaders of this device and answer with the constant
+        // of their own kernel, so the nested batch did not disturb the outer
+        // publication or its result.
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        dispatcher.verify(results[0].shader.handle,
+                          kernels[0].function()->function(), 1u, 0u);
+        dispatcher.verify(nested_results[0].shader.handle,
+                          kernels[1].function()->function(), 2u, 1u);
+    };
+}
+
 static void test_empty_batch() {
     "vk_shader_compile_empty_batch"_test = [] {
         MemoryBinaryIO binary_io;
@@ -668,6 +856,330 @@ static void test_empty_batch() {
     };
 }
 
+// ------------------------------------------------------- executor choice ---
+// The pool's executor is fixed by the scheduler that is bound to the
+// *device-constructing* thread (see `shader_compile_pool.h`). These tests pin that
+// decision down from the outside - through the diagnostics `Device::query` exposes,
+// so the public ABI stays untouched - and then run a batch on each executor.
+//
+// Every device here is created inside a scope that is closed *before* the scheduler
+// that provided the fibers: the pool enqueues each batch's lane tasks on that
+// scheduler, so it has to outlive the device.
+
+static void test_std_thread_executor_selection() {
+    "vk_shader_compile_executor_std_thread"_test = [] {
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        // Nothing is bound to this thread, so nothing can be captured and the pool
+        // must own its workers.
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        expect(device.query("vk_shader_compile_executor") == "std_thread")
+            << "a device constructed without a bound scheduler must own its threads";
+        expect(device.query("vk_shader_compile_scheduler_workers") == "0")
+            << "no scheduler may be captured when none is bound";
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        constexpr auto kShaderCount = 6u;
+        auto kernels = make_kernels(kShaderCount);
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        for (auto &kernel : kernels) {
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{}, .kernel = kernel.function()->function()});
+        }
+        luisa::vector<VulkanShaderCompileResult> results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   results, 2u) == VulkanShaderCompileStatus::SUCCESS);
+        auto stats = ext->stats();
+        expect(stats.pool_created) << "a batch must have created the workers";
+        expect(stats.worker_count == 2u);
+        expect(stats.parallel_prepares == kShaderCount);
+        expect(device.query("vk_shader_compile_executor") == "std_thread")
+            << "running a batch must not re-select the executor";
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        for (auto i = 0u; i < kernels.size(); i++) {
+            expect(results[i].status == VulkanShaderCompileStatus::SUCCESS);
+            dispatcher.verify(results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+        ext->shutdown_pool();
+        expect(device.query("vk_shader_compile_pool_state") == "shutdown");
+        luisa::vector<VulkanShaderCompileResult> late_results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   late_results, 2u) == VulkanShaderCompileStatus::POOL_SHUTDOWN);
+        expect(late_results.size() == kShaderCount);
+        expect(!late_results.front().shader.valid());
+    };
+}
+
+static void test_single_threaded_scheduler_never_creates_owned_threads() {
+    "vk_shader_compile_executor_single_threaded_scheduler"_test = [] {
+        MemoryBinaryIO binary_io;
+        luisa::fiber::scheduler scheduler{0u};
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        expect(device.query("vk_shader_compile_executor") == "fiber")
+            << "any scheduler bound on the constructor thread selects the scheduler executor";
+        expect(device.query("vk_shader_compile_scheduler_workers") == "0");
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        auto kernels = make_kernels(2u);
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        for (auto &kernel : kernels) {
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{}, .kernel = kernel.function()->function()});
+        }
+        luisa::vector<VulkanShaderCompileResult> results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   results, 2u) == VulkanShaderCompileStatus::FELL_BACK_TO_SERIAL)
+            << "a scheduler without workers has no parallel preparation capacity";
+        auto stats = ext->stats();
+        expect(stats.worker_count == 0u && !stats.pool_created)
+            << "the single-threaded scheduler path must not create owned std::threads";
+        expect(stats.serial_prepares == requests.size());
+        expect(stats.parallel_prepares == 0u);
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        for (auto i = 0u; i < kernels.size(); i++) {
+            expect(results[i].status == VulkanShaderCompileStatus::SUCCESS);
+            expect(results[i].serial_fallback);
+            dispatcher.verify(results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+    };
+}
+
+static void test_fiber_executor_batch() {
+    "vk_shader_compile_executor_fiber"_test = [] {
+        MemoryBinaryIO binary_io;
+        // Declared before the device and destroyed after it (reverse declaration
+        // order), which is the lifetime contract of a captured scheduler.
+        luisa::fiber::scheduler scheduler{4u};
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        constexpr auto kShaderCount = 12u;
+        auto kernels = make_kernels(kShaderCount);
+        expect(device.query("vk_shader_compile_executor") == "fiber")
+            << "a scheduler bound to the constructing thread must be captured";
+        expect(device.query("vk_shader_compile_scheduler_workers") == "4")
+            << "the captured scheduler's worker threads must be reported";
+        expect(device.query("vk_shader_compile_pool_state") == "not_created")
+            << "capturing an executor must not create a lane";
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        for (auto &kernel : kernels) {
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{}, .kernel = kernel.function()->function()});
+        }
+        luisa::vector<VulkanShaderCompileResult> cold_results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   cold_results, 3u) == VulkanShaderCompileStatus::SUCCESS);
+        auto cold = ext->stats();
+        expect(cold.worker_count == 3u) << "the requested width must be reported";
+        expect(cold.pool_created) << "a batch must have used lanes";
+        expect(cold.batches == 1u);
+        expect(cold.requests == kShaderCount);
+        expect(cold.parallel_prepares == kShaderCount)
+            << "every request must be prepared on a lane";
+        expect(cold.serial_prepares == 0u);
+        expect(cold.serial_fallbacks == 0u);
+        expect(cold.cache_hits == 0u) << "the first batch must be cold";
+        expect(device.query("vk_shader_compile_pool_state") == "running");
+        expect(device.query("vk_shader_compile_worker_count") == "3");
+        expect(device.query("vk_shader_compile_executor") == "fiber");
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        for (auto i = 0u; i < kernels.size(); i++) {
+            expect(cold_results[i].status == VulkanShaderCompileStatus::SUCCESS)
+                << "request " << i;
+            expect(!cold_results[i].serial_fallback) << "request " << i;
+            expect(cold_results[i].shader.handle != 0u) << "request " << i;
+            // Request order across lanes: handle i must be kernel i's shader.
+            dispatcher.verify(cold_results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+        // A second batch reuses the same lanes and is served from the cache: the
+        // fiber executor must not change what the pool counts.
+        luisa::vector<VulkanShaderCompileResult> warm_results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   warm_results, 3u) == VulkanShaderCompileStatus::SUCCESS);
+        auto warm = ext->stats();
+        expect(warm.batches == 2u);
+        expect(warm.requests == 2u * kShaderCount);
+        expect(warm.cache_hits >= kShaderCount)
+            << "the second batch must load every artifact from the cache";
+        expect(warm.worker_count == 3u);
+        for (auto i = 0u; i < kernels.size(); i++) {
+            dispatcher.verify(warm_results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+        // A batch submitted from a plain, *unbound* thread must still be prepared on
+        // the captured scheduler: the pool enqueues on the scheduler it captured at
+        // construction, not on whatever happens to be bound to the calling thread.
+        VulkanShaderCompileStatus unbound_status{
+            VulkanShaderCompileStatus::INVALID_ARGUMENT};
+        luisa::vector<VulkanShaderCompileResult> unbound_results;
+        std::thread unbound{[&] {
+            unbound_status = ext->compile_shaders(
+                luisa::span<const VulkanShaderCompileRequest>{requests},
+                unbound_results, 2u);
+        }};
+        unbound.join();
+        expect(unbound_status == VulkanShaderCompileStatus::SUCCESS)
+            << "an unbound calling thread must still reach the captured scheduler";
+        expect(ext->stats().worker_count == 2u);
+        expect(ext->stats().parallel_prepares == 3u * kShaderCount);
+        for (auto i = 0u; i < kernels.size(); i++) {
+            expect(unbound_results[i].shader.handle != 0u) << "request " << i;
+            dispatcher.verify(unbound_results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+        // Shutdown: this executor owns no thread, but the batch contract is the same.
+        ext->shutdown_pool();
+        ext->shutdown_pool();// idempotent
+        expect(device.query("vk_shader_compile_pool_state") == "shutdown");
+        luisa::vector<VulkanShaderCompileResult> late_results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   late_results, 3u) == VulkanShaderCompileStatus::POOL_SHUTDOWN);
+        expect(late_results.size() == kShaderCount);
+        for (auto &result : late_results) {
+            expect(result.status == VulkanShaderCompileStatus::POOL_SHUTDOWN);
+            expect(!result.shader.valid());
+        }
+    };
+}
+
+static void test_fiber_executor_publisher_on_fiber() {
+    "vk_shader_compile_publisher_on_fiber"_test = [] {
+        MemoryBinaryIO binary_io;
+        luisa::fiber::scheduler scheduler{4u};
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        constexpr auto kShaderCount = 8u;
+        auto kernels = make_kernels(kShaderCount);
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        for (auto &kernel : kernels) {
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{}, .kernel = kernel.function()->function()});
+        }
+        // The publisher is a scheduler fiber, not a plain thread: it waits for the
+        // lanes through marl events, so it must suspend its fiber instead of blocking
+        // the OS worker underneath it.
+        luisa::vector<VulkanShaderCompileResult> results;
+        VulkanShaderCompileStatus status{VulkanShaderCompileStatus::INVALID_ARGUMENT};
+        auto done = luisa::fiber::async([&] {
+            status = ext->compile_shaders(
+                luisa::span<const VulkanShaderCompileRequest>{requests},
+                results, 2u);
+        });
+        done.wait();
+        expect(status == VulkanShaderCompileStatus::SUCCESS);
+        expect(results.size() == kShaderCount);
+        expect(ext->stats().worker_count == 2u);
+        expect(ext->stats().parallel_prepares == kShaderCount);
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        for (auto i = 0u; i < kernels.size(); i++) {
+            expect(results[i].status == VulkanShaderCompileStatus::SUCCESS)
+                << "request " << i;
+            dispatcher.verify(results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+    };
+}
+
+static void test_fiber_executor_concurrent_batches() {
+    "vk_shader_compile_fiber_concurrent_batches"_test = [] {
+        MemoryBinaryIO binary_io;
+        luisa::fiber::scheduler scheduler{4u};
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        constexpr auto kShaderCount = 4u;
+        auto kernels = make_kernels(2u * kShaderCount);
+        luisa::vector<VulkanShaderCompileRequest> requests_a;
+        luisa::vector<VulkanShaderCompileRequest> requests_b;
+        for (auto i = 0u; i < kShaderCount; i++) {
+            requests_a.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{},
+                .kernel = kernels[i].function()->function()});
+            requests_b.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{},
+                .kernel = kernels[kShaderCount + i].function()->function()});
+        }
+        // Two batches at once, one from a plain thread and one from a scheduler
+        // fiber. The second caller contends for the batch lock, and a fiber must
+        // suspend there instead of blocking an OS worker the first batch's lanes may
+        // need - so both batches have to complete.
+        luisa::vector<VulkanShaderCompileResult> results_a;
+        luisa::vector<VulkanShaderCompileResult> results_b;
+        VulkanShaderCompileStatus status_a{VulkanShaderCompileStatus::INVALID_ARGUMENT};
+        VulkanShaderCompileStatus status_b{VulkanShaderCompileStatus::INVALID_ARGUMENT};
+        auto b = luisa::fiber::async([&] {
+            status_b = ext->compile_shaders(
+                luisa::span<const VulkanShaderCompileRequest>{requests_b},
+                results_b, 2u);
+        });
+        std::thread a{[&] {
+            status_a = ext->compile_shaders(
+                luisa::span<const VulkanShaderCompileRequest>{requests_a},
+                results_a, 2u);
+        }};
+        a.join();
+        b.wait();
+        expect(status_a == VulkanShaderCompileStatus::SUCCESS);
+        expect(status_b == VulkanShaderCompileStatus::SUCCESS);
+        expect(results_a.size() == kShaderCount);
+        expect(results_b.size() == kShaderCount);
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        for (auto i = 0u; i < kShaderCount; i++) {
+            expect(results_a[i].shader.handle != 0u) << "batch A request " << i;
+            dispatcher.verify(results_a[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+            expect(results_b[i].shader.handle != 0u) << "batch B request " << i;
+            dispatcher.verify(results_b[i].shader.handle,
+                              kernels[kShaderCount + i].function()->function(),
+                              kShaderCount + i + 1u, kShaderCount + i);
+        }
+    };
+}
+
 int main(int argc, char *argv[]) {
     g_argc = argc;
     g_argv = argv;
@@ -681,6 +1193,12 @@ int main(int argc, char *argv[]) {
     test_concurrent_ordinary_create();
     test_shutdown_with_live_work();
     test_repeated_batch_uses_the_cache();
+    test_nested_prepare_serial_fallback();
     test_empty_batch();
+    test_std_thread_executor_selection();
+    test_single_threaded_scheduler_never_creates_owned_threads();
+    test_fiber_executor_batch();
+    test_fiber_executor_publisher_on_fiber();
+    test_fiber_executor_concurrent_batches();
     return 0;
 }

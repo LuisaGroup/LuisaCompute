@@ -84,15 +84,9 @@ static constexpr VkImageLayout kBarrierLayoutMap[] = {
 // when the recorded access no longer fits. Both decisions are pure functions in
 // resource_barrier_contract.h, so the enabled and the disabled path stay
 // separately testable.
-static constexpr VkAccessFlags2 kWriteAccessMask =
-    VK_ACCESS_2_SHADER_WRITE_BIT |
-    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
-    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-    VK_ACCESS_2_TRANSFER_WRITE_BIT |
-    VK_ACCESS_2_HOST_WRITE_BIT |
-    VK_ACCESS_2_MEMORY_WRITE_BIT |
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+// The write mask itself lives in resource_barrier_contract.h
+// (`detail::write_access_mask`) so the bindless memory barrier, the per-resource
+// buffer/image barriers and the elision gate share one definition.
 }// namespace detail
 ResourceBarrier::ResourceBarrier() {}
 
@@ -489,9 +483,17 @@ void ResourceBarrier::_update_state(BufferStates &state) {
     barrier.dstStageMask = range.after_stage;
     barrier.srcAccessMask = range.before_access;
     barrier.dstAccessMask = range.after_access;
-    if (device != nullptr &&
-        device->properties().vendorID == 0x10deu &&
-        (range.after_access & VK_ACCESS_2_TRANSFER_READ_BIT) != 0u) {
+    barrier.buffer = state.buffer;
+    barrier.offset = 0;
+    barrier.size = std::numeric_limits<uint64_t>::max();
+    // The workaround predicate is shared with the image path and the host tests
+    // (resource_barrier_contract.h); it is decided on the *recorded* destination
+    // scope, exactly like before this barrier could be elided.
+    auto const widen_for_nvidia =
+        device != nullptr &&
+        detail::needs_nvidia_transfer_read_widening(
+            device->properties().vendorID, range.after_access);
+    if (widen_for_nvidia) {
         // Workaround for observed NVIDIA Vulkan 1.4.329 behavior: a readback
         // copy whose destination scope is only VK_PIPELINE_STAGE_2_COPY_BIT /
         // VK_ACCESS_2_TRANSFER_READ_BIT can observe the pre-dispatch contents
@@ -508,13 +510,36 @@ void ResourceBarrier::_update_state(BufferStates &state) {
                                 VK_ACCESS_2_MEMORY_READ_BIT |
                                 VK_ACCESS_2_MEMORY_WRITE_BIT;
     }
-    barrier.buffer = state.buffer;
-    barrier.offset = 0;
-    barrier.size = std::numeric_limits<uint64_t>::max();
-
-    range.before_stage = range.after_stage;
+    // Normalize *before* the elision decision (and before the writeback), so the
+    // decision, the tracked state and the struct handed to Vulkan are all built
+    // from the same masks. `barrier_filter` is idempotent, so the extra call in
+    // `update_states` stays a no-op.
+    barrier_filter(barrier);
+    auto const src_stage = barrier.srcStageMask;
+    auto const src_access = barrier.srcAccessMask;
+    auto const dst_stage = barrier.dstStageMask;
+    auto const dst_access = barrier.dstAccessMask;
+    auto const can_elide = detail::can_elide_resource_barrier(
+        detail::BarrierElisionInput{
+            .src_access = src_access,
+            .dst_access = dst_access,
+            // A buffer barrier has no layout to transition.
+            .layout_unchanged = true,
+            .before_state_supplied = state.before_state_supplied,
+            .vendor_transfer_read_widened = widen_for_nvidia});
+    if (can_elide) {
+        // A read/read ordering transaction with nothing to publish: drop the
+        // struct (and only the struct), keep the hazard bookkeeping.
+        _buffer_barriers.pop_back();
+    }
+    // What the next layer has to order against: the submitted destination scope
+    // when the barrier was kept, or the union of both read scopes when it was
+    // elided (`ResourceBarrier::_update_state` never drops that reduction).
+    auto const tracked = detail::tracked_after_barrier_scope(
+        can_elide, src_stage, src_access, dst_stage, dst_access);
+    range.before_stage = tracked.stages;
+    range.before_access = tracked.access;
     range.after_stage = VK_PIPELINE_STAGE_2_NONE;
-    range.before_access = range.after_access;
     range.after_access = VK_ACCESS_2_NONE;
 }
 
@@ -527,9 +552,9 @@ void ResourceBarrier::_update_state(TextureStates &state) {
         // `plan_tracked_image_barrier` carries the hazard and the layout pair as
         // two independent decisions: the VK_KHR_unified_image_layouts policy was
         // already applied when the layout was selected in `_record`, so it can
-        // never reach these stage/access masks. A mip whose layout does not
-        // change (`oldLayout == newLayout`, the steady state under the unified
-        // policy) still gets a full barrier.
+        // never reach these stage/access masks. Whether the resulting barrier is
+        // recorded at all is decided *after* `barrier_filter` by the conservative
+        // gate below - the layout policy itself never drops a barrier.
         auto plan = detail::plan_tracked_image_barrier(
             range.before_stage, range.before_access, range.before_layout,
             range.after_stage, range.after_access, range.after_layout);
@@ -556,13 +581,75 @@ void ResourceBarrier::_update_state(TextureStates &state) {
             .baseArrayLayer = 0,
             .layerCount = 1};
         barrier_filter(barrier);
-        range.before_stage = barrier.dstStageMask;
+        auto const src_stage = barrier.srcStageMask;
+        auto const src_access = barrier.srcAccessMask;
+        auto const dst_stage = barrier.dstStageMask;
+        auto const dst_access = barrier.dstAccessMask;
+        // Same conservative gate as the buffer path: a mip barrier may only be
+        // dropped when it neither transitions a layout nor publishes a write,
+        // when the caller did not hand in an explicit before-state, and when it
+        // is not the NVIDIA copy-source scope. `oldLayout == newLayout` by itself
+        // is not enough - that is exactly the availability-only barrier the
+        // tracker emits after a write.
+        auto const can_elide = detail::can_elide_resource_barrier(
+            detail::BarrierElisionInput{
+                .src_access = src_access,
+                .dst_access = dst_access,
+                .layout_unchanged = barrier.oldLayout == barrier.newLayout,
+                .before_state_supplied = range.before_state_supplied,
+                .vendor_transfer_read_widened =
+                    device != nullptr &&
+                    detail::needs_nvidia_transfer_read_widening(
+                        device->properties().vendorID, range.after_access)});
+        if (can_elide) {
+            // Drop the struct, keep the bookkeeping: both read scopes survive in
+            // the tracked before scope so a later write still orders against
+            // every earlier reader.
+            _tex_barriers.pop_back();
+        }
+        // The layout of an elided barrier is authoritative and unchanged
+        // (oldLayout == newLayout was required), so only an emitted barrier
+        // re-commits `before_layout`.
+        auto const tracked = detail::tracked_after_barrier_scope(
+            can_elide, src_stage, src_access, dst_stage, dst_access);
+        range.before_stage = tracked.stages;
+        range.before_access = tracked.access;
+        // `plan.new_layout` is what the emitted struct carried; it is only
+        // re-committed when the struct survived, because an elided barrier was
+        // required to have oldLayout == newLayout already.
+        if (!can_elide) { range.before_layout = plan.new_layout; }
         range.after_stage = VK_PIPELINE_STAGE_2_NONE;
-        range.before_access = barrier.dstAccessMask;
         range.after_access = VK_ACCESS_2_NONE;
-        range.before_layout = barrier.newLayout;
     }
 }
+// Coalesce the per-mip image barriers of one update pass in place. The tracker
+// records one VkImageMemoryBarrier2 per tracked mip, so a whole-mip-chain access
+// (a sampled descriptor view, a bindless texture, a mip upload) would otherwise
+// emit N structs whose only difference is `baseMipLevel`. `can_merge_image_barriers`
+// only accepts structs that agree on scope, layouts, aspect, array-layer range
+// and queue ownership and whose mip ranges are adjacent - a gap is a subresource
+// the caller did not synchronize and must stay unmerged.
+void ResourceBarrier::_coalesce_tex_barriers() noexcept {
+    auto const count = _tex_barriers.size();
+    if (count < 2u) { return; }
+    // In-place compaction: `write <= read` always holds, so the source is never
+    // overwritten before it has been consumed and no temporary buffer (the hot
+    // case is one allocation per tracked layer) is needed.
+    auto write = size_t{0u};
+    for (auto read = size_t{0u}; read < count; ++read) {
+        if (write != 0u &&
+            detail::can_merge_image_barriers(
+                _tex_barriers[write - 1u], _tex_barriers[read])) {
+            detail::absorb_image_barrier_range(
+                _tex_barriers[write - 1u], _tex_barriers[read]);
+            continue;
+        }
+        if (write != read) { _tex_barriers[write] = _tex_barriers[read]; }
+        ++write;
+    }
+    _tex_barriers.resize(write);
+}
+
 VkImageLayout ResourceBarrier::get_layout(Resource const *res, uint level) {
     LUISA_ASSERT(res != nullptr && res->tag() == Resource::Tag::kTexture,
                  "Vulkan image-layout query requires a texture.");
@@ -952,6 +1039,12 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
     }
     _current_texture_update_states.clear();
     _current_texture_descriptor_views.clear();
+    // Every mip state has been written back by now and the descriptor layouts
+    // were resolved before the per-resource pass, so the recorded per-mip image
+    // structs can be folded into contiguous subresource ranges. This only shrinks
+    // the struct list; the tracker state of each mip was already updated
+    // independently above.
+    _coalesce_tex_barriers();
     if (_bindless_memory_state.require_update) {
         _bindless_memory_state.require_update = false;
         auto after_stage = _bindless_memory_state.after_stage;
@@ -960,8 +1053,8 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
         _bindless_memory_state.after_access = VK_ACCESS_2_NONE;
         if (_bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
             auto needs_barrier =
-                ((_bindless_memory_state.before_access | after_access) &
-                 detail::kWriteAccessMask) != 0u;
+                detail::has_write_access(
+                    _bindless_memory_state.before_access | after_access);
             if (needs_barrier) {
                 auto &barrier = _memory_barriers.emplace_back();
                 barrier.srcStageMask = _bindless_memory_state.before_stage;
@@ -1001,6 +1094,10 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
         info.pImageMemoryBarriers = _tex_barriers.data();
     }
     if (!_buffer_barriers.empty()) {
+        // `_update_state(BufferStates &)` already normalized and decided on the
+        // masks of every struct it kept, so this pass is idempotent; it stays as
+        // the single funnel that guarantees no unfiltered buffer barrier reaches
+        // Vulkan.
         for (auto &i : _buffer_barriers) {
             barrier_filter(i);
         }

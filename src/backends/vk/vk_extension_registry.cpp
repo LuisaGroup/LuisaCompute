@@ -436,9 +436,20 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_3D_FEATURES_EXT>,
      check_single_bit<VkPhysicalDeviceTextureCompressionASTC3DFeaturesEXT,
                       &VkPhysicalDeviceTextureCompressionASTC3DFeaturesEXT::textureCompressionASTC_3D>},
+    // VK_EXT/VK_KHR_pipeline_library_group_handles may only be enabled together
+    // with VK_KHR_pipeline_library: enabling the group-handle name alone is
+    // VUID-vkCreateDevice-ppEnabledExtensionNames-01387 (group handles are only
+    // meaningful for a ray tracing pipeline that links pipeline-library
+    // libraries). VK_KHR_pipeline_library has no feature structure and no
+    // optional-extension switch of its own, so the prerequisite is satisfied
+    // only through name registration (note_enabled_extension, which is where
+    // device.cpp adds it when the physical device exposes it). Without that
+    // registration the entry fails closed and neither its name nor its feature
+    // structure reaches vkCreateDevice.
     {OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES,
      VK_KHR_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME,
-     VK_EXT_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME, nullptr,
+     VK_EXT_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME,
+     VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
      requested_pipeline_library_group_handles,
      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_KHR,
      make_feature_of<VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesKHR,

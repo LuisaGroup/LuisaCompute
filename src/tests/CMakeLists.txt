@@ -492,6 +492,13 @@ target_include_directories(test_command_reorder_ranges PRIVATE ../backends/commo
 # is not CTest-registered): benchmark_command_reorder <dx|vk> [dispatches] [threads] [iters] [rounds]
 luisa_compute_add_test(benchmark_command_reorder benchmark/benchmark_command_reorder.cpp)
 # Host-side counterpart (GPU-idle kernels) measuring pure submission cost.
+# The descriptor-path A/B switches and the restore-cost report this benchmark grew
+# for the Vulkan profiling work are behind the backend's private compile-time macro
+# LUISA_VULKAN_PROFILE_SUBMIT (default 0), so a normal build gets the plain host
+# submission benchmark. That macro is intentionally not a CMake option/define: it is
+# a private source/compiler opt-in for a throw-away measurement build of the backend
+# library and these binaries, not a supported build configuration, and no target
+# here may be conditioned on it.
 luisa_compute_add_test(benchmark_command_reorder_host benchmark/benchmark_command_reorder_host.cpp)
 # Plan P2.2: the benchmark includes VulkanDeviceConfigExt for its
 # `--descriptor-update-template` A/B switch, so it needs the vendored Vulkan
@@ -505,6 +512,11 @@ luisa_compute_add_test(benchmark_part2_verify benchmark/benchmark_part2_verify.c
 # Needs a GPU device, so it is not CTest-registered:
 #   benchmark_vk_shader_compile vk [--shaders N] [--workers 0|1|N] [--rounds R]
 #                                [--warm] [--manifest FILE]
+# The whole benchmark is gated by the same private compile-time macro
+# (LUISA_VULKAN_PROFILE_SUBMIT, default 0): without it the binary only reports that
+# it needs the macro. Omitting it from the build system is intentional - it is a
+# source/compiler opt-in of whoever measures, not a supported build configuration,
+# which is why there is no option/define for it here.
 luisa_compute_add_test(benchmark_vk_shader_compile benchmark/benchmark_vk_shader_compile.cpp)
 # Plan P5.1: ordered batch shader compilation (worker pool, per-request tickets,
 # serial publication). Needs a GPU device, so it is not CTest-registered.
@@ -580,6 +592,10 @@ luisa_compute_add_test(test_vk_descriptor_update_template unit/ext/test_vk_descr
       # P2.3: the push-descriptor eligibility decision and its single recording
       # funnel are device-independent (the entry point is a parameter), so both are
       # covered on the host with a recording stub.
+# Its counter-contract test reads the submit profiler's thread-local mirror, so that
+# one test is compiled only when the private compile-time macro
+# LUISA_VULKAN_PROFILE_SUBMIT is 1; every functional test of this target is
+# unconditional. No option/define is added for the macro here on purpose.
       luisa_compute_add_test(test_vk_push_descriptor unit/ext/test_vk_push_descriptor.cpp LABELS "unit;unit_ext")
       target_include_directories(test_vk_push_descriptor PRIVATE ../backends/vk)
       target_link_libraries(test_vk_push_descriptor PRIVATE luisa-compute-ext-volk)
@@ -1418,8 +1434,13 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
     luisa_compute_add_test(test_vk_shader_cache unit/runtime/test_vk_shader_cache.cpp)
-    # P0.3 tripwire for the counter-only submit profiler (plan §2/§4): needs a
-    # physical Vulkan device and latches LUISA_VULKAN_PROFILE_SUBMIT itself.
+      # P0.3 tripwire for the counter-only submit profiler (plan §2/§4). Needs a
+      # physical Vulkan device, and its body exists only when the backend's private
+      # compile-time macro LUISA_VULKAN_PROFILE_SUBMIT is 1 (default 0: the binary
+      # then only says what it needs). No CMake option/define is provided for that
+      # macro on purpose - omitting it is intentional, because it is a private
+      # source/compiler opt-in for a measurement build of the library plus this test,
+      # not a supported build configuration.
     luisa_compute_add_test(test_vk_submit_profile unit/runtime/test_vk_submit_profile.cpp)
     # P4: the record/replay/update-refusal lifecycle through the public
     # `VulkanReplayExt` only. Needs a physical Vulkan device, so it is built but not
@@ -1428,11 +1449,15 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # One rejection case is a `VKCustomCmd`, and that public header is
     # Vulkan-typed, so this target needs the vendored Vulkan headers.
     target_link_libraries(test_vk_replay PRIVATE luisa-compute-ext-volk)
-    # P2.1: runtime coverage of the capability-adaptive queue submission
-    # (vkQueueSubmit2 on a sync2 device, the unchanged legacy vkQueueSubmit on a
-    # Vulkan 1.2 floor). Needs a physical Vulkan device and latches
-    # LUISA_VULKAN_PROFILE_SUBMIT itself; run it a second time with
-    # `--min-api 1.2` to cover the legacy branch.
+      # P2.1: runtime coverage of the capability-adaptive queue submission
+      # (vkQueueSubmit2 on a sync2 device, the unchanged legacy vkQueueSubmit on a
+      # Vulkan 1.2 floor). Needs a physical Vulkan device; run it a second time with
+      # `--min-api 1.2` to cover the legacy branch. The test reads the submit
+      # profiler's counters, so its body is behind the same private compile-time macro
+      # as the profiler itself (LUISA_VULKAN_PROFILE_SUBMIT, default 0) and a default
+      # build gets a `main` that only states the requirement. That macro is
+      # deliberately not a CMake option/define: it is a private source/compiler
+      # opt-in, not a supported build configuration.
     luisa_compute_add_test(test_vk_queue_submit_runtime unit/runtime/test_vk_queue_submit_runtime.cpp)
     target_link_libraries(test_vk_queue_submit_runtime PRIVATE luisa-compute-ext-volk)
     # P1.2: one redundant-bind test issues raw Vulkan (vkCmdFillBuffer) from a

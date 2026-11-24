@@ -129,9 +129,11 @@ struct OptionalExtensionDescriptor {
     const char *name{nullptr};
     // Acceptable alternative name (KHR/EXT twins, NV/EXT twins), or nullptr.
     const char *alias_name{nullptr};
-    // Another *optional* extension that must end up enabled for this one to be
-    // usable, or nullptr. Evaluated after every entry has been resolved, so
-    // table order does not matter.
+    // Another extension name that must end up enabled for this one to be usable,
+    // or nullptr. The prerequisite may be another registry entry or a name-only
+    // extension enabled by Device and published through note_enabled_extension()
+    // (for example VK_KHR_pipeline_library). Evaluated after entries are resolved,
+    // so table order does not matter.
     const char *requires_extension{nullptr};
     // Whether VulkanDeviceConfigExt allows this extension. Never nullptr.
     bool (*requested)(const luisa::compute::VulkanDeviceConfigExt &config) noexcept;

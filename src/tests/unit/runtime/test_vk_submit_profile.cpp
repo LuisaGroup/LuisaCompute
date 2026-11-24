@@ -1,7 +1,14 @@
 // Test for the Vulkan backend's counter-only submit profiler (plan P0.2/P0.3).
-// This test covers:
-// - LUISA_VULKAN_PROFILE_SUBMIT=1 is latched before the first dispatch and
-//   answers through Device::query (including the one-line report)
+// This whole file is gated by the profiler's private compile-time macro
+// LUISA_VULKAN_PROFILE_SUBMIT (default 0): with the macro off the instrument does
+// not exist, so the tests below are not compiled at all and `main` only prints
+// that this binary needs the macro. There is no environment variable and no build
+// option for it - enabling it is a throw-away measurement build of the backend
+// library plus this test.
+//
+// With the macro on, this test covers:
+// - the mode is a build-time fact: `vk_profile_enabled` answers "1", and the
+// counters and the one-line report answer through Device::query
 // - F1/P1.1: two compiles of an identical kernel share one pipeline layout and
 //   one set of descriptor-set layouts (the layouts are interned by structure, so
 //   the second compile creates no Vulkan layout at all)
@@ -45,14 +52,32 @@
 //   VulkanExtensionStatusExt::capability_status() (P6.3). min/max subgroup size
 //   are explicitly unknown on a device without subgroup-size-control properties
 //   instead of being derived from subgroupSize.
+// - F5/§5.1 barrier reductions: an image batch of two sampling dispatches that
+//   share one output buffer must contain exactly 5 image structs with
+//   `--no-unified-image-layouts` - 1 coalesced sampled layer (4 identical per-mip
+//   transitions folded into one contiguous subresource range) + 0 for the elided
+//   read/read layer (oldLayout == newLayout, no write) + 4 per-mip restore
+//   structs - while the restored value proves both dispatches really sampled the
+//   initialized mip 0 constant
 // - the host encode/submit timings are reported and plausible
 // Every structural assertion is paired with a check of the dispatched buffer
 // values, so the counters cannot hide a reordered, skipped or mis-bound batch.
 
+// The gate of the instrument. A default build (macro undefined) sees 0 here and
+// in src/backends/vk/submit_profile.h, so this test and the backend library agree
+// without any build option.
+#if !defined(LUISA_VULKAN_PROFILE_SUBMIT)
+#define LUISA_VULKAN_PROFILE_SUBMIT 0
+#endif
+
+#if LUISA_VULKAN_PROFILE_SUBMIT
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -94,15 +119,22 @@ namespace {
 // only one Vulkan device, so it cannot be done in a single run).
 bool g_min_api_1_2{false};
 
-// The profiler latches on first use, so the variable has to be set before the
-// backend records anything - in practice before the device exists.
-void latch_profile_mode() noexcept {
-#ifdef _WIN32
-    _putenv_s("LUISA_VULKAN_PROFILE_SUBMIT", "1");
-#else
-    setenv("LUISA_VULKAN_PROFILE_SUBMIT", "1", 1);
-#endif
-}
+// `--no-unified-image-layouts` switches VK_KHR_unified_image_layouts off for the
+// device this binary creates. The barrier test below pins the *per-mip* layout
+// policy (4 mip transitions plus 4 per-mip restores); with the extension on, the
+// tracker keeps every backend-owned mip in VK_IMAGE_LAYOUT_GENERAL and that shape
+// does not exist. Like the in-flight depth and the API-version floor this is a
+// device-creation input, so it is parsed and stripped from argv in main.
+bool g_no_unified_image_layouts{false};
+
+// `--strict-validation` also wraps the device in Luisa's validation layer and
+// disables optional feature structures unknown to the installed Vulkan 1.4.321
+// validation layer. Pair it with LUISA_VULKAN_VALIDATION=1 to run the focused
+// barrier tripwire through both validation implementations.
+bool g_strict_validation{false};
+
+// Nothing latches the mode any more: it is compiled in, so the only precondition
+// of this test is that the backend library was built with the same macro.
 
 // Every counter the profiler exposes (see src/backends/vk/submit_profile.h).
 enum class Counter : size_t {
@@ -529,8 +561,8 @@ void check_dispatch_indices(const luisa::vector<float> &host,
 void reg_profile_latch(Device &device) {
     "vk_profile_is_latched_and_reported"_test = [&device] {
         expect(device.query("vk_profile_enabled") == "1")
-            << "the mode has to be latched from LUISA_VULKAN_PROFILE_SUBMIT=1 "
-               "before the first dispatch";
+ << "a build with LUISA_VULKAN_PROFILE_SUBMIT=1 must report itself as "
+ "enabled - the mode is a compile-time fact, not a latch";
         auto report = device.query("vk_profile_report");
         expect(!report.empty())
             << "vk_profile_report must answer the one-line dump";
@@ -1823,8 +1855,9 @@ struct FramesInFlightOption {
 
 FramesInFlightOption g_frames_in_flight_option{};
 
-// Removes `--frames-in-flight <n>` and `--min-api <version>` from argv in place and
-// reports what was requested.
+// Removes `--frames-in-flight <n>`, `--min-api <version>`, the descriptor/push
+// switches and `--no-unified-image-layouts` from argv in place and reports what
+// was requested.
 [[nodiscard]] FramesInFlightOption
 take_frames_in_flight_option(int &argc, char **argv) noexcept {
     FramesInFlightOption option;
@@ -1857,6 +1890,15 @@ take_frames_in_flight_option(int &argc, char **argv) noexcept {
  g_push_descriptor_option.enabled = false;
  continue;
  }
+ // Barrier-layout policy (per-mip layouts instead of VK_IMAGE_LAYOUT_GENERAL).
+        if (std::strcmp(argv[i], "--no-unified-image-layouts") == 0) {
+            g_no_unified_image_layouts = true;
+            continue;
+        }
+        if (std::strcmp(argv[i], "--strict-validation") == 0) {
+            g_strict_validation = true;
+            continue;
+        }
         argv[kept++] = argv[i];
     }
     argv[kept] = nullptr;
@@ -1864,43 +1906,79 @@ take_frames_in_flight_option(int &argc, char **argv) noexcept {
     return option;
 }
 
-// Answers only the in-flight depth, the API-version floor and (plan P2.2) the
-// descriptor-update switch, so the rest of the device is created exactly as the
-// default configuration creates it.
+// Answers the in-flight depth, API floor, descriptor-update switches and barrier
+// layout policy. Strict validation is an explicit test-only compatibility mode:
+// the installed Vulkan 1.4.321 layer rejects these newer optional feature structs
+// before any backend command is recorded. Disabling them does not remove any path
+// used by the compute/copy/replay tests, and normal runs keep every default.
 class SubmitProfileConfig final : public VulkanDeviceConfigExt {
     uint32_t _frames_in_flight;
     uint32_t _min_api_version;
- bool _descriptor_update_template;
- bool _push_descriptor;
- bool _push_descriptor_specified;
+    bool _descriptor_update_template;
+    bool _push_descriptor;
+    bool _push_descriptor_specified;
+    bool _unified_image_layouts;
+    bool _strict_validation;
 public:
- explicit SubmitProfileConfig(uint32_t frames_in_flight,
- uint32_t min_api_version,
- bool descriptor_update_template,
- bool push_descriptor,
- bool push_descriptor_specified = true) noexcept
- : _frames_in_flight{frames_in_flight},
- _min_api_version{min_api_version},
- _descriptor_update_template{descriptor_update_template},
- _push_descriptor{push_descriptor},
- _push_descriptor_specified{push_descriptor_specified} {}
+    explicit SubmitProfileConfig(uint32_t frames_in_flight,
+                                 uint32_t min_api_version,
+                                 bool descriptor_update_template,
+                                 bool push_descriptor,
+                                 bool push_descriptor_specified = true,
+                                 bool unified_image_layouts = true,
+                                 bool strict_validation = false) noexcept
+        : _frames_in_flight{frames_in_flight},
+          _min_api_version{min_api_version},
+          _descriptor_update_template{descriptor_update_template},
+          _push_descriptor{push_descriptor},
+          _push_descriptor_specified{push_descriptor_specified},
+          _unified_image_layouts{unified_image_layouts},
+          _strict_validation{strict_validation} {}
     [[nodiscard]] uint32_t max_frames_in_flight() const noexcept override {
         return _frames_in_flight;
     }
     [[nodiscard]] uint32_t min_api_version() const noexcept override {
         return _min_api_version;
     }
- // Plan P2.2: `--descriptor-update-template` turns the template path on (the
- // library default is the measured-faster legacy vkUpdateDescriptorSets call).
- [[nodiscard]] bool enable_descriptor_update_template() const noexcept override {
- return _descriptor_update_template;
- }
- // Plan P2.3: `--push-descriptor` / `--no-push-descriptor` choose the set-0
- // path explicitly; without either flag the library default applies, which is
- // what a shipping consumer sees.
- [[nodiscard]] bool enable_push_descriptor() const noexcept override {
- return _push_descriptor_specified ? _push_descriptor :
- VulkanDeviceConfigExt::enable_push_descriptor();
+    [[nodiscard]] bool enable_descriptor_update_template() const noexcept override {
+        return _descriptor_update_template;
+    }
+    [[nodiscard]] bool enable_push_descriptor() const noexcept override {
+        return _push_descriptor_specified ? _push_descriptor :
+                                            VulkanDeviceConfigExt::enable_push_descriptor();
+    }
+    [[nodiscard]] bool enable_unified_image_layouts() const noexcept override {
+        return _unified_image_layouts;
+    }
+    [[nodiscard]] bool enable_descriptor_heap() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_descriptor_heap();
+    }
+    [[nodiscard]] bool enable_copy_memory_indirect() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_copy_memory_indirect();
+    }
+    [[nodiscard]] bool enable_memory_decompression() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_memory_decompression();
+    }
+    [[nodiscard]] bool enable_present_timing() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_present_timing();
+    }
+    [[nodiscard]] bool enable_shader_fma() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_shader_fma();
+    }
+    [[nodiscard]] bool enable_shader_64bit_indexing() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_shader_64bit_indexing();
+    }
+    [[nodiscard]] bool enable_shader_uniform_buffer_unsized_array() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_shader_uniform_buffer_unsized_array();
+    }
+    [[nodiscard]] bool enable_ray_tracing_invocation_reorder() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_ray_tracing_invocation_reorder();
+    }
+    [[nodiscard]] bool enable_custom_resolve() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_custom_resolve();
+    }
+    [[nodiscard]] bool enable_maintenance10() const noexcept override {
+        return !_strict_validation && VulkanDeviceConfigExt::enable_maintenance10();
     }
 };
 
@@ -2805,31 +2883,245 @@ void reg_argument_plan_indirect(Device &device) {
                       "the command that dispatched it";
     };
 }
+
+// ---------------------------------------------------------------------------
+// Read/read barrier elision + per-mip image barrier coalescing
+// ---------------------------------------------------------------------------
+// `ResourceBarrier` gained two reductions that the counters can pin down:
+//   (a) `update_states` now drops a barrier that is a pure read/read transaction
+//       (no write on either side), that does not change an image layout and that
+//       has no caller-supplied before-state (`can_elide_resource_barrier`), and
+//   (b) `_coalesce_tex_barriers` folds the per-mip VkImageMemoryBarrier2 structs
+//       of one update pass into one contiguous subresource range. It only merges
+//       structs that agree on image, sync scope, layouts, aspect and array-layer
+//       range and whose mip ranges are adjacent - a gap is a subresource the
+//       caller did not synchronize and must stay unmerged.
+// `restore_states` deliberately stays per mip: it is the cross-submission
+// contract, so it is the *state* reduction a persistent barrier cache would have
+// to keep, not a barrier the tracker may widen behind the caller's back.
+//
+// The scenario: a 4-mip 8x8 FLOAT4 image with a distinct constant in every mip,
+// and one command batch with two identical sampling dispatches into the *same*
+// output buffer. The shared output buffer is a WAW pair, so the two dispatches
+// cannot be folded into one reorder layer, and because both dispatches sample the
+// same image but different uniform scales (0 then 1), so the final value must be
+// mip 0's constant from the second dispatch. Dropping that dispatch leaves zero,
+// and reversing the WAW pair does too.
+//
+// With VK_KHR_unified_image_layouts disabled (`--no-unified-image-layouts`) the
+// tracker keeps switching layouts per usage, so the batch must read:
+//
+//   first sampled layer     4 mips GENERAL -> SHADER_READ_ONLY_OPTIMAL with
+//                           identical scopes/layouts/aspect and adjacent mip
+//                           ranges -> coalesced into 1 image struct
+//   second read-only layer  oldLayout == newLayout, source and destination
+//                           access are reads -> elided, 0 image structs
+//   trailing restore        1 struct per tracked mip, never coalesced -> 4
+//                           --------------------------------------------------
+//                           image structs in the batch                     5
+//
+// 5 = 1 + 0 + 4. The same batch would read 12 without both reductions
+// (4 + 4 + 4) and 6 with coalescing but no elision, so the exact assertion is
+// non-vacuous in either direction. Note that the sum is independent of how the
+// reorder pass groups the two dispatches: in one layer the merged record keeps a
+// single layout transition per mip (still 1 after coalescing), in two layers the
+// second one is the elided read/read layer. Both shapes sum to the same 5, so the
+// assertion does not depend on the reorder policy.
+//
+// Why this is worth a real-device counter test and not just a host contract test:
+// a coalesced struct is one VkImageMemoryBarrier2 whose subresourceRange covers
+// mip 0..3, so under VK_LAYER_KHRONOS_validation a wrong levelCount, a range
+// beyond the image's mip count, or a layout that disagrees with the sampled
+// descriptor bound right after it is reported by the validation layer - while the
+// read/read elision is only legal if the tracker really re-committed the layout in
+// the first layer (otherwise the second layer would leave the descriptor bound to
+// an image still in GENERAL). The exact count catches both regressions on the
+// counter side and the numeric check catches a batch that lost a dispatch, so
+// running this under the validation layers is the intended ground truth.
+
+// An 8x8 image with 4 mips: mip sizes 8, 4, 2, 1.
+constexpr auto kBarrierImageSize = 8u;
+constexpr auto kBarrierImageMips = 4u;
+
+// One distinct constant per mip, all exactly representable, so a sampled value
+// says *which* mip was read and a mismatch is visible without a tolerance table.
+[[nodiscard]] float4 barrier_image_texel(uint32_t level) noexcept {
+    auto v = static_cast<float>(level);
+    return make_float4(1.0f + v, 2.0f + v, 4.0f + v, 8.0f + v);
+}
+
+[[nodiscard]] luisa::vector<float4> barrier_image_pixels(uint32_t level) noexcept {
+    auto size = kBarrierImageSize >> level;
+    if (size == 0u) { size = 1u; }
+    return luisa::vector<float4>(static_cast<size_t>(size) * size,
+                                 barrier_image_texel(level));
+}
+
+// Samples the image at a fixed UV (the centre of texel (1, 1) of mip 0) with an
+// explicit LOD of 0 and point filtering, so the result is exactly one texel of
+// mip 0 - no filtering or mip blending can introduce a tolerance question. The
+// direct sampled-image call is built through `FunctionBuilder` because the public
+// DSL exposes sampling through bindless arrays only (`Image<T>::read/size`); the
+// texture argument is still an ordinary sampled descriptor, which is what makes
+// the barrier tracker touch every mip of the chain.
+Kernel1D sample_image_mip0 = [](ImageFloat image, BufferFloat4 out, Float scale) noexcept {
+    auto &builder = *luisa::compute::detail::FunctionBuilder::current();
+    auto literal = [&](auto value) noexcept {
+        return builder.literal(Type::of<decltype(value)>(), value);
+    };
+    auto sampled = builder.call(
+        Type::of<float4>(), CallOp::TEXTURE2D_SAMPLE_LEVEL,
+        {image.expression(),
+         literal(make_float2(1.5f / static_cast<float>(kBarrierImageSize),
+                             1.5f / static_cast<float>(kBarrierImageSize))),
+         literal(0.0f),// explicit LOD 0: always mip 0
+         literal(static_cast<uint32_t>(Sampler::Filter::POINT)),
+         literal(static_cast<uint32_t>(Sampler::Address::EDGE))});
+    // Every dispatch writes slot 0, which is what makes the pair a WAW.
+    out.write(0u, def<float4>(sampled) * scale);
+};
+
+void reg_barrier_elision_and_mip_coalescing(Device &device) {
+    // The expected shape is the *per-mip layout* shape. With unified image
+    // layouts the tracker keeps every backend-owned mip in VK_IMAGE_LAYOUT_GENERAL,
+    // both layers are read/read with an unchanged layout and the whole batch
+    // emits no image struct at all - a legitimate shape, but a different policy.
+    // Say so instead of asserting the wrong one, and make the flag itself
+    // verifiable: if `--no-unified-image-layouts` was passed, the logical device
+    // must not have the extension enabled.
+    if (auto *extensions = device.extension<VulkanExtensionStatusExt>();
+        extensions != nullptr) {
+        auto enabled =
+            extensions->is_enabled("VK_KHR_unified_image_layouts");
+        auto active = extensions->is_active("VK_KHR_unified_image_layouts");
+        LUISA_INFO("barrier elision: unified image layouts {} (active {})",
+                   enabled ? "enabled" : "disabled", active);
+        if (g_no_unified_image_layouts) {
+            expect(!enabled && !active)
+                << "--no-unified-image-layouts must reach device creation: the "
+                   "logical device must not enable VK_KHR_unified_image_layouts";
+        }
+        if (enabled || active) {
+            LUISA_INFO(
+                "barrier read/read elision and mip coalescing: skipped - this "
+                "test pins the per-mip layout policy, run it as "
+                "`test_vk_submit_profile vk --no-unified-image-layouts "
+                "vk_barrier_read_read_elision_and_mip_coalescing`");
+            return;
+        }
+    }
+    "vk_barrier_read_read_elision_and_mip_coalescing"_test = [&device] {
+        auto image = device.create_image<float>(
+            PixelStorage::FLOAT4,
+            make_uint2(kBarrierImageSize), kBarrierImageMips);
+        Buffer<float4> out = device.create_buffer<float4>(1u);
+        Stream stream = device.create_stream();
+        // Setup: one host upload per mip, then synchronize. The uploads leave each
+        // mip in TRANSFER_DST_OPTIMAL; the batch's restore_states puts all four
+        // back into the canonical GENERAL layout, which is the state the measured
+        // batch starts from.
+        for (auto level = 0u; level < kBarrierImageMips; ++level) {
+            auto pixels = barrier_image_pixels(level);
+            stream << image.view(level).copy_from(luisa::span{pixels});
+        }
+        stream << synchronize();
+        // Compile before the snapshot: a compile adds pipelines and layouts, no
+        // barriers, but keeping it outside the window makes the numbers read like
+        // the equation they are compared against.
+        auto shader = device.compile(sample_image_mip0);
+        auto before = read_counters(device);
+        CommandList list;
+        list.reserve(2u, 0u);
+        // Different scales make the WAW order observable: dropping or moving the
+        // second dispatch leaves zero instead of mip 0's constant.
+        list << shader(image, out, 0.0f).dispatch(1u)
+             << shader(image, out, 1.0f).dispatch(1u);
+        stream << list.commit() << synchronize();
+        auto after = read_counters(device);
+        auto d = difference(before, after);
+        auto image_structs = value(d, Counter::barrier_image_barriers);
+        LUISA_INFO(
+            "barrier elision (unified layouts off, {} mips): {} dispatches in {} "
+            "batch -> {} image structs = 1 coalesced sampled layer + 0 elided "
+            "read/read layer + {} restore structs, {} restore call(s), {} tracked "
+            "mips",
+            kBarrierImageMips, value(d, Counter::dispatches),
+            value(d, Counter::command_batches), image_structs,
+            value(d, Counter::restore_image_barriers),
+            value(d, Counter::restore_calls),
+            value(d, Counter::restore_state_texture_mips));
+        // Two recorded dispatches, one submission: the counters below are only
+        // meaningful for exactly this shape.
+        expect(value(d, Counter::command_batches) == 1u)
+            << "the measured window must be one command batch (one restore)";
+        expect(value(d, Counter::dispatches) == 2u)
+            << "both sampling dispatches must be recorded, not merged away";
+        // 1 + 0 + 4. Asserted exactly: the coalesced sampled layer (1) and the
+        // per-mip restore (4) are the only image structs the batch may contain,
+        // because the second read-only layer is elided (0). A missing coalescing
+        // pass reads 4 + 4 + 4 = 12 here, a coalescing without the read/read
+        // elision reads 1 + 1 + 4 = 6.
+        expect(image_structs == 5u)
+            << "the sampled layer must coalesce its 4 mips into 1 image struct, "
+               "the second read-only layer must be elided and the restore must "
+               "stay per mip (1 + 0 + 4 = 5)";
+        // The restore is explicitly *not* coalesced: the tracker drops the state
+        // it consumed, and it consumed one entry per mip.
+        expect(value(d, Counter::restore_image_barriers) == kBarrierImageMips)
+            << "restore_states must still record one image struct per tracked mip "
+               "(the cross-submission contract is not widened by coalescing)";
+        expect(value(d, Counter::restore_state_texture_mips) >=
+               kBarrierImageMips)
+            << "the restore must consume the tracker entries of all four mips";
+        // The shared per-batch invariants: exactly one restore_states call, one
+        // buffer struct per tracked buffer, restore structs inside the funnel
+        // counters and the restore's host time inside the encode window.
+        check_restore_shape(d, 1u, "barrier elision");
+        // Numeric check: both dispatches sampled mip 0, so the single output slot
+        // must hold exactly mip 0's constant. A dispatch that sampled another mip
+        // (a mis-bound descriptor or a coalesced barrier that covered the wrong
+        // subresource range) shows up as one of the other constants, and a
+        // dropped dispatch that left the slot untouched would read 0.
+        std::array<float4, 1u> host{};
+        stream << out.copy_to(luisa::span{host}) << synchronize();
+        auto expected = barrier_image_texel(0u);
+        auto observed = host[0];
+        auto error = std::max(
+            std::max(std::fabs(observed.x - expected.x),
+                     std::fabs(observed.y - expected.y)),
+            std::max(std::fabs(observed.z - expected.z),
+                     std::fabs(observed.w - expected.w)));
+        expect(error < 1.0e-4f)
+            << "the sampled value must be mip 0's constant (" << expected.x
+            << ", " << expected.y << ", " << expected.z << ", " << expected.w
+            << ") but slot 0 holds (" << observed.x << ", " << observed.y << ", "
+            << observed.z << ", " << observed.w << ")";
+    };
+}
 }// namespace
 
 int main(int argc, char *argv[]) {
-    // Must happen before the device and the first dispatch: the mode latches on
-    // first use.
-    latch_profile_mode();
-    // The in-flight depth (P1.5) is a device-creation input, so select it here
-    // and strip the pair from argv before anybody else parses it.
+    // Device-creation inputs are removed before Boost.UT parses the test filter.
     g_frames_in_flight_option = take_frames_in_flight_option(argc, argv);
-    // The config extension always answers now, because P2.2's switch has to be
-    // visible to the device even when nothing else is configured; every other
-    // answer is the backend default.
     DeviceConfig device_config;
     device_config.extension = luisa::make_unique<SubmitProfileConfig>(
         g_frames_in_flight_option.specified ? g_frames_in_flight_option.value : 3u,
- g_min_api_1_2 ? VK_API_VERSION_1_2 : 0u,
- g_descriptor_update_template,
- g_push_descriptor_option.enabled,
- g_push_descriptor_option.specified);
-    auto dc = luisa::test::create_device_from_ut(argc, argv, &device_config);
+        g_min_api_1_2 ? VK_API_VERSION_1_2 : 0u,
+        g_descriptor_update_template,
+        g_push_descriptor_option.enabled,
+        g_push_descriptor_option.specified,
+        !g_no_unified_image_layouts,
+        g_strict_validation);
+    auto dc = luisa::test::create_device_from_ut(
+        argc, argv, &device_config, g_strict_validation);
     if (!dc) { return 0; }
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     auto &device = dc->device;
-    if (device.backend_name() != "vk") {
+    // Luisa's validation wrapper does not preserve the wrapped backend_name().
+    // The requested argument is the authoritative backend identity in both the
+    // ordinary and wrapped cases.
+    if (argc <= 1 || luisa::string_view{argv[1]} != "vk") {
         LUISA_INFO("Skipping: the submit profiler is a Vulkan-only instrument.");
         return 0;
     }
@@ -2852,8 +3144,12 @@ int main(int argc, char *argv[]) {
     reg_descriptor_update_templates_mixed(device);
     reg_descriptor_update_templates_printer(device);
     reg_descriptor_update_templates_distinct_shaders(device);
-    reg_argument_plan_distinct_layouts(device);
-    reg_argument_plan_indirect(device);
+reg_argument_plan_distinct_layouts(device);
+      reg_argument_plan_indirect(device);
+      // Barrier reductions: read/read elision plus per-mip image barrier
+      // coalescing. Runs only with `--no-unified-image-layouts`, because the
+      // expected shape is the per-mip layout policy.
+      reg_barrier_elision_and_mip_coalescing(device);
     reg_frames_in_flight_config(device);
     reg_in_flight_depth(device);
     reg_in_flight_depth_fast_path(device);
@@ -2861,3 +3157,26 @@ int main(int argc, char *argv[]) {
  reg_replay_zero_encode(device);
     return 0;
 }
+
+
+#else// !LUISA_VULKAN_PROFILE_SUBMIT
+
+// The profiler this test tripwires is a compile-time instrument (see
+// src/backends/vk/submit_profile.h): in a default build it does not exist, so
+// there is nothing to assert - every `vk_profile_*` query answers the empty
+// string and the counters the tests above compare against are not even compiled.
+// Instead of pretending the tripwire ran, this binary says what it needs and
+// exits successfully: it is a measurement tool, not part of an unattended suite.
+#include <cstdio>
+
+int main() {
+    std::fprintf(stderr,
+                 "test_vk_submit_profile: nothing was tested. This binary needs the "
+                 "compile-time macro LUISA_VULKAN_PROFILE_SUBMIT=1 in the backend "
+                 "library *and* in this test; it is a private source-level opt-in, "
+                 "deliberately not an XMake/CMake option and not an environment "
+                 "variable.\n");
+    return 0;
+}
+
+#endif// LUISA_VULKAN_PROFILE_SUBMIT

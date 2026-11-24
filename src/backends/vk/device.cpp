@@ -67,6 +67,10 @@
 #include <SPIRV/disassemble.h>
 #include <fstream>
 #endif
+// `marl::Scheduler::get()` is how the shader compile pool captures its executor on
+// the device-constructing thread (plan P5.1).
+#include <marl/scheduler.h>
+
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -1244,6 +1248,20 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
     // }
 
     // func_table.init(this);
+
+    // Ordered batch compilation (plan P5.1): the *executor* of the shader compile pool
+    // is captured here, once, on this thread, because `marl::Scheduler::get()` answers
+    // "which scheduler is bound to *my* thread". Selecting it later - at the first
+    // batch, or at destruction - would answer that question on a different thread and
+    // silently pick the wrong executor. The pool object itself is lightweight (it owns
+    // no thread, no lane and no Vulkan object until a batch needs them), so an eager
+    // construction keeps the capture honest without changing what
+    // `stats.pool_created` means: that still says "a batch actually used lanes".
+    //
+    // A captured scheduler is *external*: it must outlive this device and every batch,
+    // because the pool enqueues each batch's lane tasks on it directly.
+    _shader_compile_pool =
+        luisa::make_unique<detail::ShaderCompilePool>(this, marl::Scheduler::get());
 }
 
 void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice external_device, uint32_t selected_device) {
@@ -2574,6 +2592,20 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         if (supported_ext.find(i) != supported_ext.end())
             enable_device_extension(i.c_str());
     }
+    // VK_EXT/VK_KHR_pipeline_library_group_handles may only be enabled on a
+    // device that also enables VK_KHR_pipeline_library
+    // (VUID-vkCreateDevice-ppEnabledExtensionNames-01387). The prerequisite has
+    // no feature structure, so only its name matters - but it must be added
+    // before the registry resolves, and only for a device that actually asked
+    // for group handles *and* exposes the prerequisite: enabling it
+    // unconditionally would change ppEnabledExtensionNames on devices that never
+    // use either extension. When the prerequisite is unavailable the registry's
+    // `requires_extension` check rejects the group-handle entry instead.
+    if (_optional_extensions.requested(
+            detail::OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES) &&
+        supports_device_extension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME)) {
+        enable_device_extension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+    }
     // Finish the optional extension negotiation after every mandatory
     // extension has been decided, so a prerequisite (swapchain, ray tracing
     // pipeline, ...) is already visible.
@@ -3348,16 +3380,27 @@ bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 detail::ShaderCompilePool &Device::shader_compile_pool() noexcept {
-    if (!_shader_compile_pool) {
-        _shader_compile_pool = luisa::make_unique<detail::ShaderCompilePool>(this);
+    // Constructed by `Device::Device`, which is the only place that can capture the
+    // executor: this accessor runs on whatever thread a batch or the destructor uses,
+    // so it must never select one. A missing pool is a construction bug, and the
+    // fail-safe is the OS thread executor (no scheduler captured) rather than a
+    // scheduler lookup on the wrong thread.
+    if (!_shader_compile_pool) [[unlikely]] {
+        LUISA_WARNING("Vulkan shader compile pool was not constructed with its "
+                      "device; preparation falls back to the pool's own threads "
+                      "because no scheduler was captured on the device-constructing "
+                      "thread.");
+        _shader_compile_pool = luisa::make_unique<detail::ShaderCompilePool>(
+            this, static_cast<marl::Scheduler *>(nullptr));
     }
     return *_shader_compile_pool;
 }
 void Device::shutdown_shader_compile_pool() noexcept {
-    // The pool object is created on demand (it owns no thread until a batch needs
-    // one), so a shutdown before the first batch still has to *create* it: otherwise
-    // "shut down" would leave no state to refuse later work with, and a caller that
-    // shuts the pool down early would silently get the parallel path back.
+    // The pool object itself already exists (the constructor builds it with the
+    // captured executor), but it owns nothing until a batch needs it; either way a
+    // shutdown before the first batch has to leave state that refuses later work with
+    // `POOL_SHUTDOWN`, otherwise a caller that shuts the pool down early would
+    // silently get the parallel path back.
     static_cast<void>(shader_compile_pool());
     _shader_compile_pool->stop();
 }
@@ -3856,11 +3899,28 @@ if (property == "vk_descriptor_update_template_path") {
         // Diagnostics of the ordered batch-compilation pool (plan P5.1). They report
         // state and counters, never a decision: no code path reads them. Read from
         // the pool's atomics, so a query on one thread while another publishes a
-        // batch cannot see a torn value; a device that never batched answers zeroes
-        // without creating the pool.
+        // batch cannot see a torn value; a device that never batched answers zeroes,
+        // and the executor it captured needs no batch at all.
         auto stats = _shader_compile_pool ?
                          _shader_compile_pool->stats() :
                          VulkanShaderCompileStats{};
+        // Which executor the pool captured on the device-constructing thread, and
+        // never re-selected: "fiber" (a marl scheduler was bound there, so the pool
+        // owns no thread; worker-backed schedulers run preparation as marl tasks)
+        // or "std_thread" (nothing was bound there, so the pool owns its own workers).
+        // Reported, never read back to change behaviour: it exists so a test can
+        // prove the selection without reaching into the backend.
+        if (property == "vk_shader_compile_executor") {
+            return luisa::string{_shader_compile_pool ?
+                                         _shader_compile_pool->executor_name() :
+                                         "none"};
+        }
+        // Worker threads of the captured scheduler: 0 in the "std_thread" executor.
+        if (property == "vk_shader_compile_scheduler_workers") {
+            return luisa::format("{}", _shader_compile_pool ?
+                                         _shader_compile_pool->captured_scheduler_worker_count() :
+                                         0u);
+        }
         if (property == "vk_shader_compile_parallel") {
             return luisa::string{"1"};
         }

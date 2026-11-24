@@ -25,10 +25,13 @@
 //   callbacks, presents, destructor callbacks) returns the exact typed reason and
 //   consumes no native resource
 // - handle lifecycle: unknown handle, double destroy, replay after destroy
-// - a decode-shaped repeated-dispatch graph (32 dispatches) is compared with an
-//   ordinary dispatch of the same list on host submission time. The counters are
-//   OFF in this binary on purpose; only the measured host time is reported and no
-//   GPU-side claim is made.
+// - in LUISA_VULKAN_PROFILE_SUBMIT builds only, a decode-shaped repeated-dispatch
+//   graph is compared with ordinary dispatch on host submission time. Functional
+//   replay coverage stays enabled in normal builds; the timing harness does not.
+#if !defined(LUISA_VULKAN_PROFILE_SUBMIT)
+#define LUISA_VULKAN_PROFILE_SUBMIT 0
+#endif
+
 #include "ut/ut.hpp"
 #include "test_device.h"
 
@@ -49,8 +52,11 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/swapchain.h>
 
+#include <atomic>
+#if LUISA_VULKAN_PROFILE_SUBMIT
 #include <algorithm>
 #include <chrono>
+#endif
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -69,12 +75,30 @@ namespace {
 // creation, so one process can only cover one of the two paths.
 bool g_min_api_1_2{false};
 
+// How many times the backend asked the config ext for a one-shot borrowed command
+// buffer (see `ReplayDeviceConfig::borrow_command_buffer`). Atomic because ordinary
+// dispatches run on host threads that are not the test thread.
+std::atomic_uint64_t g_borrow_command_buffer_calls{0u};
+
 // Answers only the API-version floor, so the rest of the device is created exactly
 // as the default configuration creates it.
+//
+// It also counts every config-ext command-buffer borrow and answers null, which is
+// exactly what the base class does: a null answer keeps the backend on backend-owned
+// command buffers, so counting the calls changes nothing except making the acquisition
+// path of the backend observable from the public API. That is what pins
+// `replay_record_never_borrows_command_buffer`: a recording must never ask for a
+// one-shot borrowed command buffer, because its buffer is resubmitted N times and is
+// finally freed by the replay graph from the pool the backend allocated it from -
+// impossible for a buffer and pool the config ext owns.
 class ReplayDeviceConfig final : public VulkanDeviceConfigExt {
 public:
     [[nodiscard]] uint32_t min_api_version() const noexcept override {
         return g_min_api_1_2 ? VK_API_VERSION_1_2 : 0u;
+    }
+    [[nodiscard]] VkCommandBuffer borrow_command_buffer(StreamTag) noexcept override {
+        g_borrow_command_buffer_calls.fetch_add(1u, std::memory_order_relaxed);
+        return VK_NULL_HANDLE;
     }
 };
 
@@ -286,6 +310,92 @@ void reg_record_does_not_submit(Device &device) {
         expect(ext->status(recorded.handle).submits == 1u);
         expect(ext->destroy(recorded.handle) == VulkanReplayStatus::SUCCESS);
         expect(ext->live_replay_count() == 0u);
+    };
+}
+
+// ---------------------------------------------------------------------------
+// A recording owns its command buffer: it never borrows one from the config ext
+// ---------------------------------------------------------------------------
+void reg_record_never_borrows(Device &device) {
+    "replay_record_never_borrows_command_buffer"_test = [&device] {
+        auto *ext = replay_ext(device);
+        if (ext == nullptr) { return; }
+        constexpr auto n = size_t{256u};
+        Buffer<float> out = device.create_buffer<float>(n);
+        auto shader = device.compile(write_dispatch_index);
+        // A stream whose first batch is the recording: its recycle FIFO is still
+        // empty, so the record prefix has to *acquire* a command buffer. That
+        // acquisition is the defect this test pins. On the old code the record prefix
+        // dequeued nothing, constructed a default (BACKEND) command buffer, and that
+        // construction asked the config ext to borrow a one-shot external command
+        // buffer - a buffer whose pool the replay graph must never free, yet which the
+        // graph adopts and eventually frees. On the fixed code the recording asks for
+        // a dedicated PERSISTENT buffer and the borrow counter does not move.
+        //
+        // Nothing is dispatched on this stream before the record, by construction: the
+        // recorded kernel writes its output, so no initialisation batch is needed.
+        Stream stream = device.create_stream();
+        auto borrows_before_record = g_borrow_command_buffer_calls.load(std::memory_order_relaxed);
+        CommandList list;
+        // `write_dispatch_index` writes `index` into its own 64-value slice, so with
+        // index 3 the recorded batch must leave 3.0f in slots 192..255.
+        list << shader(out, 3u).dispatch(kBlockSize);
+        auto recorded = ext->record(stream.handle(), std::move(list));
+        auto borrows_after_record = g_borrow_command_buffer_calls.load(std::memory_order_relaxed);
+        expect(recorded.status == VulkanReplayStatus::SUCCESS)
+            << "a direct compute dispatch with a buffer and a uniform argument must "
+               "record";
+        expect(borrows_after_record == borrows_before_record)
+            << "record() must never borrow a config-ext command buffer: the recording "
+               "is resubmitted N times and freed by the replay graph from the pool the "
+               "backend allocated it from, which the one-shot borrow contract forbids";
+        if (recorded.status != VulkanReplayStatus::SUCCESS) { return; }
+        expect(ext->status(recorded.handle).submits == 0u)
+            << "record() must not submit anything";
+        // The recorded buffer is submitted as it is, and only then does anything run.
+        expect(ext->replay(recorded.handle).status == VulkanReplayStatus::SUCCESS);
+        stream << synchronize();
+        luisa::vector<float> host(n, -1.0f);
+        stream << out.copy_to(luisa::span{host}) << synchronize();
+        auto replayed = true;
+        // Only the written slice is asserted: the rest of the buffer was never
+        // initialised, so it carries no contract.
+        for (auto i = 3u * kBlockSize; i < 4u * kBlockSize; ++i) {
+            replayed &= std::abs(host[i] - 3.0f) < 1e-5f;
+        }
+        expect(replayed) << "the replayed recording must write its recorded uniform";
+        // Destroying the graph frees the native command buffer and its state exactly
+        // once, through their own pool. A later synchronize on the same stream is the
+        // guard that nothing still references the freed buffer.
+        expect(ext->destroy(recorded.handle) == VulkanReplayStatus::SUCCESS);
+        expect(ext->live_replay_count() == 0u);
+        stream << synchronize();
+        // An ordinary dispatch on the same stream still goes through the ordinary
+        // acquisition path (recycled or freshly constructed, borrow allowed) and still
+        // writes what it always wrote.
+        stream << shader(out, 1u).dispatch(kBlockSize) << synchronize();
+        stream << out.copy_to(luisa::span{host}) << synchronize();
+        auto ordinary = true;
+        for (auto i = kBlockSize; i < 2u * kBlockSize; ++i) {
+            ordinary &= std::abs(host[i] - 1.0f) < 1e-5f;
+        }
+        expect(ordinary)
+            << "an ordinary dispatch after a freed recording still works (1.0f in "
+               "slots 64..127)";
+        // And the counter itself is live: the first batch of a *fresh* stream has an
+        // empty recycle FIFO, so it really has to acquire a command buffer and asks the
+        // config ext exactly once. This is what makes the zero delta above a property of
+        // the recording rather than of a dead counter - it is the same acquisition the
+        // recording used to take.
+        Buffer<float> probe_out = device.create_buffer<float>(n);
+        Stream probe = device.create_stream();
+        auto borrows_before_probe = g_borrow_command_buffer_calls.load(std::memory_order_relaxed);
+        probe << shader(probe_out, 2u).dispatch(kBlockSize) << synchronize();
+        auto borrows_after_probe = g_borrow_command_buffer_calls.load(std::memory_order_relaxed);
+        expect(borrows_after_probe > borrows_before_probe)
+            << "an ordinary batch on a fresh stream still acquires its command buffer "
+               "through the config ext, so the zero delta of the recording above is a "
+               "property of the recording and not of a dead counter";
     };
 }
 
@@ -1169,6 +1279,7 @@ void reg_ordinary_path_after_replay(Device &device) {
     };
 }
 
+#if LUISA_VULKAN_PROFILE_SUBMIT
 // ---------------------------------------------------------------------------
 // Decode-shaped repeated dispatch: record+replay versus ordinary dispatch
 // ---------------------------------------------------------------------------
@@ -1227,8 +1338,8 @@ void reg_decode_shaped(Device &device) {
         };
         auto ordinary_median = median(ordinary_us);
         auto replay_median = median(replay_us);
-        LUISA_INFO(
-            "decode-shaped replay: {} dispatches, counters off | ordinary batch "
+    LUISA_INFO(
+        "decode-shaped replay: {} dispatches | ordinary batch "
             "host submission median {:.1f} us (min {:.1f}, max {:.1f}) | replay "
             "host submission median {:.1f} us (min {:.1f}, max {:.1f}) | delta "
             "{:.1f} us of {} dispatches",
@@ -1239,7 +1350,7 @@ void reg_decode_shaped(Device &device) {
             << "both paths must be measured";
         // Only the structural claim is asserted: the results are identical. The
         // timing above is reported, not asserted - a host-side win depends on the
-        // machine, and this test is not a benchmark.
+        // machine, and no GPU-side performance claim is made.
         luisa::vector<float> host(dispatch_count * kBlockSize, -1.0f);
         stream << buffer.copy_to(luisa::span{host}) << synchronize();
         auto ok = true;
@@ -1253,6 +1364,7 @@ void reg_decode_shaped(Device &device) {
         expect(ext->destroy(recorded.handle) == VulkanReplayStatus::SUCCESS);
     };
 }
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
 
 // ---------------------------------------------------------------------------
 // Device teardown drains a live graph
@@ -1305,6 +1417,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
     reg_submit_path(device);
     reg_record_does_not_submit(device);
+    reg_record_never_borrows(device);
     reg_replay_matches_dispatch(device);
     reg_changed_contents(device);
     reg_update_refused(device);
@@ -1319,7 +1432,9 @@ int main(int argc, char *argv[]) {
     reg_handle_lifecycle(device);
     reg_reject_matrix(device);
     reg_ordinary_path_after_replay(device);
+#if LUISA_VULKAN_PROFILE_SUBMIT
     reg_decode_shaped(device);
+#endif
     // Last on purpose: it leaves a graph alive so `~Device`'s drain runs.
     reg_device_teardown(device);
     return 0;

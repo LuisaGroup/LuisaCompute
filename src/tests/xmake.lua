@@ -334,6 +334,10 @@ test_proj("test_vk_ext_rt", "unit/ext/test_vk_ext_rt.cpp", false, function()
     -- P2.3: the push-descriptor eligibility decision and its single recording
     -- funnel are device-independent (the entry point is a parameter), so both are
     -- covered on the host with a recording stub.
+-- One of its tests is the counter contract of the submit profiler, which reads the
+-- profiler's thread-local mirror; that single test is compiled only when the private
+-- compile-time macro LUISA_VULKAN_PROFILE_SUBMIT is 1. Every functional test of this
+-- target is unconditional, and no option/define is added for the macro here.
     test_proj("test_vk_push_descriptor", "unit/ext/test_vk_push_descriptor.cpp", false, function()
         add_includedirs("../backends/vk")
         add_deps("lc-volk")
@@ -346,9 +350,13 @@ test_proj("test_vk_ext_rt", "unit/ext/test_vk_ext_rt.cpp", false, function()
         add_includedirs("../backends/vk")
         add_deps("lc-volk")
     end)
-    -- P2.1: runtime coverage of the capability-adaptive submission. Needs a
-    -- physical Vulkan device; run it again with `--min-api 1.2` for the legacy
-    -- vkQueueSubmit branch.
+-- P2.1: runtime coverage of the capability-adaptive submission. Needs a
+-- physical Vulkan device; run it again with `--min-api 1.2` for the legacy
+-- vkQueueSubmit branch. It asserts on the submit profiler's counters, so its body
+-- is behind the same private compile-time macro as the profiler
+-- (LUISA_VULKAN_PROFILE_SUBMIT, default 0) and a default build only reports that
+-- requirement. That macro is deliberately not an xmake option/define: it is a
+-- source/compiler opt-in, not a supported build configuration.
     test_proj("test_vk_queue_submit_runtime", "unit/runtime/test_vk_queue_submit_runtime.cpp", false, function()
         add_deps("lc-volk")
     end)
@@ -424,12 +432,22 @@ test_proj("benchmark_command_reorder", "benchmark/benchmark_command_reorder.cpp"
 -- Plan P2.2: the host submission benchmark takes `--descriptor-update-template`
 -- to A/B the descriptor-update paths, which makes it include
 -- VulkanDeviceConfigExt - so it needs the vendored Vulkan headers from Volk.
+-- Its descriptor-path A/B switches and the restore-cost report are behind the
+-- backend's private compile-time macro LUISA_VULKAN_PROFILE_SUBMIT (default 0), so a
+-- normal build gets the plain host submission benchmark. That macro is intentionally
+-- not an xmake option/define: it is a private source/compiler opt-in for a
+-- throw-away measurement build, not a supported build configuration.
 test_proj("benchmark_command_reorder_host", "benchmark/benchmark_command_reorder_host.cpp", false, function()
     add_deps("lc-volk")
 end)
 
 -- Plan P5.1: cold/warm create benchmark for ordered parallel shader compilation;
 -- run with `xmake run benchmark_vk_shader_compile vk --workers 4 --warm`.
+-- The whole benchmark is gated by the same private compile-time macro
+-- (LUISA_VULKAN_PROFILE_SUBMIT, default 0): without it the binary only reports that
+-- it needs the macro. Omitting it from the build system is intentional - it is a
+-- source/compiler opt-in of whoever measures, not a supported build configuration,
+-- which is why there is no option/define for it here.
 test_proj("benchmark_vk_shader_compile", "benchmark/benchmark_vk_shader_compile.cpp")
 -- Plan P5.1: ordered batch compilation of compute shaders through
 -- VulkanShaderCompileExt (run with `xmake run test_vk_shader_compile_pool vk`).
@@ -877,8 +895,13 @@ test_proj("test_motion_blur_vk", "integration/runtime/test_motion_blur_vk.cpp", 
 if has_config("lc_vk_backend") and
    has_config("lc_vk_backend_use_xir_spirv") then
     test_proj("test_vk_shader_cache", "unit/runtime/test_vk_shader_cache.cpp")
-    -- P0.3 tripwire for the counter-only submit profiler (plan §2/§4). Needs a
-    -- physical Vulkan device and latches LUISA_VULKAN_PROFILE_SUBMIT itself.
+      -- P0.3 tripwire for the counter-only submit profiler (plan §2/§4). Needs a
+      -- physical Vulkan device, and its body exists only when the private
+      -- compile-time macro LUISA_VULKAN_PROFILE_SUBMIT is 1 (default 0: the binary
+      -- then just says what it needs). No xmake option/define is provided for that
+      -- macro on purpose - leaving it out is intentional, because it is a private
+      -- source/compiler opt-in for a measurement build, not a supported build
+      -- configuration.
     test_proj("test_vk_submit_profile", "unit/runtime/test_vk_submit_profile.cpp", false, function()
             -- P1.2: one of the redundant-bind tests issues raw Vulkan
         -- (vkCmdFillBuffer) from a VKCustomCmd, which needs the vendored Vulkan

@@ -1,5 +1,13 @@
 // Cold-start benchmark for parallel Vulkan shader compilation (plan P5.1).
 //
+// This whole benchmark is a measurement tool of the Vulkan optimization work and
+// is therefore gated by the private compile-time macro LUISA_VULKAN_PROFILE_SUBMIT
+// (default 0): with the macro off the file compiles to a `main` that only prints
+// that requirement, so a normal build carries neither this benchmark nor a silent
+// no-op that looks like it ran. The macro is a source-level opt-in - deliberately
+// not an XMake/CMake option and not an environment variable; see
+// src/tests/CMakeLists.txt and src/tests/xmake.lua.
+//
 // What it measures
 // ----------------
 // The wall time of creating N *distinct* compute shaders from scratch through
@@ -25,11 +33,18 @@
 // Usage
 // -----
 //   benchmark_vk_shader_compile vk [--shaders 216] [--workers 0|1|N] [--rounds 3]
-//                                [--warm] [--verify] [--manifest FILE] [--quiet]
+// [--warm] [--no-verify] [--manifest FILE] [--quiet]
 //
 // `LUISA_VULKAN_PROFILE_COMPILATION=1` additionally prints the backend's own phase
 // timings for every compile; it is deliberately *not* set by this program, because
 // it changes what the measured window does (it formats and logs).
+// The gate of the instrument (same default as src/backends/vk/submit_profile.h).
+#if !defined(LUISA_VULKAN_PROFILE_SUBMIT)
+#define LUISA_VULKAN_PROFILE_SUBMIT 0
+#endif
+
+#if LUISA_VULKAN_PROFILE_SUBMIT
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -479,3 +494,23 @@ int main(int argc, char *argv[]) {
     for (auto value : warm_ms) { std::printf("  warm round: %.3f ms\n", value); }
     return 0;
 }
+
+
+#else// !LUISA_VULKAN_PROFILE_SUBMIT
+
+// Nothing was measured. This benchmark belongs to the gated profiling/optimization
+// tooling (see src/backends/vk/submit_profile.h), so a default build has no
+// benchmark to run and must not look as if it had run one.
+#include <cstdio>
+
+int main() {
+    std::fprintf(stderr,
+                 "benchmark_vk_shader_compile: nothing was measured. This binary "
+                 "needs the compile-time macro LUISA_VULKAN_PROFILE_SUBMIT=1 in the "
+                 "backend library *and* in this benchmark; it is a private "
+                 "source-level opt-in, deliberately not an XMake/CMake option and not "
+                 "an environment variable.\n");
+    return 0;
+}
+
+#endif// LUISA_VULKAN_PROFILE_SUBMIT

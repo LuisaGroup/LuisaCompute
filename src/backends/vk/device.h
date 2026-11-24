@@ -127,17 +127,22 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     // `extension()` can hand out its address without a factory.
     VkReplayExtImpl _replay_ext{this};
     // Plan P5.1: the device-owned worker pool behind
-    // `VulkanShaderCompileExt::compile_shaders()`. Created on first use (a device
-    // that never batches never creates a thread), stopped for good by
+    // `VulkanShaderCompileExt::compile_shaders()`. Constructed by the constructor -
+    // the only place that can capture the executor, because the executor is "which
+    // `marl::Scheduler` is bound to *this* thread" - but it owns nothing (no thread,
+    // no lane) until a batch needs it. Stopped for good by
     // `shutdown_shader_compile_pool()` and by `~Device`, which does it while the
     // pipeline cache, the interned layouts, the BinaryIO and the logical device are
     // all still alive.
     //
+    // A captured scheduler is *external*: it must outlive this device and every
+    // batch, since the pool enqueues each batch's lane tasks on it directly.
+    //
     // Declared *after* `_vk_device`, `_layout_interner` and `_pipeline_cache`: the
-    // pool only holds threads and host scratch, and every Vulkan call it can cause
-    // is made by the publishing thread through `_publish_compute_shader`, which the
-    // batch finishes before it returns. Stopping it early in `~Device` is therefore
-    // enough, and is done explicitly there.
+    // pool only holds lanes and host scratch, and every Vulkan call it can cause is
+    // made by the publishing thread through `_publish_compute_shader`, which the batch
+    // finishes before it returns. Stopping it early in `~Device` is therefore enough,
+    // and is done explicitly there.
     luisa::unique_ptr<detail::ShaderCompilePool> _shader_compile_pool;
     // Serializes publication (pipeline creation + artifact write). A batch holds it
     // once per request, in request order; concurrent ordinary `create_shader` calls
@@ -147,7 +152,15 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     // resource that a user implementation need not make thread-safe, and one writer
     // keeps the artifact sequence deterministic. It is never held over code
     // generation, SPIR-V optimization or pipeline creation.
-    std::mutex _shader_cache_mtx;
+    //
+    // Recursive only for the documented nested-compilation fallback: a BinaryIO
+    // read runs on a preparation lane under this lock, and that callback may start
+    // a nested batch. The nested batch must compile serially on the same flow (the
+    // outer batch gate is already held), which includes reading/writing this cache.
+    // A plain mutex turns that supported fallback into a self-deadlock (and an MSVC
+    // resource-deadlock fail-fast). Recursion does not relax cross-thread exclusion:
+    // distinct callers are still serialized exactly as before.
+    std::recursive_mutex _shader_cache_mtx;
     VkShaderCompileExtImpl _shader_compile_ext{this};
     // Runtime command-reorder control. It lives as long as the device does, so
     // `extension()` hands out its address without registering a factory.
@@ -725,8 +738,10 @@ public:
     [[nodiscard]] detail::ReplayRegistry &replay_registry() noexcept {
         return _replay_registry;
     }
-    // Ordered batch shader compilation (plan P5.1). The pool is created on first
-    // use, so a device that never compiles a batch never creates a thread.
+    // Ordered batch shader compilation (plan P5.1). The pool object exists from
+    // construction (it captured the executor there), while the lanes it drives are
+    // created by the first batch, so a device that never compiles a batch never
+    // creates a thread.
     [[nodiscard]] detail::ShaderCompilePool &shader_compile_pool() noexcept;
     // Stops and joins the pool for good; every later batch reports
     // `POOL_SHUTDOWN`. Idempotent, and called by `~Device` before the pipeline
@@ -738,7 +753,7 @@ public:
     // The lock is never held over code generation, SPIR-V optimization or pipeline
     // creation; the raster path (a different translation unit) takes it for its own
     // artifact read/write.
-    [[nodiscard]] std::mutex &shader_cache_mutex() noexcept {
+    [[nodiscard]] std::recursive_mutex &shader_cache_mutex() noexcept {
         return _shader_cache_mtx;
     }
     // In-flight throttle switch of this device (`_inqueue_limit`): a replay

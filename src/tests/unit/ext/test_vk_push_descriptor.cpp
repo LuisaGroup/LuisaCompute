@@ -17,12 +17,24 @@
 //   write list (pointer, count, set number), nothing recorded when the call is
 //   refused, and the descriptor-count limit re-checked against the actual writes
 // - the counter contract: the funnel counts exactly the calls it records, and a
-//   refused call increments nothing
+// refused call increments nothing. That part is the only one gated by the submit
+// profiler's private compile-time macro LUISA_VULKAN_PROFILE_SUBMIT (default 0):
+// a default build keeps every functional test below and drops the counter one,
+// because the counters it reads do not exist there.
 // Everything runs on the host: the entry point is a parameter of the funnel, so
 // the test supplies a recording stub and no Vulkan device or driver is involved.
 #include "ut/ut.hpp"
 
 #include "push_descriptor.h"
+
+// The counter contract is part of the submit profiler, whose single gate is the
+// private compile-time macro LUISA_VULKAN_PROFILE_SUBMIT (default 0 here and in
+// src/backends/vk/submit_profile.h). Everything else in this file - eligibility,
+// descriptor types, the write-chain filter and the funnel itself - is functional
+// and stays compiled in a default build.
+#if !defined(LUISA_VULKAN_PROFILE_SUBMIT)
+#define LUISA_VULKAN_PROFILE_SUBMIT 0
+#endif
 
 #include <array>
 #include <cstdint>
@@ -31,7 +43,9 @@
 using namespace boost::ut;
 using namespace boost::ut::literals;
 using namespace lc::vk::detail;
+#if LUISA_VULKAN_PROFILE_SUBMIT
 namespace sp = lc::vk::submit_profile;
+#endif
 
 namespace {
 
@@ -430,11 +444,12 @@ void test_funnel() {
     expect(single_write.pushed);
 }
 
+#if LUISA_VULKAN_PROFILE_SUBMIT
 // The counter contract of plan P0.2: the funnel increments exactly when it
 // records the native call, and a refused call increments nothing. The profiler is
-// latched from the environment at first use, so `main` sets the variable before
-// anything else runs; the counter is read through the thread-local mirror, which
-// needs no backend library.
+// compiled in (LUISA_VULKAN_PROFILE_SUBMIT=1), so no setup is needed before the
+// first call; the counter is read through the thread-local mirror, which needs no
+// backend library.
 void test_counters() {
     auto api = install_stub();
     VkDescriptorBufferInfo info{fake_buffer(4u), 0u, 32u};
@@ -469,19 +484,17 @@ void test_counters() {
            sp::mirror().push_descriptor_classic_shaders == classic + 1u)
         << "the creation-time decision counts one shader, in exactly one bucket";
 }
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
 
 }// namespace
 
 int main() {
-#if defined(_WIN32)
-    _putenv_s("LUISA_VULKAN_PROFILE_SUBMIT", "1");
-#else
-    setenv("LUISA_VULKAN_PROFILE_SUBMIT", "1", 1);
-#endif
     "vk_push_descriptor_eligibility"_test = [] { test_eligibility(); };
     "vk_push_descriptor_types"_test = [] { test_descriptor_types(); };
     "vk_push_descriptor_write_chain"_test = [] { test_write_chain(); };
     "vk_push_descriptor_funnel"_test = [] { test_funnel(); };
+#if LUISA_VULKAN_PROFILE_SUBMIT
     "vk_push_descriptor_counters"_test = [] { test_counters(); };
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
     return 0;
 }

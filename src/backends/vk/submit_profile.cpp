@@ -1,9 +1,22 @@
 // Implementation of the counter-only Vulkan submit profiler (plan P0.2).
 // The hot path lives inline in submit_profile.h; everything here runs once per
 // command batch (flush) or on demand (snapshot / report / query).
+//
+// The whole file is behind the instrument's private compile-time gate (see
+// submit_profile.h): with LUISA_VULKAN_PROFILE_SUBMIT at 0 - the default of every
+// ordinary build - this translation unit contributes nothing but the include
+// above, so no binary links a global counter table, a fold mutex, a fallback
+// reason slot or the report/query formatting. There is no environment variable
+// and no build option to change that; enabling it is a source/compiler-level
+// decision of whoever measures (see src/tests/CMakeLists.txt and
+// src/tests/xmake.lua for why no build configuration is offered on purpose).
 #include "submit_profile.h"
 
+#if LUISA_VULKAN_PROFILE_SUBMIT
+
+#include <atomic>
 #include <mutex>
+
 #include <luisa/core/stl/format.h>
 
 namespace lc::vk::submit_profile {
@@ -169,7 +182,6 @@ luisa::string_view descriptor_update_template_fallback_reason() noexcept {
 }
 
 void flush() noexcept {
-    if (!enabled()) { return; }
     auto &mine = mirror();
     if (mine.empty()) { return; }
     std::lock_guard lock{fold_mutex()};
@@ -255,7 +267,9 @@ luisa::string report(const SubmitProfileCounters &c) noexcept {
             // that produced it is the only place encode/plan work appears.
             "replay: records={} rejects={} submits={} update_refusals={} "
             "invalidations={} releases={} record_host={:.1f}us/record",
-        enabled() ? 1 : 0,
+        // The mode is a compile-time constant in this build (this file does not
+        // exist otherwise), so the report always says enabled=1.
+        1,
         c.dispatches, c.command_batches, c.queue_submits,
         c.queue_submit2, c.queue_submit_legacy,
         c.timeline_waits, c.timeline_wait_entries, c.timeline_wait_skips,
@@ -292,7 +306,9 @@ luisa::string query(luisa::string_view key) noexcept {
     if (!key.starts_with("vk_profile_")) { return {}; }
     auto c = snapshot();
     if (key == "vk_profile_enabled") {
-        return enabled() ? "1" : "0";
+        // Compile-time constant: a binary without the macro has no query surface
+        // at all (see the disabled branch of submit_profile.h).
+        return "1";
     }
     if (key == "vk_profile_report") { return report(c); }
     if (key == "vk_profile_dispatches") { return count_string(c.dispatches); }
@@ -357,3 +373,5 @@ luisa::string query(luisa::string_view key) noexcept {
 }
 
 }// namespace lc::vk::submit_profile
+
+#endif// LUISA_VULKAN_PROFILE_SUBMIT

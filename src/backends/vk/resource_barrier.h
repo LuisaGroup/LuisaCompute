@@ -10,27 +10,6 @@ class Buffer;
 class Device;
 class ResourceBarrier {
 public:
-    struct Range {
-        int64_t min;
-        int64_t max;
-        Range() {
-            min = std::numeric_limits<int64_t>::min();
-            max = std::numeric_limits<int64_t>::max();
-        }
-        explicit Range(int64_t value) {
-            min = value;
-            max = value + 1;
-        }
-        Range(int64_t min, int64_t size)
-            : min(min), max(size + min) {}
-        bool collide(Range const &r) const {
-            return min < r.max && r.min < max;
-        }
-        bool operator==(Range const &r) const {
-            return min == r.min && max == r.max;
-        }
-        bool operator!=(Range const &r) const { return !operator==(r); }
-    };
     struct BufferRange {
         VkPipelineStageFlagBits2 before_stage{0};
         VkPipelineStageFlagBits2 after_stage{0};
@@ -108,6 +87,12 @@ private:
     void _update_state(BufferStates &states);
     void _update_state(TextureStates &states);
     void _resolve_texture_descriptor_layouts();
+    // Folds the per-mip VkImageMemoryBarrier2 structs recorded by
+    // `_update_state(TextureStates &)` into one struct per contiguous mip run.
+    // Called from `update_states` only, after every mip state has been written
+    // back and after the descriptor layouts were resolved; `restore_states`
+    // keeps recording one struct per mip.
+    void _coalesce_tex_barriers() noexcept;
     // VK_KHR_unified_image_layouts is negotiated on the owning Device, which
     // the tracker only holds as a read-only pointer. Both helpers fall back to
     // the pre-existing per-usage layout choice when the extension is

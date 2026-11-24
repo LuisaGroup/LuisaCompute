@@ -6,7 +6,9 @@
 // - the feature-structure probe chain (only exposed extensions are chained)
 // - the logical-device feature chain (only enabled extensions are chained)
 // - imported logical devices never assume an optional extension
-// - prerequisites (present extensions need the swapchain extension)
+// - prerequisites (present extensions need the swapchain extension,
+//   pipeline-library group handles need VK_KHR_pipeline_library -
+//   VUID-vkCreateDevice-ppEnabledExtensionNames-01387)
 
 #include "ut/ut.hpp"
 
@@ -151,6 +153,31 @@ void select_names(OptionalExtensionRegistry &registry,
     registry.select(luisa::span<const luisa::string>{device_names},
                     luisa::span<const luisa::string>{instance_names},
                     &config, imported_device, device_api_version);
+}
+
+// Mirrors the epilogue of Device::_init_device for the
+// VK_KHR_pipeline_library_group_handles prerequisite: the prerequisite name is
+// enabled only when the group-handle extension was actually requested *and* the
+// physical device exposes VK_KHR_pipeline_library (it has no feature structure,
+// so the name alone is the contract). Every name the backend already decided to
+// enable is then registered with the registry, which is what makes it visible
+// to the descriptor's `requires_extension` check.
+void note_device_enabled_extensions(
+    OptionalExtensionRegistry &registry,
+    const luisa::vector<luisa::string> &device_extensions,
+    const luisa::vector<luisa::string> &already_enabled = {}) {
+    auto exposes = [&device_extensions](const char *name) {
+        for (auto const &extension : device_extensions) {
+            if (extension == name) { return true; }
+        }
+        return false;
+    };
+    luisa::vector<luisa::string> enabled = already_enabled;
+    if (registry.requested(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES) &&
+        exposes(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME)) {
+        enabled.emplace_back(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+    }
+    for (auto const &name : enabled) { registry.note_enabled_extension(name); }
 }
 
 }// namespace vk_extension_registry_test_detail
@@ -436,6 +463,153 @@ int main(int argc, char *argv[]) {
             registry.resolve();
             expect(registry.enabled(OptionalExtension::PRESENT_ID2));
             expect(registry.enabled(OptionalExtension::PRESENT_WAIT2));
+        }
+    };
+
+    // VUID-vkCreateDevice-ppEnabledExtensionNames-01387: enabling
+    // VK_EXT/VK_KHR_pipeline_library_group_handles while VK_KHR_pipeline_library
+    // stays disabled is a validation error. The prerequisite has no feature
+    // structure, so `requires_extension` is satisfied by name registration only
+    // (note_enabled_extension), never by a feature bit.
+    "vk_optional_extension_group_handles_requires_pipeline_library"_test = [] {
+        AllEnabledConfig config;
+        // A driver that exposes both names. Only the feature bit can be checked
+        // by the registry itself; the dependency is a name-list property.
+        auto supported = names({"VK_KHR_pipeline_library_group_handles",
+                                "VK_KHR_pipeline_library"});
+        // Returns the probed feature structure, or null when the extension was
+        // not probed (unsupported or switched off). Setting the bit simulates a
+        // driver that advertises the feature.
+        auto mark_group_handles_probed = [](OptionalExtensionRegistry &registry) {
+            auto feature = static_cast<VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesKHR *>(
+                find_feature(
+                    registry.feature_query_chain(),
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_KHR));
+            if (feature != nullptr) {
+                feature->pipelineLibraryGroupHandles = VK_TRUE;
+            }
+            return feature;
+        };
+        auto declares = [](const OptionalExtensionRegistry &registry,
+                           luisa::string_view name) {
+            for (auto enabled : registry.enabled_extension_names()) {
+                if (luisa::string_view{enabled} == name) { return true; }
+            }
+            return false;
+        };
+        {
+            // Host regression: exposed group-handles name plus a true feature bit
+            // must not enable the extension while VK_KHR_pipeline_library is not
+            // enabled on the device. Before the fix the entry was accepted and
+            // its name reached ppEnabledExtensionNames, which vkCreateDevice
+            // rejects with the VUID above.
+            OptionalExtensionRegistry registry;
+            select_names(registry, supported, config, false);
+            auto feature = mark_group_handles_probed(registry);
+            expect(feature != nullptr);
+            registry.resolve();
+            expect(registry.state(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES)
+                       .supported_by_device);
+            expect(registry.requested(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES))
+                << "the config switch allows it; only the dependency is missing";
+            expect(!registry.enabled(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES))
+                << "group handles without VK_KHR_pipeline_library are invalid";
+            expect(!declares(registry,
+                             VK_KHR_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME))
+                << "an unusable extension must not be declared";
+            expect(!declares(registry, "VK_EXT_pipeline_library_group_handles"));
+            expect(registry.device_feature_chain(nullptr) == nullptr)
+                << "a rejected extension must not chain its feature structure";
+        }
+        {
+            // Device-side half of the fix: Device::_init_device enables the
+            // prerequisite name (requested + exposed) before it registers every
+            // enabled name, so resolve() sees the dependency and accepts the
+            // entry - declared exactly once and chained.
+            OptionalExtensionRegistry registry;
+            select_names(registry, supported, config, false);
+            auto feature = mark_group_handles_probed(registry);
+            expect(feature != nullptr);
+            note_device_enabled_extensions(registry, supported);
+            registry.resolve();
+            expect(registry.enabled(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES));
+            auto count = 0u;
+            for (auto enabled : registry.enabled_extension_names()) {
+                if (luisa::string_view{enabled} ==
+                    VK_KHR_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME) {
+                    ++count;
+                }
+            }
+            expect(count == 1u) << "the enabled name must be declared exactly once";
+            expect(find_feature(
+                       registry.device_feature_chain(nullptr),
+                       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_KHR) ==
+                   feature)
+                << "the enabled feature structure is what reaches vkCreateDevice";
+            expect(static_cast<VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesKHR *>(feature)
+                       ->pipelineLibraryGroupHandles == VK_TRUE);
+        }
+        {
+            // Alias spelling: the EXT name of the same extension carries the same
+            // dependency, and the spelling the device exposes is the one that is
+            // declared.
+            auto ext_spelling = names({"VK_EXT_pipeline_library_group_handles",
+                                       "VK_KHR_pipeline_library"});
+            OptionalExtensionRegistry blocked;
+            select_names(blocked, ext_spelling, config, false);
+            expect(mark_group_handles_probed(blocked) != nullptr);
+            blocked.resolve();
+            expect(!blocked.enabled(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES))
+                << "the alias spelling needs the prerequisite too";
+            expect(!declares(blocked, "VK_EXT_pipeline_library_group_handles"));
+
+            OptionalExtensionRegistry registry;
+            select_names(registry, ext_spelling, config, false);
+            expect(mark_group_handles_probed(registry) != nullptr);
+            note_device_enabled_extensions(registry, ext_spelling);
+            registry.resolve();
+            expect(registry.enabled(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES));
+            expect(luisa::string_view{
+                       registry.state(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES).name} ==
+                   "VK_EXT_pipeline_library_group_handles")
+                << "the spelling the device exposes must be the one enabled";
+            expect(declares(registry, "VK_EXT_pipeline_library_group_handles"));
+        }
+        {
+            // Dependency absent: the device exposes group handles but not
+            // VK_KHR_pipeline_library, so the device never adds the prerequisite
+            // name - and a true feature bit changes nothing. The registry must
+            // also never declare the prerequisite itself: only the device knows
+            // whether it enables it.
+            auto group_only = names({"VK_KHR_pipeline_library_group_handles"});
+            OptionalExtensionRegistry registry;
+            select_names(registry, group_only, config, false);
+            expect(mark_group_handles_probed(registry) != nullptr);
+            note_device_enabled_extensions(registry, group_only);
+            registry.resolve();
+            expect(!registry.enabled(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES))
+                << "a missing prerequisite must disable group handles";
+            expect(!declares(registry,
+                             VK_KHR_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME));
+            expect(!declares(registry, VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME))
+                << "the registry must not declare the prerequisite itself";
+            expect(registry.enabled_extension_names().empty());
+        }
+        {
+            // Nor is the prerequisite enabled for a device that does not ask for
+            // group handles at all: neither name is declared when the group-handle
+            // switch is off.
+            AllDisabledConfig off_config;
+            OptionalExtensionRegistry registry;
+            select_names(registry, supported, off_config, false);
+            expect(mark_group_handles_probed(registry) == nullptr)
+                << "a switched-off extension is never probed";
+            note_device_enabled_extensions(registry, supported);
+            registry.resolve();
+            expect(!registry.enabled(OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES));
+            expect(!declares(registry, VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME))
+                << "the prerequisite is enabled only together with group handles";
+            expect(registry.enabled_extension_names().empty());
         }
     };
 

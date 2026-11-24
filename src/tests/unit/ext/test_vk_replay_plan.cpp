@@ -22,8 +22,12 @@
 // - the first refusal winning, so a caller gets a deterministic reason
 // - name coverage of every public enum, because a report must never print
 //   "unknown" for a value the backend can really return
+// - the command-buffer ownership plan (`command_buffer_ownership.h`): which
+//   ownership state is reset/recycled/freed, and that only a persistent recording
+//   may be handed to a replay graph (`release_native_batch`)
 #include "ut/ut.hpp"
 
+#include "command_buffer_ownership.h"
 #include "replay_plan.h"
 
 #include <array>
@@ -361,6 +365,68 @@ void reg_status_names() {
     };
 }
 
+void reg_command_buffer_ownership() {
+    "replay_plan_command_buffer_ownership"_test = [] {
+        using Ownership = vk_detail::CommandBufferOwnership;
+        // The retirement plan keeps the three ownership states apart, and it is the
+        // whole contract `CommandBuffer::retire_and_recycle` / `~CommandBuffer` read:
+        // only a backend-owned buffer is reset and recycled; a borrowed buffer is
+        // never touched (the backend may neither reset nor free it); a persistent
+        // recording is neither reset nor recycled but is still freed exactly once -
+        // by the replay graph, which is why it must be freeable at all.
+        auto backend = vk_detail::plan_command_buffer_retirement(Ownership::BACKEND);
+        expect(backend.reset_native_buffer && backend.recycle_native_buffer)
+            << "a backend-owned batch is reset and returned to the recycle FIFO";
+        expect(backend.free_native_buffer)
+            << "and the backend frees it when it is destroyed instead";
+
+        auto borrowed = vk_detail::plan_command_buffer_retirement(Ownership::BORROWED);
+        expect(!borrowed.reset_native_buffer && !borrowed.recycle_native_buffer)
+            << "a one-shot borrowed buffer is begun and ended only";
+        expect(!borrowed.free_native_buffer)
+            << "and its pool is never the backend's to free";
+
+        auto persistent = vk_detail::plan_command_buffer_retirement(Ownership::PERSISTENT);
+        expect(!persistent.reset_native_buffer && !persistent.recycle_native_buffer)
+            << "a recording is begun once and resubmitted, never reset or recycled";
+        expect(persistent.free_native_buffer)
+            << "the graph still frees it exactly once";
+
+        // The acquisition/hand-over side of the same contract:
+        // `CommandBuffer::release_native_batch()` gives the native buffer *and* its
+        // state (i.e. its pool) to a replay graph, so only a PERSISTENT buffer may
+        // take that path. A BACKEND buffer would be freed twice (retirement FIFO /
+        // destructor) and a BORROWED one would be freed from a foreign pool.
+        expect(vk_detail::may_release_native_batch(Ownership::PERSISTENT))
+            << "a recording is exactly what a graph adopts";
+        expect(!vk_detail::may_release_native_batch(Ownership::BACKEND))
+            << "a backend-owned batch is owned by the stream, not by a graph";
+        expect(!vk_detail::may_release_native_batch(Ownership::BORROWED))
+            << "a borrowed batch belongs to the config ext forever";
+
+        // Classified exhaustively, and the two predicates agree: everything a graph
+        // may adopt must be freeable (otherwise the graph leaks), and nothing may be
+        // adoptable while still being recycled (which would hand one native buffer to
+        // two owners).
+        constexpr auto all_ownerships = std::array{
+            Ownership::BACKEND, Ownership::BORROWED, Ownership::PERSISTENT};
+        auto releasable = 0u;
+        for (auto ownership : all_ownerships) {
+            auto plan = vk_detail::plan_command_buffer_retirement(ownership);
+            if (vk_detail::may_release_native_batch(ownership)) {
+                ++releasable;
+                expect(plan.free_native_buffer)
+                    << "an adoptable batch must be freeable, or a graph would leak it";
+                expect(!plan.recycle_native_buffer)
+                    << "an adoptable batch must not stay in the recycle FIFO, or two "
+                       "owners would free or reuse one native buffer";
+            }
+        }
+        expect(releasable == 1u)
+            << "exactly one ownership state may be adopted by a replay graph";
+    };
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -370,6 +436,7 @@ int main(int argc, char *argv[]) {
     reg_dispatch_shape_rejections();
     reg_every_tag_classified();
     reg_budget();
+    reg_command_buffer_ownership();
     reg_status_names();
     return 0;
 }

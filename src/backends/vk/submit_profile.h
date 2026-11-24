@@ -5,8 +5,16 @@
 //    already executed; no backend decision reads a counter, so enabling the
 //    counters can never skip a bind, drop a barrier or consult a cache
 //    differently.
-//  * Off by default. With LUISA_VULKAN_PROFILE_SUBMIT unset the whole mode
-//    costs one latched bool per hook and one latched bool per command batch.
+//  * Off by default, and "off" is the *build* default. The whole mode exists
+//    only when the private compile-time macro LUISA_VULKAN_PROFILE_SUBMIT is
+//    non-zero. It is deliberately not an XMake or CMake option and there is no
+//    environment variable: a normal development binary contains no counter, no
+//    thread-local mirror, no clock read and no profiling state at all (see the
+//    `#else` branch below - a disabled build only gets empty inline hooks that
+//    an optimizer removes completely). Enabling it is a source-level decision
+//    of whoever is measuring, not a supported build configuration; see the
+//    comments next to the profile test/benchmark registrations in
+//    src/tests/CMakeLists.txt and src/tests/xmake.lua.
 //  * Cheap when on. The hot path (`record_*`) increments a thread-local
 //    mirror; `flush()` folds that mirror into the process-global atomics once
 //    per command batch, so a dispatch never touches an atomic or a mutex.
@@ -15,10 +23,9 @@
 //  * Readable through the ordinary capability channel: `Device::query` forwards
 //    every `vk_profile_*` key here (see `query`).
 //
-// The mode is latched on first use, so a process that wants counters has to set
-// the variable before its first Vulkan dispatch. Counters are cumulative for the
-// process lifetime; consumers compare two snapshots (see the tripwire test
-// src/tests/unit/runtime/test_vk_submit_profile.cpp).
+// Counters are cumulative for the process lifetime; consumers compare two
+// snapshots (see the tripwire test src/tests/unit/runtime/test_vk_submit_profile.cpp,
+// which is itself gated by the same macro).
 //
 // Scope notes (deliberate, so a count can be trusted):
 //  * `dispatches` counts recorded `ShaderDispatchCommand`s in the stream
@@ -90,15 +97,32 @@
 //  restore whose destination scope a `VulkanDeviceConfigExt::after_states()`
 //  entry narrowed, which is why the restore has its own counters.
 #pragma once
-#include <atomic>
-#include <cctype>
-#include <chrono>
+
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
+
 #include <luisa/core/stl/string.h>
 
+// The single gate of this instrument. Everything below - the counter record,
+// the thread-local mirror, the host clock read, the process-global fold and the
+// `vk_profile_*` query surface - exists only when this macro is non-zero, which
+// is why `#if` (and never `#ifdef`) is used throughout. It defaults to 0 here so
+// a translation unit that includes this header without anything else still
+// compiles to the no-op form; turning it on means defining it to 1 for the
+// whole build that is being measured (backend library and the test/benchmark
+// binaries alike), which is a private, throw-away measurement build.
+#if !defined(LUISA_VULKAN_PROFILE_SUBMIT)
+#define LUISA_VULKAN_PROFILE_SUBMIT 0
+#endif
+
+// Only the enabled branch reads a clock, so the header of a disabled build does
+// not even pull in <chrono>.
+#if LUISA_VULKAN_PROFILE_SUBMIT
+#include <chrono>
+#endif
+
 namespace lc::vk {
+
+#if LUISA_VULKAN_PROFILE_SUBMIT
 
 // Every counter the mode exposes. Trivially copyable on purpose: a
 // `thread_local` instance must be constant-initialized.
@@ -113,16 +137,16 @@ struct SubmitProfileCounters {
     uint64_t descriptor_set_update_templates{0u};
     uint64_t descriptor_update_template_creates{0u};
     uint64_t descriptor_update_template_fallbacks{0u};
-      // Plan P2.3: set-0 binding through vkCmdPushDescriptorSetKHR. `calls`
-      // counts the native calls (one per dispatched set 0); `shaders` /
-      // `classic_shaders` are the creation-time decision, one increment per
-      // shader created on a push-capable device (did its set-0 layout get the
-      // push bit or not). A shader that fell back on such a device keeps that
-      // layout for its whole lifetime, so those two are counts of shaders, never
-      // of dispatches.
-      uint64_t push_descriptor_calls{0u};
-      uint64_t push_descriptor_shaders{0u};
-      uint64_t push_descriptor_classic_shaders{0u};
+    // Plan P2.3: set-0 binding through vkCmdPushDescriptorSetKHR. `calls`
+    // counts the native calls (one per dispatched set 0); `shaders` /
+    // `classic_shaders` are the creation-time decision, one increment per
+    // shader created on a push-capable device (did its set-0 layout get the
+    // push bit or not). A shader that fell back on such a device keeps that
+    // layout for its whole lifetime, so those two are counts of shaders, never
+    // of dispatches.
+    uint64_t push_descriptor_calls{0u};
+    uint64_t push_descriptor_shaders{0u};
+    uint64_t push_descriptor_classic_shaders{0u};
     uint64_t descriptor_set_binds{0u};
     uint64_t pipeline_binds{0u};
     uint64_t argument_plans{0u};
@@ -192,15 +216,15 @@ struct SubmitProfileCounters {
 
     [[nodiscard]] constexpr bool empty() const noexcept {
         return dispatches == 0u &&
-descriptor_set_allocations == 0u &&
-        descriptor_set_updates == 0u &&
-        descriptor_set_update_templates == 0u &&
-        descriptor_update_template_creates == 0u &&
-        descriptor_update_template_fallbacks == 0u &&
-                 push_descriptor_calls == 0u &&
-                 push_descriptor_shaders == 0u &&
-                 push_descriptor_classic_shaders == 0u &&
-        descriptor_set_binds == 0u &&
+               descriptor_set_allocations == 0u &&
+               descriptor_set_updates == 0u &&
+               descriptor_set_update_templates == 0u &&
+               descriptor_update_template_creates == 0u &&
+               descriptor_update_template_fallbacks == 0u &&
+               push_descriptor_calls == 0u &&
+               push_descriptor_shaders == 0u &&
+               push_descriptor_classic_shaders == 0u &&
+               descriptor_set_binds == 0u &&
                pipeline_binds == 0u &&
                argument_plans == 0u &&
                barrier_calls == 0u &&
@@ -220,57 +244,33 @@ descriptor_set_allocations == 0u &&
                queue_submit_legacy == 0u &&
                timeline_wait_entries == 0u &&
                timeline_waits == 0u &&
-timeline_wait_skips == 0u &&
-                 restore_calls == 0u &&
-                 restore_host_ns == 0u &&
-                 restore_memory_barriers == 0u &&
-                 restore_buffer_barriers == 0u &&
-                 restore_image_barriers == 0u &&
-                 restore_state_buffers == 0u &&
-                 restore_state_texture_mips == 0u &&
-                 host_encode_ns == 0u &&
-                 host_submit_ns == 0u &&
-                 replay_records == 0u &&
-                 replay_record_host_ns == 0u &&
-                 replay_submits == 0u &&
-                 replay_rejections == 0u &&
-                 replay_update_refusals == 0u &&
-                 replay_invalidations == 0u &&
-                 replay_releases == 0u;
+               timeline_wait_skips == 0u &&
+               restore_calls == 0u &&
+               restore_host_ns == 0u &&
+               restore_memory_barriers == 0u &&
+               restore_buffer_barriers == 0u &&
+               restore_image_barriers == 0u &&
+               restore_state_buffers == 0u &&
+               restore_state_texture_mips == 0u &&
+               host_encode_ns == 0u &&
+               host_submit_ns == 0u &&
+               replay_records == 0u &&
+               replay_record_host_ns == 0u &&
+               replay_submits == 0u &&
+               replay_rejections == 0u &&
+               replay_update_refusals == 0u &&
+               replay_invalidations == 0u &&
+               replay_releases == 0u;
     }
 };
 
 namespace submit_profile {
 
-// LUISA_VULKAN_PROFILE_SUBMIT=1 (also accepts true/on/yes). Kept inline so every
-// translation unit that only needs to *record* stays self-contained: a helper
-// test that includes command_buffer_sync.h must not need the backend library for
-// the latch. Only flush/snapshot/report/query cross into submit_profile.cpp.
-[[nodiscard]] inline bool parse_env_flag() noexcept {
-    auto value = std::getenv("LUISA_VULKAN_PROFILE_SUBMIT");
-    if (value == nullptr) { return false; }
-    auto equal_ignore_case = [value](const char *word) noexcept {
-        auto i = size_t{0u};
-        for (; word[i] != '\0'; ++i) {
-            if (value[i] == '\0') { return false; }
-            auto a = static_cast<unsigned char>(value[i]);
-            auto b = static_cast<unsigned char>(word[i]);
-            if (std::tolower(a) != std::tolower(b)) { return false; }
-        }
-        return value[i] == '\0';
-    };
-    return equal_ignore_case("1") ||
-           equal_ignore_case("true") ||
-           equal_ignore_case("on") ||
-           equal_ignore_case("yes");
-}
-
-// One latched decision for the whole process. A function-local static keeps the
-// cost of the check to a guard load and makes the latch exactly "first use".
-[[nodiscard]] inline bool enabled() noexcept {
-    static const auto value = parse_env_flag();
-    return value;
-}
+// Compile-time true: in this build the instrument *is* the code below, so the
+// hooks never test a runtime switch. Kept as a callable anyway, because the
+// unchanged backend call sites use it to skip a whole measurement block (see
+// `detail::profile_pipeline_barrier` in command_buffer_sync.h).
+[[nodiscard]] constexpr bool enabled() noexcept { return true; }
 
 // Per-thread mirror the hot path increments. Non-atomic by design: only the
 // owning thread ever touches it, and `flush()` folds it under the global lock.
@@ -281,45 +281,46 @@ inline thread_local SubmitProfileCounters tls_counters{};
 }
 
 inline void record_dispatch() noexcept {
-    if (enabled()) { ++tls_counters.dispatches; }
+    ++tls_counters.dispatches;
 }
 
 inline void record_descriptor_set_allocation() noexcept {
-    if (enabled()) { ++tls_counters.descriptor_set_allocations; }
+    ++tls_counters.descriptor_set_allocations;
 }
 
 // One vkUpdateDescriptorSets call and nothing else (plan P2.2 keeps this
 // counter meaning exactly the legacy entry point).
 inline void record_descriptor_set_update() noexcept {
-    if (enabled()) { ++tls_counters.descriptor_set_updates; }
+    ++tls_counters.descriptor_set_updates;
 }
 
 // One vkUpdateDescriptorSetWithTemplate call for a per-dispatch set-0 update.
 inline void record_descriptor_set_update_template() noexcept {
-    if (enabled()) { ++tls_counters.descriptor_set_update_templates; }
+    ++tls_counters.descriptor_set_update_templates;
 }
 
 // One vkCmdPushDescriptorSetKHR (plan P2.3). Recorded by the single funnel
-  // detail::push_descriptor_set, so it counts the native calls a batch really
-  // recorded, not the dispatches that asked to push.
-  inline void record_push_descriptor_call() noexcept {
-      if (enabled()) { ++tls_counters.push_descriptor_calls; }
-  }
-  // The creation-time set-0 decision of one shader on a push-capable device (plan
-  // P2.3): one increment per shader, never per dispatch. `pushed` is the layout
-  // the shader was created with and keeps for its whole lifetime.
-  inline void record_push_descriptor_shader(bool pushed) noexcept {
-      if (!enabled()) { return; }
-      if (pushed) {
-          ++tls_counters.push_descriptor_shaders;
-      } else {
-          ++tls_counters.push_descriptor_classic_shaders;
-      }
-  }
-  // One vkCreateDescriptorUpdateTemplate. A template is created once per
+// detail::push_descriptor_set, so it counts the native calls a batch really
+// recorded, not the dispatches that asked to push.
+inline void record_push_descriptor_call() noexcept {
+    ++tls_counters.push_descriptor_calls;
+}
+
+// The creation-time set-0 decision of one shader on a push-capable device (plan
+// P2.3): one increment per shader, never per dispatch. `pushed` is the layout
+// the shader was created with and keeps for its whole lifetime.
+inline void record_push_descriptor_shader(bool pushed) noexcept {
+    if (pushed) {
+        ++tls_counters.push_descriptor_shaders;
+    } else {
+        ++tls_counters.push_descriptor_classic_shaders;
+    }
+}
+
+// One vkCreateDescriptorUpdateTemplate. A template is created once per
 // distinct write shape of a shader, so this counts shapes, not dispatches.
 inline void record_descriptor_update_template_create() noexcept {
-    if (enabled()) { ++tls_counters.descriptor_update_template_creates; }
+    ++tls_counters.descriptor_update_template_creates;
 }
 
 // The reason of the most recent template fallback on this thread. Kept in the
@@ -332,7 +333,6 @@ inline thread_local const char *tls_fallback_reason{nullptr};
 // descriptor_update_template.h). `reason` is one of that file's static status
 // strings; the driver-facing path stays the legacy one.
 inline void record_descriptor_update_template_fallback(const char *reason) noexcept {
-    if (!enabled()) { return; }
     ++tls_counters.descriptor_update_template_fallbacks;
     tls_fallback_reason = reason == nullptr ? "unknown" : reason;
 }
@@ -342,68 +342,68 @@ inline void record_descriptor_update_template_fallback(const char *reason) noexc
 descriptor_update_template_fallback_reason() noexcept;
 
 inline void record_descriptor_set_bind() noexcept {
-    if (enabled()) { ++tls_counters.descriptor_set_binds; }
+    ++tls_counters.descriptor_set_binds;
 }
 
 inline void record_pipeline_bind() noexcept {
-    if (enabled()) { ++tls_counters.pipeline_binds; }
+    ++tls_counters.pipeline_binds;
 }
 
 inline void record_argument_plan() noexcept {
-    if (enabled()) { ++tls_counters.argument_plans; }
+    ++tls_counters.argument_plans;
 }
 
 inline void record_barrier_call() noexcept {
-    if (enabled()) { ++tls_counters.barrier_calls; }
+    ++tls_counters.barrier_calls;
 }
 
 inline void record_memory_barriers(uint64_t count) noexcept {
-    if (enabled()) { tls_counters.barrier_memory_barriers += count; }
+    tls_counters.barrier_memory_barriers += count;
 }
 
 inline void record_buffer_barriers(uint64_t count) noexcept {
-    if (enabled()) { tls_counters.barrier_buffer_barriers += count; }
+    tls_counters.barrier_buffer_barriers += count;
 }
 
 inline void record_image_barriers(uint64_t count) noexcept {
-    if (enabled()) { tls_counters.barrier_image_barriers += count; }
+    tls_counters.barrier_image_barriers += count;
 }
 
 inline void record_all_commands_barriers(uint64_t count) noexcept {
-    if (enabled()) { tls_counters.barrier_all_commands_barriers += count; }
+    tls_counters.barrier_all_commands_barriers += count;
 }
 
 inline void record_descriptor_set_layout_create() noexcept {
-    if (enabled()) { ++tls_counters.descriptor_set_layout_creates; }
+    ++tls_counters.descriptor_set_layout_creates;
 }
 
 inline void record_pipeline_layout_create() noexcept {
-    if (enabled()) { ++tls_counters.pipeline_layout_creates; }
+    ++tls_counters.pipeline_layout_creates;
 }
 
 inline void record_pipeline_cache_create() noexcept {
-    if (enabled()) { ++tls_counters.pipeline_cache_creates; }
+    ++tls_counters.pipeline_cache_creates;
 }
 
 // Subset of `pipeline_cache_creates`: a short-lived cache that exists only to be
 // handed to vkMergePipelineCaches (the P1.3 per-shader seed path). Counted
 // separately so a report can tell the one device cache apart from merge sources.
 inline void record_pipeline_cache_merge_source_create() noexcept {
-    if (enabled()) { ++tls_counters.pipeline_cache_merge_source_creates; }
+    ++tls_counters.pipeline_cache_merge_source_creates;
 }
 
 // Successful vkMergePipelineCaches calls: the number of per-shader PSO seeds
 // that really reached the device cache.
 inline void record_pipeline_cache_merge() noexcept {
-    if (enabled()) { ++tls_counters.pipeline_cache_merges; }
+    ++tls_counters.pipeline_cache_merges;
 }
 
 inline void record_pipeline_create() noexcept {
-    if (enabled()) { ++tls_counters.pipeline_creates; }
+    ++tls_counters.pipeline_creates;
 }
 
 inline void record_command_batch() noexcept {
-    if (enabled()) { ++tls_counters.command_batches; }
+    ++tls_counters.command_batches;
 }
 
 // One native queue submission of the dispatch path. `sync2` says which entry
@@ -411,7 +411,6 @@ inline void record_command_batch() noexcept {
 // submission a config-ext callback performed is never recorded, because the
 // backend made no native call.
 inline void record_queue_submit(bool sync2) noexcept {
-    if (!enabled()) { return; }
     ++tls_counters.queue_submits;
     if (sync2) {
         ++tls_counters.queue_submit2;
@@ -423,13 +422,13 @@ inline void record_queue_submit(bool sync2) noexcept {
 // One entry into the in-flight throttle (plan P1.5): the submission had to
 // consider the bound, whether or not it then blocked.
 inline void record_timeline_wait_entry() noexcept {
-    if (enabled()) { ++tls_counters.timeline_wait_entries; }
+    ++tls_counters.timeline_wait_entries;
 }
 
 // The throttle really blocked the host (the target timeline value had not
 // completed yet).
 inline void record_timeline_wait() noexcept {
-    if (enabled()) { ++tls_counters.timeline_waits; }
+    ++tls_counters.timeline_waits;
 }
 
 // The throttle was entered but the GPU had already completed the target, so the
@@ -437,14 +436,14 @@ inline void record_timeline_wait() noexcept {
 // never reached" (entries == 0) from "the bound is reached and always
 // unnecessary" (skips == entries).
 inline void record_timeline_wait_skip() noexcept {
-    if (enabled()) { ++tls_counters.timeline_wait_skips; }
+    ++tls_counters.timeline_wait_skips;
 }
 
 // One ResourceBarrier::restore_states invocation (plan F5/§5.1). Recorded on
 // entry, so a restore that finds no state to restore is still counted as the
 // per-submission cost it is.
 inline void record_restore_call() noexcept {
-    if (enabled()) { ++tls_counters.restore_calls; }
+    ++tls_counters.restore_calls;
 }
 
 // The barrier structs that restore_states recorded, by kind. A restore struct
@@ -453,7 +452,6 @@ inline void record_restore_call() noexcept {
 // instead of reusing `barrier_all_commands_barriers`.
 inline void record_restore_barriers(uint64_t memory, uint64_t buffers,
                                     uint64_t images) noexcept {
-    if (!enabled()) { return; }
     tls_counters.restore_memory_barriers += memory;
     tls_counters.restore_buffer_barriers += buffers;
     tls_counters.restore_image_barriers += images;
@@ -463,27 +461,65 @@ inline void record_restore_barriers(uint64_t memory, uint64_t buffers,
 // mips. This is the size of the state a cross-submission barrier cache would
 // have to keep alive, measured at the point where it is dropped.
 inline void record_restore_state(uint64_t buffers, uint64_t texture_mips) noexcept {
-    if (!enabled()) { return; }
     tls_counters.restore_state_buffers += buffers;
     tls_counters.restore_state_texture_mips += texture_mips;
 }
 
 inline void record_host_restore_ns(uint64_t ns) noexcept {
-    if (enabled()) { tls_counters.restore_host_ns += ns; }
+    tls_counters.restore_host_ns += ns;
 }
 
 inline void record_host_encode_ns(uint64_t ns) noexcept {
-    if (enabled()) { tls_counters.host_encode_ns += ns; }
+    tls_counters.host_encode_ns += ns;
 }
 
 inline void record_host_submit_ns(uint64_t ns) noexcept {
-    if (enabled()) { tls_counters.host_submit_ns += ns; }
+    tls_counters.host_submit_ns += ns;
 }
 
-// Host timing helpers. `timing_begin` returns 0 when the mode is off so the
-// elapsed-time helpers collapse to a no-op and no clock is read.
+// ---- replayable recording (plan P4). Counter-only, like every hook above:
+// no backend decision reads any of these, so enabling them cannot change what
+// is recorded or replayed.
+// One successful record(): a batch that was encoded into a persistent command
+// buffer and not submitted. `record_host_ns` is the host cost of that encode and
+// is deliberately *not* folded into `host_encode_ns` (which stays the ordinary
+// per-batch encode window, so its us/batch ratio keeps its meaning).
+inline void record_replay_record(uint64_t record_host_ns) noexcept {
+    ++tls_counters.replay_records;
+    tls_counters.replay_record_host_ns += record_host_ns;
+}
+
+// One replay() submission. The native queue submission itself is counted by
+// `record_queue_submit` inside Event::_signal, exactly like an ordinary batch.
+inline void record_replay_submit() noexcept {
+    ++tls_counters.replay_submits;
+}
+
+// One record() that was refused with a typed reason.
+inline void record_replay_rejection() noexcept {
+    ++tls_counters.replay_rejections;
+}
+
+// One update() call. v1 refuses every one of them (a recording encodes its
+// uniform bytes and descriptor contents), so this count equals the number of
+// update() calls a caller made.
+inline void record_replay_update_refusal() noexcept {
+    ++tls_counters.replay_update_refusals;
+}
+
+inline void record_replay_invalidations(uint64_t count) noexcept {
+    tls_counters.replay_invalidations += count;
+}
+
+// One recorded VkCommandBuffer freed (graph destruction or device teardown).
+// `replay_records - replay_releases` is the number of live recordings.
+inline void record_replay_release() noexcept {
+    ++tls_counters.replay_releases;
+}
+
+// Host timing helpers. `timing_begin` and every `timing_end_*` are the only
+// clock reads of the instrument, so a batch that is not timed touches no clock.
 [[nodiscard]] inline int64_t timing_begin() noexcept {
-    if (!enabled()) { return 0; }
     return static_cast<int64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
@@ -491,7 +527,6 @@ inline void record_host_submit_ns(uint64_t ns) noexcept {
 }
 
 [[nodiscard]] inline uint64_t timing_elapsed_ns(int64_t begin) noexcept {
-    if (begin == 0) { return 0u; }
     auto end = static_cast<int64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
@@ -504,44 +539,8 @@ inline void timing_end_encode(int64_t begin) noexcept {
 }
 
 inline void timing_end_submit(int64_t begin) noexcept {
-      record_host_submit_ns(timing_elapsed_ns(begin));
-  }
-
-  // ---- replayable recording (plan P4). Counter-only, like every hook above:
-  // no backend decision reads any of these, so enabling them cannot change what
-  // is recorded or replayed.
-  // One successful record(): a batch that was encoded into a persistent command
-  // buffer and not submitted. `record_host_ns` is the host cost of that encode and
-  // is deliberately *not* folded into `host_encode_ns` (which stays the ordinary
-  // per-batch encode window, so its us/batch ratio keeps its meaning).
-  inline void record_replay_record(uint64_t record_host_ns) noexcept {
-      if (!enabled()) { return; }
-      ++tls_counters.replay_records;
-      tls_counters.replay_record_host_ns += record_host_ns;
-  }
-  // One replay() submission. The native queue submission itself is counted by
-  // `record_queue_submit` inside Event::_signal, exactly like an ordinary batch.
-  inline void record_replay_submit() noexcept {
-      if (enabled()) { ++tls_counters.replay_submits; }
-  }
-  // One record() that was refused with a typed reason.
-  inline void record_replay_rejection() noexcept {
-      if (enabled()) { ++tls_counters.replay_rejections; }
-  }
-  // One update() call. v1 refuses every one of them (a recording encodes its
-  // uniform bytes and descriptor contents), so this count equals the number of
-  // update() calls a caller made.
-  inline void record_replay_update_refusal() noexcept {
-      if (enabled()) { ++tls_counters.replay_update_refusals; }
-  }
-  inline void record_replay_invalidations(uint64_t count) noexcept {
-      if (enabled()) { tls_counters.replay_invalidations += count; }
-  }
-  // One recorded VkCommandBuffer freed (graph destruction or device teardown).
-  // `replay_records - replay_releases` is the number of live recordings.
-  inline void record_replay_release() noexcept {
-      if (enabled()) { ++tls_counters.replay_releases; }
-  }
+    record_host_submit_ns(timing_elapsed_ns(begin));
+}
 
 inline void timing_end_restore(int64_t begin) noexcept {
     record_host_restore_ns(timing_elapsed_ns(begin));
@@ -549,7 +548,7 @@ inline void timing_end_restore(int64_t begin) noexcept {
 
 // Fold the calling thread's mirror into the process-global totals. Called once
 // per command batch from `Stream::dispatch` and, defensively, before every
-// query. Safe to call when the mode is off (it returns immediately).
+// query.
 void flush() noexcept;
 
 // Fold the calling thread's mirror, then read a consistent copy of the global
@@ -565,5 +564,91 @@ void flush() noexcept;
 [[nodiscard]] luisa::string query(luisa::string_view key) noexcept;
 
 }// namespace submit_profile
+
+#else// !LUISA_VULKAN_PROFILE_SUBMIT
+
+namespace submit_profile {
+
+// Disabled build: the instrument does not exist. Every hook keeps the exact
+// signature the (unchanged) backend call sites use but is an empty `inline`
+// function, so an ordinary binary carries no counter record, no thread-local
+// mirror, no atomic, no clock read, no global table and no report/query
+// surface - a standard optimizer removes the calls entirely, and nothing here
+// can be observed at run time. The parameters are deliberately unnamed: there
+// is nothing to observe, and a named-but-unused parameter would only be a
+// warning.
+
+// Compile-time false: this build cannot be turned into a profiling build by any
+// runtime input. Call sites that guard a whole measurement block with
+// `if (!enabled()) { return; }` therefore compile the block away.
+[[nodiscard]] constexpr bool enabled() noexcept { return false; }
+
+inline void record_dispatch() noexcept {}
+inline void record_descriptor_set_allocation() noexcept {}
+inline void record_descriptor_set_update() noexcept {}
+inline void record_descriptor_set_update_template() noexcept {}
+inline void record_push_descriptor_call() noexcept {}
+inline void record_push_descriptor_shader(bool /*pushed*/) noexcept {}
+inline void record_descriptor_update_template_create() noexcept {}
+inline void record_descriptor_update_template_fallback(const char * /*reason*/) noexcept {}
+inline void record_descriptor_set_bind() noexcept {}
+inline void record_pipeline_bind() noexcept {}
+inline void record_argument_plan() noexcept {}
+inline void record_barrier_call() noexcept {}
+inline void record_memory_barriers(uint64_t /*count*/) noexcept {}
+inline void record_buffer_barriers(uint64_t /*count*/) noexcept {}
+inline void record_image_barriers(uint64_t /*count*/) noexcept {}
+inline void record_all_commands_barriers(uint64_t /*count*/) noexcept {}
+inline void record_descriptor_set_layout_create() noexcept {}
+inline void record_pipeline_layout_create() noexcept {}
+inline void record_pipeline_cache_create() noexcept {}
+inline void record_pipeline_cache_merge_source_create() noexcept {}
+inline void record_pipeline_cache_merge() noexcept {}
+inline void record_pipeline_create() noexcept {}
+inline void record_command_batch() noexcept {}
+inline void record_queue_submit(bool /*sync2*/) noexcept {}
+inline void record_timeline_wait_entry() noexcept {}
+inline void record_timeline_wait() noexcept {}
+inline void record_timeline_wait_skip() noexcept {}
+inline void record_restore_call() noexcept {}
+inline void record_restore_barriers(uint64_t /*memory*/, uint64_t /*buffers*/,
+                                    uint64_t /*images*/) noexcept {}
+inline void record_restore_state(uint64_t /*buffers*/,
+                                 uint64_t /*texture_mips*/) noexcept {}
+inline void record_host_restore_ns(uint64_t /*ns*/) noexcept {}
+inline void record_host_encode_ns(uint64_t /*ns*/) noexcept {}
+inline void record_host_submit_ns(uint64_t /*ns*/) noexcept {}
+inline void record_replay_record(uint64_t /*record_host_ns*/) noexcept {}
+inline void record_replay_submit() noexcept {}
+inline void record_replay_rejection() noexcept {}
+inline void record_replay_update_refusal() noexcept {}
+inline void record_replay_invalidations(uint64_t /*count*/) noexcept {}
+inline void record_replay_release() noexcept {}
+
+// No clock is read: a begin stamp is a constant 0 and every elapsed-time helper
+// returns 0, so the call sites' timing windows vanish. Nothing is folded and
+// nothing is queried either.
+[[nodiscard]] constexpr int64_t timing_begin() noexcept { return 0; }
+[[nodiscard]] constexpr uint64_t timing_elapsed_ns(int64_t /*begin*/) noexcept { return 0u; }
+inline void timing_end_encode(int64_t /*begin*/) noexcept {}
+inline void timing_end_submit(int64_t /*begin*/) noexcept {}
+inline void timing_end_restore(int64_t /*begin*/) noexcept {}
+
+inline void flush() noexcept {}
+
+// No reason is ever recorded, so the answer is always empty.
+[[nodiscard]] inline luisa::string_view
+descriptor_update_template_fallback_reason() noexcept { return {}; }
+
+// `Device::query` forwards every `vk_profile_*` key here; in a disabled build
+// there is nothing to report, so the answer is the empty string and the caller
+// reports the key as unknown instead of inventing a number.
+[[nodiscard]] inline luisa::string query(luisa::string_view /*key*/) noexcept {
+    return {};
+}
+
+}// namespace submit_profile
+
+#endif// LUISA_VULKAN_PROFILE_SUBMIT
 
 }// namespace lc::vk

@@ -193,6 +193,12 @@ public:
     // Moves the native buffer and its state out of this object, leaving it empty
     // and owning nothing. The caller (a replay graph) becomes responsible for
     // freeing both; the destructor of this object no longer touches them.
+    //
+    // Only a `PERSISTENT` buffer (a replay recording) may be handed out this way,
+    // and `replay_graph.cpp` is its only caller: the graph frees the buffer against
+    // `state->pool`, which is wrong for a `BACKEND` buffer (the retirement FIFO or
+    // `~CommandBuffer` already own it) and illegal for a `BORROWED` one (the pool
+    // belongs to the config ext). Asserted, never guessed.
     [[nodiscard]] detail::RecordedBatch release_native_batch() noexcept;
     auto states() const { return _state.get(); }
     void execute(vstd::span<const luisa::unique_ptr<Command>> cmds);
@@ -345,9 +351,26 @@ private:
     // The record prefix of one batch, extracted behaviour-neutrally out of
     // `Stream::dispatch` (plan P4): acquire or construct the command buffer, wire
     // the stream-scoped scratch and the barrier tracker into it, inject the config
-    // ext's before-states and begin recording. `flags` is only non-zero for the
-    // replay recorder.
-    [[nodiscard]] CommandBuffer _begin_batch_record(VkCommandBufferUsageFlags flags = 0u);
+    // ext's before-states and begin recording.
+    //
+    // `ownership` is the only thing that differs between an ordinary batch and a
+    // replay recording:
+    //   * `BACKEND` (the default, what every ordinary dispatch passes) keeps the
+    //     historical acquisition bit for bit: a recycled buffer from the stream's
+    //     retirement FIFO if there is one, a fresh backend-owned buffer otherwise.
+    //   * `PERSISTENT` (the replay recorder) neither dequeues the FIFO nor borrows
+    //     a config-ext buffer. It constructs a dedicated backend-owned buffer whose
+    //     pool has no reset bit, because the native buffer *and* its state are
+    //     handed to a replay graph that resubmits the buffer N times and frees both
+    //     exactly once. Recycling a retired state (already restored, descriptor
+    //     pools reset) or taking a one-shot borrowed buffer would make the graph
+    //     free native state from a pool it does not own.
+    // `flags` is forwarded to the begin info and is only non-zero for the replay
+    // recorder.
+    [[nodiscard]] CommandBuffer _begin_batch_record(
+        detail::CommandBufferOwnership ownership =
+            detail::CommandBufferOwnership::BACKEND,
+        VkCommandBufferUsageFlags flags = 0u);
     // The record suffix of one batch, extracted the same way: apply the config
     // ext's after-states, record the trailing restore and end the recording.
     void _finish_batch_record(CommandBuffer &cmdbuffer);
