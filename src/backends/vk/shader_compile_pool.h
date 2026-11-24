@@ -67,10 +67,15 @@
 #include <mutex>
 #include <thread>
 
+// Vulkan can include Xlib first, whose None macro collides with marl::Task::Flags::None.
+// Hide it for both the direct and transitive marl includes, then restore it.
+#pragma push_macro("None")
+#undef None
 #include <marl/scheduler.h>
+#include <luisa/core/fiber.h>
+#pragma pop_macro("None")
 
 #include <luisa/backends/ext/vk_shader_compile_ext.h>
-#include <luisa/core/fiber.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/runtime/rhi/resource.h>
