@@ -6,10 +6,15 @@
 namespace lc::validation {
 void Mesh::set(Stream *stream, Usage usage, Range range) {
     set_usage(stream, this, usage, range);
-    LUISA_ASSERT(vert, "{}'s vertex-buffer must be set before use.", get_name());
-    set_usage(stream, vert, Usage::READ, vert_range);
-    LUISA_ASSERT(index, "{}'s index-buffer must be set before use.", get_name());
-    set_usage(stream, index, Usage::READ, index_range);
+    if (vert != nullptr && index != nullptr) {
+        set_usage(stream, vert, Usage::READ, vert_range);
+        set_usage(stream, index, Usage::READ, index_range);
+    } else if (!imported) {
+        LUISA_ASSERT(vert, "{}'s vertex-buffer must be set before use.", get_name());
+        set_usage(stream, vert, Usage::READ, vert_range);
+        LUISA_ASSERT(index, "{}'s index-buffer must be set before use.", get_name());
+        set_usage(stream, index, Usage::READ, index_range);
+    }
 }
 void ProceduralPrimitives::set(Stream *stream, Usage usage, Range range) {
     set_usage(stream, this, usage, range);

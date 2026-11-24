@@ -393,6 +393,48 @@ public:
         return _v_stride;
     }
 
+    [[nodiscard]] auto vertex_buffer_handle() const noexcept {
+        _check_is_valid();
+        LUISA_ASSERT(!is_cluster_mode(),
+                     "vertex_buffer_handle() is triangle-only: a cluster mesh carries no vertex buffer.");
+        return _v_buffer;
+    }
+
+    [[nodiscard]] auto vertex_buffer_offset_bytes() const noexcept {
+        _check_is_valid();
+        LUISA_ASSERT(!is_cluster_mode(),
+                     "vertex_buffer_offset_bytes() is triangle-only: a cluster mesh carries no vertex buffer.");
+        return _v_buffer_offset_bytes;
+    }
+
+    [[nodiscard]] auto vertex_buffer_size_bytes() const noexcept {
+        _check_is_valid();
+        LUISA_ASSERT(!is_cluster_mode(),
+                     "vertex_buffer_size_bytes() is triangle-only: a cluster mesh carries no vertex buffer.");
+        return _v_buffer_size_bytes;
+    }
+
+    [[nodiscard]] auto triangle_buffer_handle() const noexcept {
+        _check_is_valid();
+        LUISA_ASSERT(!is_cluster_mode(),
+                     "triangle_buffer_handle() is triangle-only: a cluster mesh carries no triangle buffer.");
+        return _t_buffer;
+    }
+
+    [[nodiscard]] auto triangle_buffer_offset_bytes() const noexcept {
+        _check_is_valid();
+        LUISA_ASSERT(!is_cluster_mode(),
+                     "triangle_buffer_offset_bytes() is triangle-only: a cluster mesh carries no triangle buffer.");
+        return _t_buffer_offset_bytes;
+    }
+
+    [[nodiscard]] auto triangle_buffer_size_bytes() const noexcept {
+        _check_is_valid();
+        LUISA_ASSERT(!is_cluster_mode(),
+                     "triangle_buffer_size_bytes() is triangle-only: a cluster mesh carries no triangle buffer.");
+        return _t_buffer_size_bytes;
+    }
+
     [[nodiscard]] auto vertex_count_per_motion_keyframe() const noexcept {
         _check_is_valid();
         // cluster meshes carry no vertex buffer, so there is no vertex stride to

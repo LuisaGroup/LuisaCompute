@@ -9,6 +9,7 @@ public:
     Buffer *index{};
     Range vert_range;
     Range index_range;
+    bool imported{false};
     Mesh(uint64_t handle)
         : RWResource(handle, Tag::MESH, false) {}
     void set(Stream *stream, Usage usage, Range range) override;

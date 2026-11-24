@@ -1539,6 +1539,18 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     endif ()
 endif ()
 luisa_compute_add_test(test_opacity_micromap_header unit/runtime/test_opacity_micromap_header.cpp LABELS "unit;unit_runtime")
+luisa_compute_add_test(test_accel_archive_envelope unit/runtime/test_accel_archive_envelope.cpp LABELS "unit;unit_runtime")
+target_include_directories(test_accel_archive_envelope PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/backends/cuda/extensions")
+if (EXISTS "${CMAKE_SOURCE_DIR}/src/ext/optix/include/optix_types.h")
+    target_include_directories(test_accel_archive_envelope SYSTEM PRIVATE
+            "${CMAKE_SOURCE_DIR}/src/ext/optix/include")
+    target_compile_definitions(test_accel_archive_envelope PRIVATE
+            LUISA_TEST_HAS_PINNED_OPTIX_HEADERS=1)
+else ()
+    target_compile_definitions(test_accel_archive_envelope PRIVATE
+            LUISA_TEST_HAS_PINNED_OPTIX_HEADERS=0)
+endif ()
 luisa_compute_add_test(test_buffer_io unit/runtime/test_buffer_io.cpp)
 luisa_compute_add_test(test_buffer unit/runtime/test_buffer.cpp)
 luisa_compute_add_test(test_batch_readback unit/runtime/test_batch_readback.cpp)

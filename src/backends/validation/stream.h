@@ -45,6 +45,7 @@ public:
     vstd::unordered_map<RWResource *, CompeteResource> res_usages;
     auto executed_layer() const { return _executed_layer; }
     auto synced_layer() const { return _synced_layer; }
+    auto tag_value() const noexcept { return _stream_tag; }
     vstd::string stream_tag() const;
     Stream(Device *device, uint64_t handle, StreamTag stream_tag);
     void dispatch();
