@@ -2,9 +2,9 @@
 
 ## 1. Zero Out-of-Tree Patch Requirement
 
-Static triangle BLAS archiving for LuisaCompute's `fallback` and `simd` backends runs **100% out-of-tree inside LuisaCompute** against unmodified stock/system pre-built `embree4.dll` binaries (validated on Embree `4.4.1`). No Embree source forks, custom DLLs, `LUISA_EXTRA_EMBREE_BIN` overrides, or CMake dependency changes are required.
+Static triangle BLAS archiving for LuisaCompute's `fallback` and `simd` backends runs **100% out-of-tree inside LuisaCompute** against unmodified Embree 4 binaries on x86-64 and AArch64. No Embree source forks, custom DLLs, `LUISA_EXTRA_EMBREE_BIN` overrides, or CMake dependency changes are required.
 
-When initialized (`EmbreeAccelArchiveExt`), Luisa queries public `RTCDevice` properties (`RTC_DEVICE_PROPERTY_VERSION` in `4.x`, 64-bit pointers, `RTC_DEVICE_PROPERTY_COMPACT_POLYS_ENABLED == 0`), discovers and cross-verifies exact Embree 4 runtime offsets across distinct compact and non-compact probe scenes guarded by `VirtualQuery`, runs a live `Triangle4i` vertex-slot swap test, and executes a full export -> dummy-commit import -> transformed TLAS `rtcIntersect1`/`rtcOccluded1` bit-exact parity self-test before marking archiving supported (`layout_info = "embree4_out_of_tree_bvh4_bvh8_static_tri_v1"`).
+When initialized (`EmbreeAccelArchiveExt`), Luisa queries public `RTCDevice` properties (`RTC_DEVICE_PROPERTY_VERSION` in `4.x`, 64-bit pointers, `RTC_DEVICE_PROPERTY_COMPACT_POLYS_ENABLED == 0`), discovers and cross-verifies exact Embree 4 runtime offsets across distinct compact and non-compact probe scenes guarded by OS readable-memory checks, runs a live `Triangle4i` vertex-slot swap test, and executes a full export -> dummy-commit import -> transformed TLAS `rtcIntersect1`/`rtcOccluded1` bit-exact parity self-test before marking archiving supported (`layout_info = "embree4_out_of_tree_bvh4_bvh8_static_tri_v1"`).
 
 If `LUISA_EMBREE_ACCEL_ARCHIVE=0` is set, or if any ABI check or live ray self-test fails on a future/custom Embree binary, initialization fails closed (`supported = false`, `AccelArchiveStatus::UNSUPPORTED_FEATURE`), allowing callers to fall back cleanly to standard Embree BVH rebuild.
 
@@ -18,6 +18,8 @@ Only static single-mesh triangle BLAS (`RTCScene` with one static, non-motion-bl
 | `BVH8` | `Triangle4` (`FAST`) / `Triangle4v` (`ROBUST`) / `Triangle4i` | Non-compact BLAS on AVX CPUs (`allow_compaction = false`) selects `BVH8<Triangle4v>` | `BVH8::AABBNode` = 256 B, `Triangle4v` = 176 B, `Triangle4` = 176 B |
 
 Dynamic scenes (`allow_update = true`), motion blur, quantized/OBB/motion nodes, barriers, and non-triangle primitives are rejected cleanly.
+
+AArch64 uses NEON. Embree calls its 4-wide NEON intersectors `sse2::` and its 2×NEON intersectors `avx2::`; these names do not mean ARM needs x86 CPU features. A compatible build can use BVH4 or BVH8, but each layout must pass the same live self-test before use. ARM64 and x86-64 archives are intentionally not interchangeable.
 
 ## 3. Binary Encoding, External Slab Materialization, and Lifetime Safety
 

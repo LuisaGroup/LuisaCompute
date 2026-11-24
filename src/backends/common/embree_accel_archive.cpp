@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -15,6 +16,12 @@
 #define LUISA_EMBREE_OOT_X64 1
 #else
 #define LUISA_EMBREE_OOT_X64 0
+#endif
+
+#if defined(_M_ARM64) || defined(__aarch64__)
+#define LUISA_EMBREE_OOT_ARM64 1
+#else
+#define LUISA_EMBREE_OOT_ARM64 0
 #endif
 
 #if defined(_WIN32)
@@ -29,12 +36,20 @@
 #endif
 #include <malloc.h>
 #include <windows.h>
-#elif LUISA_EMBREE_OOT_X64
+#else
+#if LUISA_EMBREE_OOT_X64
 #include <cpuid.h>
 #endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#endif
+#endif
+#endif
 
-// The private BVH layout and the serialized ISA mask currently describe x86-64 only.
-#if LUISA_EMBREE_OOT_X64 && !defined(LUISA_EMBREE_DISABLE_OOT_ARCHIVE) && \
+#if (LUISA_EMBREE_OOT_X64 || LUISA_EMBREE_OOT_ARM64) && !defined(LUISA_EMBREE_DISABLE_OOT_ARCHIVE) && \
     !(defined(LUISA_COMPUTE_FALLBACK_EMBREE_VERSION) && LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3) && \
     !(defined(LUISA_COMPUTE_SIMD_EMBREE_VERSION) && LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3) && \
     __has_include(<embree4/rtcore.h>)
@@ -189,6 +204,7 @@ enum : uint32_t {
     kIsaAVX = 1u << 2u,
     kIsaAVX2 = 1u << 3u,
     kIsaAVX512F = 1u << 4u,
+    kIsaNEON = 1u << 5u,
 };
 
 // Embree 4 NodeRefPtr<N> tag bits (kernels/bvh/bvh_node_ref.h)
@@ -412,17 +428,51 @@ void parallel_for_range(size_t total, size_t parallel_threshold, Fn &&fn) noexce
         cur = reg_end;
     }
     return true;
+#elif defined(__linux__)
+    // The ABI probe follows candidate pointers from opaque Embree objects.
+    // Check the mapped region before dereferencing any candidate.
+    auto *maps = std::fopen("/proc/self/maps", "r");
+    if (maps == nullptr) {
+        return false;
+    }
+    auto close_maps = vstd::scope_exit([maps] { std::fclose(maps); });
+    const auto end = addr + bytes;
+    char line[512];
+    while (std::fgets(line, sizeof(line), maps) != nullptr) {
+        unsigned long long begin = 0u, limit = 0u;
+        char access = '\0';
+        if (std::sscanf(line, "%llx-%llx %c", &begin, &limit, &access) == 3 &&
+            addr >= begin && addr < limit) {
+            return access == 'r' && end <= limit;
+        }
+    }
+    return false;
+#elif defined(__APPLE__) && TARGET_OS_OSX
+    mach_vm_address_t begin = addr;
+    mach_vm_size_t size = 0u;
+    vm_region_basic_info_data_64_t info{};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    const auto task = mach_task_self();
+    const auto status = mach_vm_region(task, &begin, &size, VM_REGION_BASIC_INFO_64,
+                                       reinterpret_cast<vm_region_info_t>(&info), &count, &object);
+    if (object != MACH_PORT_NULL) {
+        mach_port_deallocate(task, object);
+    }
+    return status == KERN_SUCCESS && begin <= addr &&
+           (info.protection & VM_PROT_READ) != 0 && addr + bytes - begin <= size;
 #else
-    return true;
+    return false;
 #endif
 }
 
 [[nodiscard]] bool try_read_cstring(const char *ptr, size_t max_len, std::string_view &out) noexcept {
-    if (!is_readable_memory(ptr, 1u)) {
+    const auto whole_range_readable = is_readable_memory(ptr, max_len);
+    if (!whole_range_readable && !is_readable_memory(ptr, 1u)) {
         return false;
     }
     for (size_t i = 0u; i < max_len; ++i) {
-        if (!is_readable_memory(ptr + i, 1u)) {
+        if (!whole_range_readable && !is_readable_memory(ptr + i, 1u)) {
             return false;
         }
         if (ptr[i] == '\0') {
@@ -491,6 +541,9 @@ void parallel_for_range(size_t total, size_t parallel_threshold, Fn &&fn) noexce
         }
     }
 #endif
+#elif LUISA_EMBREE_OOT_ARM64
+    // Advanced SIMD is baseline on the AArch64 targets supported by Embree.
+    mask = kIsaNEON;
 #endif
     return mask;
 }
@@ -558,6 +611,14 @@ void parallel_for_range(size_t total, size_t parallel_threshold, Fn &&fn) noexce
         return false;
     }
 
+#if LUISA_EMBREE_OOT_ARM64
+    // Embree reuses the x86 dispatch names for its NEON and 2xNEON builds.
+    // The 2x variant uses two NEON vectors, not a distinct CPU extension.
+    if (!(name.starts_with("sse2::BVH4") && out_bf == 4u) && !name.starts_with("avx2::BVH")) {
+        return false;
+    }
+    out_required_isa = kIsaNEON;
+#else
     out_required_isa = kIsaSSE2;
     if (out_bf == 8u || name.find("AVX::") != std::string_view::npos) {
         out_required_isa |= kIsaAVX;
@@ -568,6 +629,7 @@ void parallel_for_range(size_t total, size_t parallel_threshold, Fn &&fn) noexce
     if (name.find("AVX512") != std::string_view::npos) {
         out_required_isa |= kIsaAVX | kIsaAVX2 | kIsaAVX512F;
     }
+#endif
     return true;
 }
 
@@ -623,6 +685,8 @@ void parallel_for_range(size_t total, size_t parallel_threshold, Fn &&fn) noexce
     if (rtcGetDeviceProperty(dev, RTC_DEVICE_PROPERTY_BACKFACE_CULLING_ENABLED) != 0) flags |= (1u << 3u);
     if (rtcGetDeviceProperty(dev, RTC_DEVICE_PROPERTY_COMPACT_POLYS_ENABLED) != 0) flags |= (1u << 4u);
     if (rtcGetDeviceProperty(dev, RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED) != 0) flags |= (1u << 5u);
+    // Raw leaf blocks belong to the architecture that produced them.
+    if (LUISA_EMBREE_OOT_ARM64) flags |= (1u << 6u);
     if (sizeof(void *) == 8u) flags |= (1u << 7u);
 #ifdef RTC_MAX_INSTANCE_LEVEL_COUNT
     flags |= (static_cast<uint32_t>(RTC_MAX_INSTANCE_LEVEL_COUNT) & 0xffu) << 8u;
@@ -2014,7 +2078,7 @@ EmbreeAccelArchiveExt::EmbreeAccelArchiveExt(EmbreeAccelArchiveOps ops) noexcept
         _abi.supports_bvh4 ? 1u : 0u,
         _abi.supports_bvh8 ? 1u : 0u);
     _supported = true;
-#elif !LUISA_EMBREE_OOT_X64
+#elif !LUISA_EMBREE_OOT_X64 && !LUISA_EMBREE_OOT_ARM64
     _driver_fingerprint = "embree4_oot_architecture_unsupported";
 #else
     _driver_fingerprint = "embree4_oot_headers_unavailable";
