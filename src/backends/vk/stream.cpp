@@ -2150,6 +2150,15 @@ Stream::Stream(Device *device, StreamTag tag)
 Stream::~Stream() {
     sync();
     {
+        std::lock_guard lock{_pending_compaction_mtx};
+        for (auto *b : _pending_compaction_blases) {
+            if (b != nullptr) {
+                b->_set_pending_compaction_stream(nullptr);
+            }
+        }
+        _pending_compaction_blases.clear();
+    }
+    {
         std::lock_guard lck{_mtx};
         _enabled = false;
     }
@@ -2157,6 +2166,84 @@ Stream::~Stream() {
     _scratch_buffer_alloc_visitor.buffers.clear();
     while (auto p = _cmdbuffers.dequeue()) {
     }
+}
+
+void Stream::register_pending_compaction(Blas *blas) noexcept {
+    if (blas == nullptr) { return; }
+    Stream *prev = nullptr;
+    {
+        std::lock_guard lock{_pending_compaction_mtx};
+        prev = blas->_pending_compaction_stream;
+        if (prev == this) { return; }
+    }
+    if (prev != nullptr) {
+        prev->unregister_pending_compaction(blas);
+    }
+    std::lock_guard lock{_pending_compaction_mtx};
+    if (blas->_pending_compaction_stream == this) { return; }
+    blas->_set_pending_compaction_stream(this);
+    _pending_compaction_blases.emplace_back(blas);
+}
+
+void Stream::unregister_pending_compaction(Blas *blas) noexcept {
+    if (blas == nullptr) { return; }
+    std::lock_guard lock{_pending_compaction_mtx};
+    for (size_t i = 0u; i < _pending_compaction_blases.size();) {
+        if (_pending_compaction_blases[i] == blas) {
+            _pending_compaction_blases[i] = _pending_compaction_blases.back();
+            _pending_compaction_blases.pop_back();
+        } else {
+            ++i;
+        }
+    }
+    if (blas->_pending_compaction_stream == this) {
+        blas->_set_pending_compaction_stream(nullptr);
+    }
+}
+
+uint64_t Stream::execute_immediate(
+    luisa::move_only_function<void(CommandBuffer &)> &&fn,
+    bool wait_after) {
+    uint64_t fence = 0u;
+    {
+        std::lock_guard lck{_dispatch_mtx};
+        _temp_desc.clear();
+        _throttle_in_flight();
+        auto fence_plan = detail::plan_timeline_value_increment(
+            _evt.last_fence(), 1u);
+        LUISA_ASSERT(
+            static_cast<bool>(fence_plan),
+            "Vulkan stream timeline fence overflow during execute_immediate.");
+        fence = fence_plan.value;
+        submit_profile::record_command_batch();
+        auto profile_flush = vstd::scope_exit([] {
+            submit_profile::flush();
+        });
+        CommandBuffer cmdbuffer = _begin_batch_record();
+        fn(cmdbuffer);
+        cmdbuffer.states()->upload_alloc.flush_host();
+        cmdbuffer.states()->readback_alloc.flush_host();
+        _finish_batch_record(cmdbuffer);
+        auto cb = cmdbuffer.cmdbuffer();
+        auto cb_ptr = &cb;
+        if (_execute_external_command_buffer(cb)) {
+            cb_ptr = nullptr;
+        }
+        _evt._signal(*this, fence, cb_ptr);
+        _mtx.lock();
+        _exec.enqueue(SyncExt{
+            .evt = &_evt,
+            .value = fence});
+        _exec.enqueue(std::move(cmdbuffer));
+        _exec.enqueue(NotifyEvt{
+            .evt = &_evt,
+            .value = fence});
+        _mtx.unlock();
+    }
+    if (wait_after) {
+        _evt.sync(fence);
+    }
+    return fence;
 }
 
 void Stream::remove_resource_state(Resource const *resource) noexcept {
@@ -3187,6 +3274,22 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
 }
 void Stream::sync() {
     _evt.sync(_evt.last_fence());
+    vstd::vector<Blas *> pending;
+    {
+        std::lock_guard lock{_pending_compaction_mtx};
+        pending = std::move(_pending_compaction_blases);
+        _pending_compaction_blases.clear();
+        for (auto *b : pending) {
+            if (b != nullptr && b->_pending_compaction_stream == this) {
+                b->_set_pending_compaction_stream(nullptr);
+            }
+        }
+    }
+    for (auto *b : pending) {
+        if (b != nullptr) {
+            (void)b->try_compact_in_place(*this);
+        }
+    }
 }
 CommandBuffer::CommandBuffer(Stream &stream,
                              detail::CommandBufferOwnership ownership) noexcept

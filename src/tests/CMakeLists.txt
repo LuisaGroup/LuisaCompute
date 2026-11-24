@@ -1814,6 +1814,7 @@ if (TARGET luisa-compute-backend-metal4)
             TIMEOUT 300)
 endif ()
 luisa_compute_add_test(test_rtx                      integration/runtime/test_rtx.cpp)
+luisa_compute_add_test(test_accel_archive            integration/runtime/test_accel_archive.cpp LABELS "integration;integration_runtime")
 # `--fallback-rtx` forces the software BVH through the backend's
 # DeviceConfigExt; the definitions gate the matching config-ext includes.
 if (LUISA_COMPUTE_ENABLE_CUDA)

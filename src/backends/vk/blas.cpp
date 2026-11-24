@@ -132,6 +132,9 @@ void Blas::_pre_build(
                   _accel != VK_NULL_HANDLE &&
                   primitive_count == _last_primitive_count;
     _last_primitive_count = primitive_count;
+    if (_option.allow_compaction && !update) {
+        _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+    }
 
     VkAccelerationStructureBuildSizesInfoKHR acceleration_structure_build_sizes_info{};
     acceleration_structure_build_sizes_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
@@ -168,7 +171,13 @@ void Blas::_pre_build(
     }
     auto recreate = !update;
     auto sync = recreate && _accel != VK_NULL_HANDLE;
+    _accel_size = acceleration_structure_build_sizes_info.accelerationStructureSize;
     if (recreate) {
+        if (_pending_compaction_stream != nullptr) {
+            _pending_compaction_stream->unregister_pending_compaction(this);
+        }
+        _is_compacted = false;
+        _compaction_query_written = false;
         if (_accel) {
             cmdbuffer.states()->callbacks.emplace_back([a = _accel, device = device()]() {
                 vkDestroyAccelerationStructureKHR(device->logic_device(), a, Device::alloc_callbacks());
@@ -376,11 +385,20 @@ void Blas::build(
     acceleration_structure_build_range_info->primitiveOffset = 0;
     acceleration_structure_build_range_info->firstVertex = 0;
     acceleration_structure_build_range_info->transformOffset = 0;
+    const bool emit_compact = _option.allow_compaction &&
+                              _acceleration_build_geometry_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    if (emit_compact) {
+        _ensure_compaction_query_pool();
+        vkCmdResetQueryPool(cmdbuffer.cmdbuffer(), _compaction_query_pool, 0u, 1u);
+    }
     vkCmdBuildAccelerationStructuresKHR(
         cmdbuffer.cmdbuffer(),
         1,
         _acceleration_build_geometry_info,
         &acceleration_structure_build_range_info);
+    if (emit_compact) {
+        _emit_compaction_query(cmdbuffer);
+    }
 }
 void Blas::build(
     CommandBuffer &cmdbuffer,
@@ -435,13 +453,164 @@ void Blas::build(
     acceleration_structure_build_range_info->primitiveOffset = 0;
     acceleration_structure_build_range_info->firstVertex = 0;
     acceleration_structure_build_range_info->transformOffset = 0;
+    const bool emit_compact = _option.allow_compaction &&
+                              _acceleration_build_geometry_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    if (emit_compact) {
+        _ensure_compaction_query_pool();
+        vkCmdResetQueryPool(cmdbuffer.cmdbuffer(), _compaction_query_pool, 0u, 1u);
+    }
     vkCmdBuildAccelerationStructuresKHR(
         cmdbuffer.cmdbuffer(),
         1,
         _acceleration_build_geometry_info,
         &acceleration_structure_build_range_info);
+    if (emit_compact) {
+        _emit_compaction_query(cmdbuffer);
+    }
+}
+void Blas::_ensure_compaction_query_pool() {
+    if (_compaction_query_pool != VK_NULL_HANDLE) {
+        return;
+    }
+    VkQueryPoolCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    ci.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+    ci.queryCount = 1u;
+    VK_CHECK_RESULT(vkCreateQueryPool(
+        device()->logic_device(), &ci, Device::alloc_callbacks(), &_compaction_query_pool));
+}
+void Blas::_emit_compaction_query(CommandBuffer &cmdbuffer) {
+    VkMemoryBarrier2 barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+    VkDependencyInfo dep{};
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.memoryBarrierCount = 1u;
+    dep.pMemoryBarriers = &barrier;
+    detail::cmd_pipeline_barrier(cmdbuffer.cmdbuffer(), device(), &dep);
+    vkCmdWriteAccelerationStructuresPropertiesKHR(
+        cmdbuffer.cmdbuffer(),
+        1u,
+        &_accel,
+        VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR,
+        _compaction_query_pool,
+        0u);
+    _compaction_query_written = true;
+    if (!cmdbuffer.is_persistent_recording()) {
+        cmdbuffer.stream().register_pending_compaction(this);
+    }
+}
+VkDeviceSize Blas::query_compacted_size() const {
+    if (!_compaction_query_written || _compaction_query_pool == VK_NULL_HANDLE) {
+        return 0u;
+    }
+    uint64_t compacted_size = 0u;
+    VK_CHECK_RESULT(vkGetQueryPoolResults(
+        device()->logic_device(),
+        _compaction_query_pool,
+        0u,
+        1u,
+        sizeof(uint64_t),
+        &compacted_size,
+        sizeof(uint64_t),
+        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+    return compacted_size;
+}
+bool Blas::try_compact_in_place(Stream &stream) {
+    if (!_compaction_query_written || _is_compacted || _accel == VK_NULL_HANDLE) {
+        return false;
+    }
+    if (has_tlas_refs()) {
+        // Keep the built AS valid for any TLAS that already referenced its
+        // device address in the same batch; export will compact a temporary
+        // copy if needed without invalidating active TLAS descriptors.
+        return false;
+    }
+    auto compacted_size = query_compacted_size();
+    _compaction_query_written = false;
+    if (compacted_size == 0u) {
+        return false;
+    }
+    if (compacted_size >= _accel_size) {
+        _is_compacted = true;
+        return true;
+    }
+    const auto alloc_size = std::max<size_t>((compacted_size + 255u) & (~255ull), 256u);
+    auto compacted_buffer = vstd::make_unique<DefaultBuffer>(
+        device(),
+        alloc_size,
+        false,
+        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR);
+    VkAccelerationStructureCreateInfoKHR ci{};
+    ci.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+    ci.buffer = compacted_buffer->vk_buffer();
+    ci.offset = 0u;
+    ci.size = compacted_size;
+    ci.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+    VkAccelerationStructureKHR compacted_accel = VK_NULL_HANDLE;
+    VK_CHECK_RESULT(vkCreateAccelerationStructureKHR(
+        device()->logic_device(), &ci, Device::alloc_callbacks(), &compacted_accel));
+    stream.execute_immediate([&](CommandBuffer &cmdbuffer) {
+        cmdbuffer.resource_barrier->record(
+            _accel_buffer.get(),
+            ResourceBarrier::Usage::kCopyAccelSrc);
+        cmdbuffer.resource_barrier->record(
+            compacted_buffer.get(),
+            ResourceBarrier::Usage::kCopyAccelDst);
+        cmdbuffer.resource_barrier->update_states(cmdbuffer.cmdbuffer());
+        VkCopyAccelerationStructureInfoKHR copy_info{};
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
+        copy_info.src = _accel;
+        copy_info.dst = compacted_accel;
+        copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
+        vkCmdCopyAccelerationStructureKHR(cmdbuffer.cmdbuffer(), &copy_info);
+        replace_from_archive(
+            cmdbuffer,
+            compacted_accel,
+            std::move(compacted_buffer),
+            compacted_size,
+            true,
+            _last_primitive_count);
+    }, true);
+    return true;
+}
+void Blas::replace_from_archive(
+    CommandBuffer &cmdbuffer,
+    VkAccelerationStructureKHR new_accel,
+    vstd::unique_ptr<DefaultBuffer> new_buffer,
+    VkDeviceSize logical_size,
+    bool is_compacted,
+    uint32_t primitive_count) {
+    if (_pending_compaction_stream != nullptr) {
+        _pending_compaction_stream->unregister_pending_compaction(this);
+    }
+    _compaction_query_written = false;
+    const bool had_old = _accel != VK_NULL_HANDLE;
+    if (_accel != VK_NULL_HANDLE) {
+        cmdbuffer.states()->callbacks.emplace_back([a = _accel, dev = device()]() {
+            vkDestroyAccelerationStructureKHR(dev->logic_device(), a, Device::alloc_callbacks());
+        });
+        _accel = VK_NULL_HANDLE;
+    }
+    if (_accel_buffer) {
+        cmdbuffer.states()->dispose_after_flush(std::move(_accel_buffer));
+    }
+    _accel = new_accel;
+    _accel_buffer = std::move(new_buffer);
+    _accel_size = logical_size;
+    _is_compacted = is_compacted;
+    _last_primitive_count = primitive_count;
+    if (had_old || has_tlas_refs()) {
+        _sync_tlas();
+    }
 }
 Blas::~Blas() {
+    if (_pending_compaction_stream != nullptr) {
+        _pending_compaction_stream->unregister_pending_compaction(this);
+    }
     for (auto &&i : _handles) {
         auto accel = i->accel;
         accel->_all_instance[i->accel_index].handle = nullptr;
@@ -450,6 +619,10 @@ Blas::~Blas() {
         // bakes the address of a destroyed BLAS into an instance descriptor.
         accel->_drop_refresh(i->accel_index, this);
         MeshHandle::destroy_handle(i);
+    }
+    if (_compaction_query_pool != VK_NULL_HANDLE) {
+        vkDestroyQueryPool(device()->logic_device(), _compaction_query_pool, Device::alloc_callbacks());
+        _compaction_query_pool = VK_NULL_HANDLE;
     }
     vkDestroyAccelerationStructureKHR(device()->logic_device(), _accel, Device::alloc_callbacks());
 }
