@@ -21,7 +21,9 @@ struct AllocatedImage {
 enum class AccessType {
     kNone,
     kUpload,
-    kReadBack
+    kReadBack,
+    kHostCachedUpload,
+    kHostSequentialUpload
 };
 // How the device memory of a new allocation should be initialized.
 //

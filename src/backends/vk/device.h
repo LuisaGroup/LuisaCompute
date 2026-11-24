@@ -24,6 +24,7 @@
 #include "shader_prepare.h"
 #include "shader_compile_pool.h"
 #include "vulkan_shader_compile_ext.h"
+#include "vk_gpu_timeline.h"
 #include "../common/rtx/fallback_rtx.h"
 #include <atomic>
 #include <limits>
@@ -391,8 +392,12 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         [[nodiscard]] VulkanCapabilityStatus capability_status() const noexcept override;
     };
     VulkanExtensionStatusExtImpl _optional_extension_status{this};
+    luisa::unique_ptr<VkGpuTimeline> _gpu_timeline;
 
 public:
+    [[nodiscard]] VkGpuTimeline *gpu_timeline() const noexcept {
+        return _gpu_timeline.get();
+    }
     // Optional (non-required) Vulkan device extensions, negotiated once at
     // device creation from the physical device's extension list and the
     // VulkanDeviceConfigExt switches. Every one of them has a fallback path,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 
 #include <volk.h>
@@ -10,6 +11,22 @@
 namespace lc::vk {
 
 class Stream;
+class Event;
+
+struct EventWaitToken {
+    std::mutex mtx;
+    Event *evt{nullptr};
+};
+
+struct EventWaitEntry {
+    std::shared_ptr<EventWaitToken> token;
+    uint64_t value{0u};
+};
+
+struct EventSignalEntry {
+    Event *evt{nullptr};
+    uint64_t value{0u};
+};
 
 class Event : public Resource {
 
@@ -21,6 +38,7 @@ class Event : public Resource {
     mutable std::mutex _submission_mtx;
     mutable luisa::spin_mutex _event_mtx;
     mutable std::atomic_uint64_t _last_fence = 0;
+    std::shared_ptr<EventWaitToken> _wait_token;
     /// \brief Fences of the wait-only submissions that still refer to the timeline.
     /// \details A submission that only *waits* on this timeline refers to the semaphore
     /// without signaling it, so neither a timeline value nor a later signal proves on the
@@ -32,8 +50,15 @@ class Event : public Resource {
     vstd::vector<VkFence> _wait_fences;
     vstd::vector<VkFence> _free_wait_fences;
     void _reap_wait_fences(bool wait_for_pending) noexcept;
+    [[nodiscard]] VkFence _acquire_wait_fence_locked();
     void _update_fence(uint64_t value);
     void _signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer = nullptr);
+    void _signal_batch(
+        Stream &stream,
+        uint64_t value,
+        VkCommandBuffer *cmdbuffer,
+        vstd::span<const EventWaitEntry> waits,
+        vstd::span<const EventSignalEntry> extra_signals);
     void _signal_sparse(
         uint64_t const *wait_value_ptr,
         uint64_t const *signal_value_ptr,
@@ -47,6 +72,7 @@ class Event : public Resource {
 public:
     static VkTimelineSemaphoreSubmitInfo get_timeline_submit(uint64_t const *value_ptr);
     [[nodiscard]] auto semaphore() const { return _semaphore; }
+    [[nodiscard]] std::shared_ptr<EventWaitToken> const &wait_token() const noexcept { return _wait_token; }
     [[nodiscard]] auto last_fence() const noexcept {
         return _last_fence.load(std::memory_order_acquire);
     }

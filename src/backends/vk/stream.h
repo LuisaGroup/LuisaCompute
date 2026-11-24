@@ -20,6 +20,7 @@
 #include "command_buffer_ownership.h"
 #include "bind_state.h"
 #include "argument_plan_scratch.h"
+#include "vk_gpu_timeline.h"
 
 namespace lc::vk {
 class Event;
@@ -175,6 +176,26 @@ struct CommandBufferState {
     // state never carries a binding across command buffers or submissions; see
     // bind_state.h for what may be skipped and what invalidates it.
     detail::BindState bind_state;
+    VkQueryPool timestamp_pool{VK_NULL_HANDLE};
+    uint32_t timestamp_pool_capacity{0u};
+    uint32_t timestamp_valid_bits{0u};
+    uint32_t timestamp_cursor{0u};
+    bool has_submitted_timestamps{false};
+    bool timestamp_resettable{false};
+    uint64_t tl_submit_seq{0u};
+    uint64_t tl_stream_handle{0u};
+    uint32_t tl_stream_tag{0u};
+    uint64_t tl_fence{0u};
+    uint64_t tl_cpu_record_begin_ns{0u};
+    uint64_t tl_cpu_submit_begin_ns{0u};
+    uint64_t tl_cpu_submit_end_ns{0u};
+    uint64_t tl_cpu_fence_complete_ns{0u};
+    uint32_t tl_cb_q_begin{0xffffffffu};
+    uint32_t tl_cb_q_end{0xffffffffu};
+    uint32_t tl_cmd_count{0u};
+    uint32_t tl_layer_count{0u};
+    uint32_t tl_truncated_spans{0u};
+    luisa::vector<TimelineLayerRecord> tl_layers;
     CommandBufferState();
     ~CommandBufferState();
     // `pool_flags` lets a replay recording (plan P4) create its command pool
@@ -184,6 +205,7 @@ struct CommandBufferState {
     void init(Device &device, StreamTag tag,
               VkCommandPoolCreateFlags pool_flags =
                   VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+    void ensure_timestamp_pool(Device &device, StreamTag tag, uint32_t min_capacity);
     // `layout_id` is `Shader::desc_set_layout_id(set)` (0 when the layout is not
     // an interned, device-owned one). A non-zero id enables the reuse cache of
     // this state; 0 always allocates a fresh set and marks the state so its pools
@@ -369,6 +391,14 @@ class Stream : public Resource {
     luisa::spin_mutex *_queue_mtx;
     luisa::spin_mutex _pending_compaction_mtx;
     vstd::vector<Blas *> _pending_compaction_blases;
+    vstd::vector<EventWaitEntry> _pending_waits;
+    std::atomic<uint32_t> _online_timing_refs{0u};
+    std::atomic<uint64_t> _online_last_cb_gpu_ns{0u};
+    std::atomic<uint64_t> _online_last_cb_gap_ns{0u};
+    std::atomic<uint64_t> _online_completed_cbs{0u};
+    uint64_t _online_prev_cb_end_ticks{0u};
+    bool _online_has_prev_cb_end{false};
+    void _flush_pending_waits();
 public:
     luisa::function<void(luisa::string_view)> logger;
     CommandReorderVisitor<ReorderFuncTable, true> reorder;
@@ -380,6 +410,51 @@ public:
     detail::ArgumentScratch argument_scratch;
     [[nodiscard]] auto queue() const { return _queue; }
     [[nodiscard]] auto stream_tag() const { return _stream_tag; }
+    void enable_online_timing() noexcept {
+        _online_timing_refs.fetch_add(1u, std::memory_order_acq_rel);
+    }
+    void disable_online_timing() noexcept {
+        uint32_t cur = _online_timing_refs.load(std::memory_order_relaxed);
+        while (cur != 0u &&
+               !_online_timing_refs.compare_exchange_weak(
+                   cur, cur - 1u, std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        }
+    }
+    [[nodiscard]] bool online_timing_enabled() const noexcept {
+        return _online_timing_refs.load(std::memory_order_relaxed) != 0u;
+    }
+    void record_online_cb_timing(
+        uint64_t begin_ticks, uint64_t end_ticks,
+        uint32_t valid_bits, float period_ns) noexcept {
+        if (valid_bits == 0u || period_ns <= 0.0f) { return; }
+        const uint64_t mask =
+            valid_bits >= 64u ? ~0ull : ((1ull << valid_bits) - 1ull);
+        const uint64_t dur_ticks = (end_ticks - begin_ticks) & mask;
+        const uint64_t gpu_ns = static_cast<uint64_t>(
+            static_cast<double>(dur_ticks) * static_cast<double>(period_ns));
+        uint64_t gap_ns = 0ull;
+        if (_online_has_prev_cb_end) {
+            const uint64_t raw_gap =
+                (begin_ticks - _online_prev_cb_end_ticks) & mask;
+            const uint64_t half =
+                valid_bits >= 64u ? (1ull << 63) : (1ull << (valid_bits - 1u));
+            if (raw_gap < half) {
+                gap_ns = static_cast<uint64_t>(
+                    static_cast<double>(raw_gap) * static_cast<double>(period_ns));
+            }
+        }
+        _online_prev_cb_end_ticks = end_ticks;
+        _online_has_prev_cb_end = true;
+        _online_last_cb_gpu_ns.store(gpu_ns, std::memory_order_relaxed);
+        _online_last_cb_gap_ns.store(gap_ns, std::memory_order_relaxed);
+        _online_completed_cbs.fetch_add(1ull, std::memory_order_release);
+    }
+    void read_online_cb_timing(
+        uint64_t &gpu_ns, uint64_t &gap_ns, uint64_t &completed_cbs) const noexcept {
+        completed_cbs = _online_completed_cbs.load(std::memory_order_acquire);
+        gpu_ns = _online_last_cb_gpu_ns.load(std::memory_order_relaxed);
+        gap_ns = _online_last_cb_gap_ns.load(std::memory_order_relaxed);
+    }
     Stream(Device *device, StreamTag tag);
     ~Stream();
     luisa::spin_mutex &queue_mtx() { return *_queue_mtx; };

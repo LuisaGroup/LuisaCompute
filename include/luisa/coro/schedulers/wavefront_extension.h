@@ -69,6 +69,54 @@ struct WavefrontCoroExtensionPrepareContext {
 /// the next Extension stage or coroutine continuation. logical_dispatch_size
 /// is the original user dispatch shape and frame_capacity is the physical
 /// scheduler allocation stride used by runtime SoA addressing.
+struct WavefrontCoroAsyncBatchTicket {
+    uint slot_index{0u};
+    uint64_t generation{0u};
+
+    [[nodiscard]] constexpr bool valid() const noexcept {
+        return generation != 0u;
+    }
+    [[nodiscard]] constexpr bool operator==(
+        const WavefrontCoroAsyncBatchTicket &other) const noexcept = default;
+};
+
+struct WavefrontCoroSchedulerSnapshot {
+    uint64_t iteration{0u};
+    uint active_frames{0u};
+    uint deferred_frames{0u};
+    uint non_deferred_frames{0u};
+    uint non_deferred_largest{0u};
+    uint deferred_blocker_frames{0u};
+    uint64_t auxiliary_ready_frames{0u};
+    uint unspawned_threads{0u};
+    uint empty_frame_slots{0u};
+    uint active_frame_capacity{0u};
+    uint refill_threshold{0u};
+    bool deferred_backpressure{false};
+    bool valid{false};
+    uint64_t continuation_dispatch_seq{0u};
+    uint64_t async_consumer_dispatch_seq{0u};
+    uint64_t auxiliary_dispatch_seq{0u};
+    uint in_flight_async_batches{0u};
+    uint max_async_batch_slots{1u};
+};
+
+namespace detail {
+inline thread_local WavefrontCoroSchedulerSnapshot g_current_wavefront_scheduler_snapshot{};
+struct WavefrontCoroSchedulerSnapshotScope {
+    WavefrontCoroSchedulerSnapshot prev;
+    explicit WavefrontCoroSchedulerSnapshotScope(const WavefrontCoroSchedulerSnapshot &cur) noexcept
+        : prev{g_current_wavefront_scheduler_snapshot} {
+        g_current_wavefront_scheduler_snapshot = cur;
+    }
+    ~WavefrontCoroSchedulerSnapshotScope() noexcept {
+        g_current_wavefront_scheduler_snapshot = prev;
+    }
+    WavefrontCoroSchedulerSnapshotScope(const WavefrontCoroSchedulerSnapshotScope &) = delete;
+    WavefrontCoroSchedulerSnapshotScope &operator=(const WavefrontCoroSchedulerSnapshotScope &) = delete;
+};
+}// namespace detail
+
 struct WavefrontCoroExtensionDispatchContext {
     Stream &stream;
     ByteBufferView frame_buffer;
@@ -81,13 +129,47 @@ struct WavefrontCoroExtensionDispatchContext {
     uint source_queue_token{0u};
     uint scan_count{0u};
     bool ungathered_scan{false};
+    WavefrontCoroSchedulerSnapshot scheduler_snapshot{};
+    WavefrontCoroAsyncBatchTicket async_ticket{};
 };
 
 enum class WavefrontCoroExtensionExecution : uint8_t {
     // Independent scheduler queue; only frame effects survive a later gather.
     stage,
     // A read-only annotation suffix, executed together with its continuation.
-    before_resume
+    before_resume,
+    // Independent queue that submits async work without blocking the scheduler
+    // until publish_async() finalizes it once ready.
+    blocking_async,
+};
+
+enum class WavefrontCoroAsyncPollResult : uint8_t {
+    idle = 0u,
+    pending = 1u,
+    ready = 2u,
+};
+
+struct WavefrontCoroAsyncPublishContext {
+    Stream &stream;
+    CommandList &command_list;
+    ByteBufferView frame_buffer;
+    BufferView<uint> frame_indices;
+    uint frame_count{0u};
+    uint frame_capacity{0u};
+    const WavefrontCoroExtensionStage &stage;
+    WavefrontCoroSchedulerSnapshot scheduler_snapshot{};
+    WavefrontCoroAsyncBatchTicket async_ticket{};
+};
+
+struct WavefrontCoroAdvanceFilterContext {
+    Stream &stream;
+    CommandList &command_list;
+    ByteBufferView frame_buffer;
+    BufferView<uint> frame_indices;
+    BufferView<uint> ready_flags;
+    uint frame_count{0u};
+    uint frame_capacity{0u};
+    const WavefrontCoroExtensionStage &stage;
 };
 
 /// One prepared handler for one static suspend Extension stage.
@@ -153,6 +235,64 @@ public:
     /// letting active consumers finish using resident resources before eviction.
     [[nodiscard]] virtual bool defer_while_other_queues_nonempty() const noexcept {
         return false;
+    }
+    /// Dynamic hint that the handler is currently under capacity/eviction
+    /// pressure and prefers draining entry queues (frames already holding
+    /// earlier resources) before retrying deferred self-loops or proactively
+    /// splitting deferred batches.
+    [[nodiscard]] virtual bool prefer_deferred_entry_drain() const noexcept {
+        return false;
+    }
+    [[nodiscard]] virtual luisa::string_view async_domain() const noexcept {
+        return {};
+    }
+    [[nodiscard]] virtual uint max_async_in_flight_batches() const noexcept {
+        return 1u;
+    }
+    /// Dynamic backpressure hint: currently admissible in-flight batch limit
+    /// for this handler's async_domain (clamped to [1, max_async_in_flight_batches()]).
+    [[nodiscard]] virtual uint current_async_in_flight_limit() const noexcept {
+        return max_async_in_flight_batches();
+    }
+    [[nodiscard]] virtual bool supports_compaction_while_async() const noexcept {
+        return false;
+    }
+    [[nodiscard]] virtual bool supports_filtered_advance() const noexcept {
+        return false;
+    }
+    virtual void encode_advance_filter(
+        const WavefrontCoroAdvanceFilterContext &) noexcept {}
+    virtual void on_async_scheduler_progress(
+        const WavefrontCoroSchedulerSnapshot & /*snapshot*/,
+        bool /*waiting_for_progress*/) noexcept {}
+    [[nodiscard]] virtual bool submit_async(
+        const WavefrontCoroExtensionDispatchContext &) noexcept {
+        LUISA_ERROR_WITH_LOCATION("Blocking-async extension handler must implement submit_async.");
+    }
+    [[nodiscard]] virtual WavefrontCoroAsyncPollResult poll_async() noexcept {
+        return WavefrontCoroAsyncPollResult::idle;
+    }
+    [[nodiscard]] virtual bool poll_async_ready(
+        WavefrontCoroAsyncBatchTicket &out_ticket) noexcept {
+        if (poll_async() == WavefrontCoroAsyncPollResult::ready) {
+            out_ticket = {};
+            return true;
+        }
+        return false;
+    }
+    virtual void wait_async() noexcept {}
+    [[nodiscard]] virtual bool wait_async_any(
+        WavefrontCoroAsyncBatchTicket &out_ticket) noexcept {
+        wait_async();
+        if (poll_async() == WavefrontCoroAsyncPollResult::ready) {
+            out_ticket = {};
+            return true;
+        }
+        return false;
+    }
+    virtual void publish_async(
+        const WavefrontCoroAsyncPublishContext &) noexcept {
+        LUISA_ERROR_WITH_LOCATION("Blocking-async extension handler must implement publish_async.");
     }
     virtual void dispatch(
         const WavefrontCoroExtensionDispatchContext &) noexcept {

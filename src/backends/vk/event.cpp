@@ -5,6 +5,7 @@
 #include "queue_submit_plan.h"
 #include "timeline_semaphore_plan.h"
 #include "log.h"
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -38,7 +39,9 @@ namespace {
 }
 }// namespace
 Event::Event(Device *device)
-    : Resource(device) {
+    : Resource(device),
+      _wait_token(std::make_shared<EventWaitToken>()) {
+    _wait_token->evt = this;
     VkSemaphoreTypeCreateInfo timelineCreateInfo;
     timelineCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
     timelineCreateInfo.pNext = NULL;
@@ -185,6 +188,206 @@ void Event::_signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) 
     _update_fence(value);
     mark_signal_fence(value);
 }
+VkFence Event::_acquire_wait_fence_locked() {
+    _reap_wait_fences(false);
+    VkFence fence{};
+    if (!_free_wait_fences.empty()) {
+        fence = _free_wait_fences.back();
+        _free_wait_fences.pop_back();
+        VK_CHECK_RESULT(vkResetFences(device()->logic_device(), 1u, &fence));
+    } else {
+        VkFenceCreateInfo fence_info{};
+        fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VK_CHECK_RESULT(vkCreateFence(
+            device()->logic_device(), &fence_info, Device::alloc_callbacks(), &fence));
+    }
+    return fence;
+}
+void Event::_signal_batch(
+    Stream &stream,
+    uint64_t value,
+    VkCommandBuffer *cmdbuffer,
+    vstd::span<const EventWaitEntry> waits,
+    vstd::span<const EventSignalEntry> extra_signals) {
+    if (waits.empty() && extra_signals.empty()) {
+        _signal(stream, value, cmdbuffer);
+        return;
+    }
+
+    luisa::fixed_vector<EventSignalEntry, 8> uniq_signals;
+    uniq_signals.emplace_back(EventSignalEntry{this, value});
+    for (auto const &s : extra_signals) {
+        if (s.evt == nullptr) { continue; }
+        LUISA_ASSERT(s.evt != this, "Duplicate internal stream event signal.");
+        bool merged = false;
+        for (auto &existing : uniq_signals) {
+            if (existing.evt == s.evt) {
+                if (s.value > existing.value) {
+                    existing.value = s.value;
+                }
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) {
+            uniq_signals.emplace_back(s);
+        }
+    }
+
+    auto is_signal_evt = [&](Event const *e) noexcept {
+        for (auto const &s : uniq_signals) {
+            if (s.evt == e) { return true; }
+        }
+        return false;
+    };
+
+    // Flush any earlier pending waits so at most the tail wait is attached to
+    // the combined VkSubmitInfo (each wait carries a lifetime VkFence on its Event).
+    if (waits.size() > 1u) {
+        for (size_t i = 0u; i + 1u < waits.size(); ++i) {
+            auto const &w = waits[i];
+            if (!w.token) { continue; }
+            std::lock_guard token_lock{w.token->mtx};
+            if (w.token->evt != nullptr) {
+                w.token->evt->_wait(stream, w.value);
+            }
+        }
+    }
+
+    std::unique_lock<std::mutex> tail_token_lock;
+    Event *tail_wait_evt = nullptr;
+    uint64_t tail_wait_value = 0u;
+    VkSemaphore tail_wait_semaphore = VK_NULL_HANDLE;
+    VkFence wait_fence = VK_NULL_HANDLE;
+    if (!waits.empty() && waits.back().token) {
+        auto const &tw = waits.back();
+        tail_token_lock = std::unique_lock<std::mutex>{tw.token->mtx};
+        tail_wait_evt = tw.token->evt;
+        tail_wait_value = tw.value;
+        if (tail_wait_evt == nullptr) {
+            tail_token_lock.unlock();
+        } else if (is_signal_evt(tail_wait_evt)) {
+            tail_wait_evt->_wait(stream, tail_wait_value);
+            tail_wait_evt = nullptr;
+            tail_token_lock.unlock();
+        } else {
+            std::lock_guard wait_sub_lock{tail_wait_evt->_submission_mtx};
+            auto tracked_signal = tail_wait_evt->last_signaled_fence();
+            auto current_value = tail_wait_evt->known_completed_gpu_fence();
+            auto max_value_difference =
+                tail_wait_evt->device()->max_timeline_semaphore_value_difference();
+            auto value_plan = detail::plan_timeline_semaphore_wait(
+                current_value, tracked_signal, tail_wait_value,
+                max_value_difference);
+            if (!value_plan &&
+                value_plan.status == detail::TimelineSemaphoreValueStatus::
+                                         TRACKED_SIGNAL_RANGE_EXCEEDED) {
+                current_value = tail_wait_evt->current_gpu_value();
+                value_plan = detail::plan_timeline_semaphore_wait(
+                    current_value, tracked_signal, tail_wait_value,
+                    max_value_difference);
+            }
+            LUISA_ASSERT(
+                static_cast<bool>(value_plan),
+                "Invalid Vulkan timeline-semaphore wait {} (current {}, tracked "
+                "signal {}, max difference {}): {}.",
+                tail_wait_value, current_value, tracked_signal, max_value_difference,
+                detail::timeline_semaphore_value_status_name(value_plan.status));
+            if (value_plan.already_satisfied) {
+                tail_wait_evt = nullptr;
+                tail_token_lock.unlock();
+            } else {
+                tail_wait_semaphore = tail_wait_evt->semaphore();
+                wait_fence = tail_wait_evt->_acquire_wait_fence_locked();
+            }
+        }
+    }
+
+    // Lock signal _submission_mtxs in ascending pointer order to avoid deadlock.
+    luisa::fixed_vector<Event *, 8> lock_order;
+    lock_order.reserve(uniq_signals.size());
+    for (auto const &s : uniq_signals) {
+        lock_order.emplace_back(s.evt);
+    }
+    std::sort(lock_order.begin(), lock_order.end());
+    luisa::fixed_vector<std::unique_lock<std::mutex>, 8> sig_locks;
+    sig_locks.reserve(lock_order.size());
+    for (auto *e : lock_order) {
+        sig_locks.emplace_back(e->_submission_mtx);
+    }
+
+    luisa::fixed_vector<VkSemaphore, 8> sig_sems;
+    luisa::fixed_vector<uint64_t, 8> sig_vals;
+    sig_sems.reserve(uniq_signals.size());
+    sig_vals.reserve(uniq_signals.size());
+    for (auto const &s : uniq_signals) {
+        auto *se = s.evt;
+        auto tracked_signal = se->last_signaled_fence();
+        auto current_value = se->known_completed_gpu_fence();
+        auto max_value_difference =
+            se->device()->max_timeline_semaphore_value_difference();
+        auto value_plan = detail::plan_timeline_semaphore_signal(
+            current_value, tracked_signal, s.value,
+            max_value_difference);
+        if (!value_plan &&
+            (value_plan.status == detail::TimelineSemaphoreValueStatus::
+                                      TRACKED_SIGNAL_RANGE_EXCEEDED ||
+             value_plan.status == detail::TimelineSemaphoreValueStatus::
+                                      MAX_VALUE_DIFFERENCE_EXCEEDED)) {
+            current_value = se->current_gpu_value();
+            value_plan = detail::plan_timeline_semaphore_signal(
+                current_value, tracked_signal, s.value,
+                max_value_difference);
+        }
+        LUISA_ASSERT(
+            static_cast<bool>(value_plan),
+            "Invalid Vulkan timeline-semaphore signal {} (current {}, tracked "
+            "signal {}, max difference {}): {}.",
+            s.value, current_value, tracked_signal, max_value_difference,
+            detail::timeline_semaphore_value_status_name(value_plan.status));
+        sig_sems.emplace_back(se->semaphore());
+        sig_vals.emplace_back(s.value);
+    }
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    VkTimelineSemaphoreSubmitInfo timeline_info{};
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timeline_info.waitSemaphoreValueCount = tail_wait_evt != nullptr ? 1u : 0u;
+    timeline_info.pWaitSemaphoreValues = tail_wait_evt != nullptr ? &tail_wait_value : nullptr;
+    timeline_info.signalSemaphoreValueCount = static_cast<uint32_t>(sig_vals.size());
+    timeline_info.pSignalSemaphoreValues = sig_vals.data();
+
+    detail::QueueSubmitRequest request{};
+    request.command_buffers = cmdbuffer;
+    request.command_buffer_count = cmdbuffer ? 1u : 0u;
+    request.wait_semaphores = tail_wait_evt != nullptr ? &tail_wait_semaphore : nullptr;
+    request.wait_stage_masks = tail_wait_evt != nullptr ? &wait_stage : nullptr;
+    request.wait_count = tail_wait_evt != nullptr ? 1u : 0u;
+    request.signal_semaphores = sig_sems.data();
+    request.signal_count = static_cast<uint32_t>(sig_sems.size());
+    request.fence = wait_fence;
+    request.pnext = &timeline_info;
+    {
+        std::lock_guard queue_lock{stream.queue_mtx()};
+        auto variant = detail::queue_submit(
+            stream.queue(), device(), request);
+        submit_profile::record_queue_submit(
+            variant == detail::QueueSubmitVariant::kSubmit2);
+    }
+    for (auto const &s : uniq_signals) {
+        s.evt->_update_fence(s.value);
+        s.evt->mark_signal_fence(s.value);
+    }
+    sig_locks.clear();
+
+    if (wait_fence != VK_NULL_HANDLE) {
+        std::lock_guard wait_sub_lock{tail_wait_evt->_submission_mtx};
+        tail_wait_evt->_wait_fences.emplace_back(wait_fence);
+    }
+    if (tail_token_lock.owns_lock()) {
+        tail_token_lock.unlock();
+    }
+}
 void Event::_wait(Stream &stream, uint64_t value) {
     std::lock_guard submission_lock{_submission_mtx};
     auto tracked_signal = last_signaled_fence();
@@ -237,18 +440,7 @@ void Event::_wait(Stream &stream, uint64_t value) {
         // fence of its own. Retiring that fence before the semaphore is destroyed
         // is what keeps the batch from still referring to it at destroy time
         // (VUID-vkDestroySemaphore-semaphore-05149).
-        _reap_wait_fences(false);
-        VkFence fence{};
-        if (!_free_wait_fences.empty()) {
-            fence = _free_wait_fences.back();
-            _free_wait_fences.pop_back();
-            VK_CHECK_RESULT(vkResetFences(device()->logic_device(), 1u, &fence));
-        } else {
-            VkFenceCreateInfo fence_info{};
-            fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            VK_CHECK_RESULT(vkCreateFence(
-                device()->logic_device(), &fence_info, Device::alloc_callbacks(), &fence));
-        }
+        auto fence = _acquire_wait_fence_locked();
         request.fence = fence;
         // Native submission of the wait-only path. It is deliberately not counted
         // as a `queue_submits` entry: that counter describes the dispatch path
@@ -343,6 +535,10 @@ void Event::sync(uint64_t value) {
 Event::~Event() {
     sync(_last_fence);
     _host_wait(_signaled_event.load(std::memory_order_relaxed));
+    if (_wait_token) {
+        std::lock_guard token_lck{_wait_token->mtx};
+        _wait_token->evt = nullptr;
+    }
     // A batch that only waited on this timeline still refers to the semaphore until
     // it retires, so every queued wait submission has to be drained first: a
     // semaphore may only be destroyed once all submitted batches that refer to it

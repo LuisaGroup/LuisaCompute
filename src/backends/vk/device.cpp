@@ -3454,6 +3454,20 @@ if (_optional_extensions.requested(
             .pSetLayouts = &_sampler_set_layout};
         VK_CHECK_RESULT(vkAllocateDescriptorSets(logic_device(), &alloc_info, &_sampler_set));
     }
+    if (const char *tl_path = std::getenv("LUISA_VK_GPU_TIMELINE_PATH");
+        tl_path != nullptr && tl_path[0] != '\0') {
+        auto qfp = queue_family_properties();
+        auto q_ts_bits = [&](uint32_t qf) noexcept -> uint32_t {
+            return qf < qfp.size() ? qfp[qf].timestampValidBits : 0u;
+        };
+        _gpu_timeline = luisa::make_unique<VkGpuTimeline>(std::string{tl_path});
+        _gpu_timeline->record_header_if_needed(
+            properties().deviceName,
+            properties().limits.timestampPeriod,
+            q_ts_bits(graphics_queue_index()),
+            q_ts_bits(compute_queue_index()),
+            q_ts_bits(copy_queue_index()));
+    }
 }
 bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
@@ -3507,6 +3521,7 @@ Device::~Device() {
             delete stream;
         }
     }
+    _gpu_timeline.reset();
     if (_vk_device) {
         // Replay graphs (plan P4) are drained here: after the extension-owned
         // streams above, which is where every stream has been synchronized, and
@@ -4142,6 +4157,105 @@ if (property == "vk_descriptor_update_template_path") {
         // maxTimelineSemaphoreValueDifference). 0 (no limit) is normalized to
         // UINT64_MAX by max_timeline_semaphore_value_difference().
         return luisa::format("{}", max_timeline_semaphore_value_difference());
+    }
+    if (property == "vk_timeline_active") {
+        return _gpu_timeline ? "1" : "0";
+    }
+    if (property == "vk_batch_copy_cmd") {
+        return "1";
+    }
+    if (property == "vk_timeline_submit_seq") {
+        return _gpu_timeline ? luisa::format("{}", _gpu_timeline->last_submit_seq()) : "";
+    }
+    if (property == "vk_timeline_flush") {
+        if (_gpu_timeline) {
+            _gpu_timeline->flush();
+            return "1";
+        }
+        return "0";
+    }
+    constexpr luisa::string_view mark_prefix{"vk_timeline_mark:"};
+    if (property.starts_with(mark_prefix)) {
+        if (_gpu_timeline) {
+            _gpu_timeline->add_marker(property.substr(mark_prefix.size()));
+            return luisa::format("{}", _gpu_timeline->last_submit_seq());
+        }
+        return "";
+    }
+    constexpr luisa::string_view label_prefix{"vk_timeline_label:"};
+    if (property.starts_with(label_prefix)) {
+        if (_gpu_timeline) {
+            auto rest = property.substr(label_prefix.size());
+            auto c1 = rest.find(':');
+            if (c1 != luisa::string_view::npos) {
+                auto kind = rest.substr(0u, c1);
+                auto rem = rest.substr(c1 + 1u);
+                auto c2 = rem.find(':');
+                if (c2 != luisa::string_view::npos) {
+                    auto handle_sv = rem.substr(0u, c2);
+                    auto name = rem.substr(c2 + 1u);
+                    std::string handle_str{handle_sv.data(), handle_sv.size()};
+                    char *end_ptr = nullptr;
+                    auto handle_val = std::strtoull(handle_str.c_str(), &end_ptr, 10);
+                    if (end_ptr != handle_str.c_str()) {
+                        _gpu_timeline->add_label(kind, static_cast<uint64_t>(handle_val), name);
+                        return "1";
+                    }
+                }
+            }
+        }
+        return "0";
+    }
+    constexpr luisa::string_view stream_enable_prefix{"vk_stream_timing_enable:"};
+    if (property.starts_with(stream_enable_prefix)) {
+        auto rest = property.substr(stream_enable_prefix.size());
+        std::string handle_str{rest.data(), rest.size()};
+        char *end_ptr = nullptr;
+        auto handle_val = std::strtoull(handle_str.c_str(), &end_ptr, 10);
+        if (end_ptr != handle_str.c_str() && *end_ptr == '\0') {
+            auto *s = reinterpret_cast<Stream *>(static_cast<uintptr_t>(handle_val));
+            std::lock_guard lck{_stream_mtx};
+            if (_streams.contains(s)) {
+                s->enable_online_timing();
+                return "1";
+            }
+        }
+        return "0";
+    }
+    constexpr luisa::string_view stream_disable_prefix{"vk_stream_timing_disable:"};
+    if (property.starts_with(stream_disable_prefix)) {
+        auto rest = property.substr(stream_disable_prefix.size());
+        std::string handle_str{rest.data(), rest.size()};
+        char *end_ptr = nullptr;
+        auto handle_val = std::strtoull(handle_str.c_str(), &end_ptr, 10);
+        if (end_ptr != handle_str.c_str() && *end_ptr == '\0') {
+            auto *s = reinterpret_cast<Stream *>(static_cast<uintptr_t>(handle_val));
+            std::lock_guard lck{_stream_mtx};
+            if (_streams.contains(s)) {
+                s->disable_online_timing();
+                return "1";
+            }
+        }
+        return "0";
+    }
+    constexpr luisa::string_view stream_read_prefix{"vk_stream_timing_read:"};
+    if (property.starts_with(stream_read_prefix)) {
+        auto rest = property.substr(stream_read_prefix.size());
+        std::string handle_str{rest.data(), rest.size()};
+        char *end_ptr = nullptr;
+        auto handle_val = std::strtoull(handle_str.c_str(), &end_ptr, 10);
+        if (end_ptr != handle_str.c_str() && *end_ptr == '\0') {
+            auto *s = reinterpret_cast<Stream *>(static_cast<uintptr_t>(handle_val));
+            std::lock_guard lck{_stream_mtx};
+            if (_streams.contains(s)) {
+                uint64_t gpu_ns = 0ull;
+                uint64_t gap_ns = 0ull;
+                uint64_t seq = 0ull;
+                s->read_online_cb_timing(gpu_ns, gap_ns, seq);
+                return luisa::format("{} {} {}", gpu_ns, gap_ns, seq);
+            }
+        }
+        return "";
     }
     return DeviceInterface::query(property);
 }
@@ -5247,7 +5361,20 @@ void Device::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_
 void Device::synchronize_event(uint64_t handle, uint64_t fence_value) noexcept {
     reinterpret_cast<Event *>(handle)->sync(fence_value);
 }
-void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {}
+void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
+    if (_gpu_timeline && resource_handle != invalid_resource_handle && !name.empty()) {
+        const char *kind = "resource";
+        switch (resource_tag) {
+            case luisa::compute::Resource::Tag::SHADER: kind = "shader"; break;
+            case luisa::compute::Resource::Tag::BUFFER: kind = "buffer"; break;
+            case luisa::compute::Resource::Tag::TEXTURE: kind = "texture"; break;
+            case luisa::compute::Resource::Tag::BINDLESS_ARRAY: kind = "bindless"; break;
+            case luisa::compute::Resource::Tag::STREAM: kind = "stream"; break;
+            default: break;
+        }
+        _gpu_timeline->add_label(kind, resource_handle, name);
+    }
+}
 bool Device::is_event_completed(uint64_t handle, uint64_t fence_value) const noexcept {
     return reinterpret_cast<Event *>(handle)->is_complete(fence_value);
 }

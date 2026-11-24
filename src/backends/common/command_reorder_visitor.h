@@ -1563,6 +1563,11 @@ public:
                 // declares its resource usages through traverse_arguments.
                 visit(static_cast<CustomDispatchCommand const *>(custom_cmd));
                 break;
+            case to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY):
+                visit(static_cast<CustomDispatchCommand const *>(custom_cmd));
+                break;
+            case to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT):
+                break;
             default:
                 LUISA_ERROR("Custom command not supported by reorder.");
         }

@@ -8,7 +8,7 @@ class UploadBuffer : public Buffer {
     mutable BufferFlusher _flusher;
 
 public:
-    UploadBuffer(Device *device, size_t size_bytes);
+    UploadBuffer(Device *device, size_t size_bytes, AccessType access = AccessType::kUpload);
     ~UploadBuffer();
     void copy_from(void const *data, size_t offset, size_t size) const;
     VkBuffer vk_buffer() const override { return _res.buffer; }

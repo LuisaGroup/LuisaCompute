@@ -21,7 +21,13 @@ BufferCreationInfo VkPinnedMemoryExt::_allocate_pinned_memory(
     info.element_stride = (elem_type == Type::of<void>()) ? 1 : elem_type->size();
     auto size_bytes = info.element_stride * elem_count;
     if (option.write_combined) {
-        auto ptr = new UploadBuffer(_device, size_bytes);
+        auto ptr = new UploadBuffer(
+            _device, size_bytes,
+            option.prefer_host ? AccessType::kHostSequentialUpload : AccessType::kUpload);
+        info.handle = reinterpret_cast<uint64_t>(ptr);
+        info.native_handle = ptr->mapped_ptr();
+    } else if (option.host_cached_upload) {
+        auto ptr = new UploadBuffer(_device, size_bytes, AccessType::kHostCachedUpload);
         info.handle = reinterpret_cast<uint64_t>(ptr);
         info.native_handle = ptr->mapped_ptr();
     } else {

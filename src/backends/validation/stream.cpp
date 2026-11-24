@@ -19,6 +19,7 @@
 #include <luisa/runtime/rtx/aabb.h>
 #include <luisa/backends/ext/raster_cmd.h>
 #include <luisa/backends/ext/dstorage_cmd.h>
+#include <luisa/backends/ext/batch_copy_cmd.h>
 
 namespace lc::validation {
 
@@ -521,6 +522,11 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             CustomDispatchArgumentVisitor visitor{this};
             c->traverse_arguments(visitor);
         } break;
+        case to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY): {
+            auto c = static_cast<CustomDispatchCommand *>(cmd);
+            CustomDispatchArgumentVisitor visitor{this};
+            c->traverse_arguments(visitor);
+        } break;
         default: break;
     }
 }
@@ -678,6 +684,14 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                     case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH):
                         Device::check_stream(handle(), StreamFunc::Compute, custom_cmd->custom_cmd_uuid());
                         break;
+                    case to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY):
+                        Device::check_stream(handle(), StreamFunc::Copy, custom_cmd->custom_cmd_uuid());
+                        break;
+                    case to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT): {
+                        Device::check_stream(handle(), StreamFunc::Signal, custom_cmd->custom_cmd_uuid());
+                        auto *sc = static_cast<StreamSignalEventCommand const *>(custom_cmd);
+                        signal(RWResource::get<Event>(sc->event_handle()), sc->fence_value());
+                    } break;
                 }
                 custom(dev, cmd);
             } break;

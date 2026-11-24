@@ -642,6 +642,18 @@ void CoroSlotAccess::_write(
             auto &&extension = boundary.extensions[extension_index];
             LUISA_ASSERT(extension != nullptr,
                          "Coroutine boundary contains a null Extension.");
+            for (auto &&attr : extension->attributes()) {
+                if (attr.name == kCoroScheduleBlockingAsyncAttr) {
+                    if (auto *enabled = luisa::get_if<bool>(&attr.value);
+                        enabled != nullptr && *enabled) {
+                        stage.execution_hint = CoroStageExecutionHint::blocking_async;
+                    }
+                } else if (attr.name == kCoroScheduleAsyncDomainAttr) {
+                    if (auto *domain = luisa::get_if<luisa::string>(&attr.value)) {
+                        stage.async_domain = *domain;
+                    }
+                }
+            }
             for (auto &&binding : extension->bindings()) {
                 LUISA_ASSERT(
                     binding.index < boundary.bindings.size(),

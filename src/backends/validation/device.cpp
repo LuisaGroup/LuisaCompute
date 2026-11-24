@@ -25,6 +25,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/backends/ext/batch_copy_cmd.h>
 #include <luisa/backends/ext/registry.h>
 #include "stats.h"
 #include "sparse_tile_allocation_plan.h"
@@ -281,12 +282,16 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
                     luisa::to_underlying(StreamFunc::Sync) |
                     luisa::to_underlying(StreamFunc::Signal) |
                     luisa::to_underlying(StreamFunc::Wait));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT));
                 break;
             case StreamTag::GRAPHICS:
                 opt.func = StreamFunc::All;
                 opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE));
                 opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH));
                 opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_CLEAR_RENDER_TARGET));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT));
                 break;
             case StreamTag::COPY:
                 opt.func = static_cast<StreamFunc>(
@@ -294,6 +299,8 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
                     luisa::to_underlying(StreamFunc::Sync) |
                     luisa::to_underlying(StreamFunc::Signal) |
                     luisa::to_underlying(StreamFunc::Wait));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT));
                 break;
             default:
                 break;
@@ -322,6 +329,17 @@ void Device::dispatch(
     auto str = RWResource::get<Stream>(stream_handle);
     str->dispatch(_native.get(), list);
     str->check_compete();
+    luisa::fixed_vector<std::pair<uint64_t, uint64_t>, 4> extra_signals;
+    for (auto const &cmd_ptr : list.commands()) {
+        if (cmd_ptr->tag() == Command::Tag::ECustomCommand) {
+            auto *custom_cmd = static_cast<CustomCommand const *>(cmd_ptr.get());
+            if (custom_cmd->custom_cmd_uuid() ==
+                luisa::to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT)) {
+                auto *sc = static_cast<StreamSignalEventCommand const *>(custom_cmd);
+                extra_signals.emplace_back(sc->event_handle(), sc->fence_value());
+            }
+        }
+    }
     luisa::move_only_function<void()> func;
     bool requires_tic;
     double *start_time;
@@ -342,6 +360,9 @@ void Device::dispatch(
 
     _native->dispatch(stream_handle, std::move(list));
     if (device_stats->stats_enabled) {
+        for (auto const &sig : extra_signals) {
+            device_stats->signal_event(sig.first, stream_handle, sig.second);
+        }
         if (requires_tic) {
             *start_time = 0;
             device_stats->clk.tic();
