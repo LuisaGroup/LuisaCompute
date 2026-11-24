@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -20,8 +21,13 @@
 #endif
 #include <windows.h>
 #else
+#include <spawn.h>
 #include <sys/wait.h>
-#include <unistd.h>
+#if defined(__APPLE__)
+#include <crt_externs.h>
+#else
+extern char **environ;
+#endif
 #endif
 
 #include <luisa/luisa-compute.h>
@@ -766,6 +772,32 @@ struct EnvelopeSlices {
     CloseHandle(pi.hProcess);
     return static_cast<int>(exit_code);
 #else
+    auto child_args = args;
+    std::vector<char *> argv;
+    argv.reserve(child_args.size() + 1u);
+    for (auto &arg : child_args) { argv.emplace_back(arg.data()); }
+    argv.emplace_back(nullptr);
+#if defined(__APPLE__)
+    auto env = *_NSGetEnviron();
+#else
+    auto env = environ;
+#endif
+    pid_t pid{};
+    if (auto error = posix_spawnp(&pid, argv.front(), nullptr, nullptr, argv.data(), env); error != 0) {
+        std::cerr << "posix_spawnp failed for " << args.front() << ": " << std::strerror(error) << std::endl;
+        return 1;
+    }
+    int status{};
+    while (waitpid(pid, &status, 0) == -1) {
+        if (errno == EINTR) { continue; }
+        std::cerr << "waitpid failed: " << std::strerror(errno) << std::endl;
+        return 1;
+    }
+    if (WIFEXITED(status)) { return WEXITSTATUS(status); }
+    if (WIFSIGNALED(status)) {
+        std::cerr << "Child terminated by signal " << WTERMSIG(status) << std::endl;
+        return 128 + WTERMSIG(status);
+    }
     return 1;
 #endif
 }
@@ -832,10 +864,16 @@ int main(int argc, char **argv) {
     if (opts.mode == "orchestrate") {
         ok = run_orchestrator(argv[0], opts);
     } else if (opts.mode == "export") {
-        REQUIRE_COND(!opts.archive_dir.empty(), "--archive-dir is required for --mode export");
+        if (opts.archive_dir.empty()) {
+            std::cerr << "--archive-dir is required for --mode export" << std::endl;
+            return 2;
+        }
         ok = run_export_mode(argv[0], opts);
     } else if (opts.mode == "import") {
-        REQUIRE_COND(!opts.archive_dir.empty(), "--archive-dir is required for --mode import");
+        if (opts.archive_dir.empty()) {
+            std::cerr << "--archive-dir is required for --mode import" << std::endl;
+            return 2;
+        }
         ok = run_import_mode(argv[0], opts);
     } else {
         std::cerr << "Invalid --mode: " << opts.mode << std::endl;
