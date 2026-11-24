@@ -296,11 +296,14 @@ private:
                     captured_variables.emplace_back(v);
                 }
             }
+            luisa::sort(captured_variables.begin(), captured_variables.end(), [](auto a, auto b) noexcept {
+                return a.uid() < b.uid();
+            });
 
             // if the resources can be uniquely identified in the __constant__ params,
             // then no need for passing via stack with I/O on local memory
             {
-                auto iter = std::partition(
+                auto iter = std::stable_partition(
                     captured_variables.begin(), captured_variables.end(),
                     [this, f](auto v) noexcept {
                         LUISA_ASSERT(!v.is_resource() ||
@@ -320,7 +323,7 @@ private:
 
             // find the captured resources
             {
-                auto iter = std::partition(
+                auto iter = std::stable_partition(
                     captured_variables.begin(), captured_variables.end(),
                     [](auto v) noexcept { return !v.is_resource(); });
                 captured_resources.reserve(
@@ -490,7 +493,12 @@ private:
                 }
             }
             // declare local variables
-            for (auto v : local_variable_set) {
+            luisa::vector<Variable> sorted_locals(
+                local_variable_set.cbegin(), local_variable_set.cend());
+            luisa::sort(sorted_locals.begin(), sorted_locals.end(), [](auto a, auto b) noexcept {
+                return a.uid() < b.uid();
+            });
+            for (auto v : sorted_locals) {
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_decl(f, v, false);
                 _codegen->_scratch << "{};\n";
@@ -536,17 +544,27 @@ private:
             _codegen->_indent = indent;
         };
         // create outlined triangle function
-        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
-                           << "  LCIntersectionResult result{};\n";
+        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n  ";
+        _codegen->_emit_type_name(s->query()->type());
+        _codegen->_scratch << " ";
+        s->query()->accept(*_codegen);
+        _codegen->_scratch << "{};\n";
         generate_intersection_body(s->on_triangle_candidate());
-        _codegen->_scratch << "  return result;\n"
+        _codegen->_scratch << "  return ";
+        s->query()->accept(*_codegen);
+        _codegen->_scratch << ".result;\n"
                               "}\n\n";
 
         // create outlined procedural function
-        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
-                           << "  LCIntersectionResult result{};\n";
+        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n  ";
+        _codegen->_emit_type_name(s->query()->type());
+        _codegen->_scratch << " ";
+        s->query()->accept(*_codegen);
+        _codegen->_scratch << "{};\n";
         generate_intersection_body(s->on_procedural_candidate());
-        _codegen->_scratch << "  return result;\n"
+        _codegen->_scratch << "  return ";
+        s->query()->accept(*_codegen);
+        _codegen->_scratch << ".result;\n"
                               "}\n\n";
 
         // record the outline function
@@ -737,23 +755,28 @@ public:
     explicit LiteralPrinter(StringScratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
-        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        if (luisa::isinf(v)) {
+        if (luisa::isnan(v)) [[unlikely]] {
+            _s << luisa::format("__uint_as_float({:#x}u)", luisa::bit_cast<uint>(v));
+        } else if (luisa::isinf(v)) {
             _s << (v < 0.0f ? "(-lc_infinity_float())" : "(lc_infinity_float())");
         } else {
             _s << v << "f";
         }
     }
     void operator()(half v) const noexcept {
-        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        _s << luisa::format("lc_half({})", static_cast<float>(v));
+        if (luisa::isnan(v)) [[unlikely]] {
+            _s << luisa::format("lc_half(__uint_as_float({:#x}u))", luisa::bit_cast<uint>(static_cast<float>(v)));
+        } else {
+            _s << luisa::format("lc_half({})", static_cast<float>(v));
+        }
     }
     void operator()(bfloat16 v) const noexcept {
         _s << luisa::format("lc_bfloat16::from_bits(lc_ushort({}))", v.bits());
     }
     void operator()(double v) const noexcept {
-        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        if (std::isinf(v)) {
+        if (std::isnan(v)) [[unlikely]] {
+            _s << luisa::format("__longlong_as_double(static_cast<long long>({:#x}ull))", luisa::bit_cast<ulong>(v));
+        } else if (std::isinf(v)) {
             _s << (v < 0.0 ? "(-lc_infinity_double())" : "(lc_infinity_double())");
         } else {
             _s << v;
@@ -1767,9 +1790,18 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         }
     }
 
-    // process dependent callables if any
+    // process dependent callables in deterministic order so the generated
+    // source and its cache key are identical across runs
+    luisa::vector<Function> sorted_callables;
+    sorted_callables.reserve(f.custom_callables().size());
     for (auto &&callable : f.custom_callables()) {
-        _emit_function(callable->function());
+        sorted_callables.emplace_back(callable->function());
+    }
+    luisa::sort(sorted_callables.begin(), sorted_callables.end(), [](auto a, auto b) noexcept {
+        return a.hash() < b.hash();
+    });
+    for (auto callable : sorted_callables) {
+        _emit_function(callable);
     }
 
     _indent = 0u;
@@ -2240,7 +2272,9 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             break;
         }
         case Variable::Tag::REFERENCE:
-            if (readonly || force_const) {
+            if ((readonly || force_const) &&
+                v.type() != _ray_query_all_type &&
+                v.type() != _ray_query_any_type) {
                 _scratch << "const ";
                 _emit_type_name(v.type());
                 _scratch << " &";

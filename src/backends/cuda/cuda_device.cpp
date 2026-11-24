@@ -45,6 +45,7 @@
 #include "optix_error.h"
 #include "native_shader_ext.h"
 #include "../common/env_flag.h"
+#include "../common/xir_autodiff.h"
 
 namespace luisa::compute::cuda {
 namespace {
@@ -1082,7 +1083,8 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
         }
         return new_with_allocator<CUDAShaderNative>(
             this, std::move(ptx), "kernel_main",
-            expected_metadata, std::move(bound_arguments));
+            expected_metadata, std::move(bound_arguments),
+            option.enable_cache || uses_user_path);
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));
@@ -1103,8 +1105,20 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     luisa::function<luisa::string(CUDAShaderMetadata &)> generate_ptx;
     bool uses_cuda_printf = false;
     auto code_format = CUDAShaderMetadata::CodeFormat::PTX;
+    bool use_llvm_codegen = false;
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
-    if (cuda_device_detail_4::LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN || kernel.requires_autodiff()) {
+    use_llvm_codegen = cuda_device_detail_4::LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN;
+#endif
+    if (kernel.requires_autodiff() && !use_llvm_codegen) {
+#ifdef LUISA_ENABLE_XIR
+        auto lowered = luisa::compute::backend_detail::lower_autodiff_to_ast(kernel, true);
+        return create_shader(option, lowered->function());
+#else
+        LUISA_ERROR_WITH_LOCATION("CUDA AutoDiff requires XIR support.");
+#endif
+    }
+#if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
+    if (use_llvm_codegen) {
         // LLVM lowers PrintInst to CUDA's device-side vprintf ABI. It neither
         // emits CUDA source nor adds the legacy LCPrintBuffer argument.
         uses_cuda_printf = true;
@@ -1147,12 +1161,6 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         };
     }
 #endif
-    if (kernel.requires_autodiff() && !generate_ptx) {
-        LUISA_ERROR_WITH_LOCATION(
-            "CUDA autodiff requires LLVM code generation. Build with "
-            "LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN=ON (CMake) "
-            "or a non-empty lc_llvm_path (xmake).");
-    }
     // The prologue is emitted by the AST/NVRTC code generator only, for the
     // compute entry only. An OptiX raygen module has no `kernel_main` and is not
     // launched through CUDAShaderNative; the LLVM route does not go through

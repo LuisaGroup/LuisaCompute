@@ -45,6 +45,9 @@ private:
         auto *root = b.CreateUnaryIntrinsic(
             ::llvm::Intrinsic::sqrt, x2);
         auto *x = b.CreateSelect(small, safe_absolute, root);
+        auto *one = ::llvm::ConstantFP::get(safe_absolute->getType(), 1.0);
+        auto *zero = ::llvm::ConstantFP::get(x->getType(), 0.0);
+        x = b.CreateSelect(b.CreateFCmpOEQ(safe_absolute, one), zero, x);
         auto *approximation = _asin_series(x, x2);
 
         ::llvm::Value *result;

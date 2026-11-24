@@ -38,7 +38,8 @@ private:
 public:
     CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> ptx,
                      const char *entry, const CUDAShaderMetadata &metadata,
-                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
+                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {},
+                     bool enable_cache = true) noexcept;
     ~CUDAShaderNative() noexcept override;
           [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
       [[nodiscard]] bool is_native() const noexcept override { return true; }

@@ -1629,6 +1629,43 @@ if (TARGET luisa-compute-backend-simd)
     set_tests_properties(test_coro_xir_cache_simd PROPERTIES
             LABELS "integration;integration_simd;integration_coro" TIMEOUT 180)
 endif ()
+if (TARGET luisa-compute-backend-cuda)
+    add_dependencies(test_ast_xir_cache luisa-compute-backend-cuda)
+    add_test(NAME test_ast_xir_cache_cuda COMMAND test_ast_xir_cache cuda)
+    set_tests_properties(test_ast_xir_cache_cuda PROPERTIES
+            LABELS "integration;integration_cuda;integration_xir"
+            ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=0"
+            TIMEOUT 180)
+    add_dependencies(test_coro_xir_cache luisa-compute-backend-cuda)
+    add_test(NAME test_coro_xir_cache_cuda COMMAND test_coro_xir_cache cuda)
+    set_tests_properties(test_coro_xir_cache_cuda PROPERTIES
+            LABELS "integration;integration_cuda;integration_coro"
+            ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=0"
+            TIMEOUT 180)
+    add_dependencies(test_dsl_autodiff luisa-compute-backend-cuda)
+    add_test(NAME test_dsl_autodiff_cuda COMMAND test_dsl_autodiff cuda)
+    set_tests_properties(test_dsl_autodiff_cuda PROPERTIES
+            LABELS "integration;integration_cuda"
+            ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=0"
+            TIMEOUT 180)
+    if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
+        add_test(NAME test_ast_xir_cache_cuda_llvm COMMAND test_ast_xir_cache cuda)
+        set_tests_properties(test_ast_xir_cache_cuda_llvm PROPERTIES
+                LABELS "integration;integration_cuda;integration_cuda_llvm;integration_xir"
+                ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1;LUISA_CUDA_LLVM_OPTIX_IR=0"
+                TIMEOUT 180)
+        add_test(NAME test_coro_xir_cache_cuda_llvm COMMAND test_coro_xir_cache cuda)
+        set_tests_properties(test_coro_xir_cache_cuda_llvm PROPERTIES
+                LABELS "integration;integration_cuda;integration_cuda_llvm;integration_coro"
+                ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1;LUISA_CUDA_LLVM_OPTIX_IR=0"
+                TIMEOUT 180)
+        add_test(NAME test_dsl_autodiff_cuda_llvm COMMAND test_dsl_autodiff cuda)
+        set_tests_properties(test_dsl_autodiff_cuda_llvm PROPERTIES
+                LABELS "integration;integration_cuda;integration_cuda_llvm"
+                ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1;LUISA_CUDA_LLVM_OPTIX_IR=0"
+                TIMEOUT 180)
+    endif ()
+endif ()
 
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_ast_pack_usage unit/xir/test_ast_pack_usage.cpp LABELS "unit;unit_xir")

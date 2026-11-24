@@ -5104,6 +5104,30 @@ template<typename I>
 [[nodiscard]] __device__ inline lc_double2 lc_fmod(lc_double2 x, lc_double2 y) noexcept { return lc_make_double2(lc_fmod_impl(x.x, y.x), lc_fmod_impl(x.y, y.y)); }
 [[nodiscard]] __device__ inline lc_double3 lc_fmod(lc_double3 x, lc_double3 y) noexcept { return lc_make_double3(lc_fmod_impl(x.x, y.x), lc_fmod_impl(x.y, y.y), lc_fmod_impl(x.z, y.z)); }
 [[nodiscard]] __device__ inline lc_double4 lc_fmod(lc_double4 x, lc_double4 y) noexcept { return lc_make_double4(lc_fmod_impl(x.x, y.x), lc_fmod_impl(x.y, y.y), lc_fmod_impl(x.z, y.z), lc_fmod_impl(x.w, y.w)); }
+[[nodiscard]] __device__ inline lc_half2 lc_fmod(lc_half2 x, lc_half y) noexcept { return lc_make_half2(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y)); }
+[[nodiscard]] __device__ inline lc_half2 lc_fmod(lc_half x, lc_half2 y) noexcept { return lc_make_half2(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_fmod(lc_half3 x, lc_half y) noexcept { return lc_make_half3(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_fmod(lc_half x, lc_half3 y) noexcept { return lc_make_half3(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_fmod(lc_half4 x, lc_half y) noexcept { return lc_make_half4(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y), lc_fmod_impl(x.w, y)); }
+[[nodiscard]] __device__ inline lc_half4 lc_fmod(lc_half x, lc_half4 y) noexcept { return lc_make_half4(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z), lc_fmod_impl(x, y.w)); }
+[[nodiscard]] __device__ inline lc_bfloat162 lc_fmod(lc_bfloat162 x, lc_bfloat16 y) noexcept { return lc_make_bfloat162(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y)); }
+[[nodiscard]] __device__ inline lc_bfloat162 lc_fmod(lc_bfloat16 x, lc_bfloat162 y) noexcept { return lc_make_bfloat162(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y)); }
+[[nodiscard]] __device__ inline lc_bfloat163 lc_fmod(lc_bfloat163 x, lc_bfloat16 y) noexcept { return lc_make_bfloat163(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y)); }
+[[nodiscard]] __device__ inline lc_bfloat163 lc_fmod(lc_bfloat16 x, lc_bfloat163 y) noexcept { return lc_make_bfloat163(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z)); }
+[[nodiscard]] __device__ inline lc_bfloat164 lc_fmod(lc_bfloat164 x, lc_bfloat16 y) noexcept { return lc_make_bfloat164(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y), lc_fmod_impl(x.w, y)); }
+[[nodiscard]] __device__ inline lc_bfloat164 lc_fmod(lc_bfloat16 x, lc_bfloat164 y) noexcept { return lc_make_bfloat164(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z), lc_fmod_impl(x, y.w)); }
+[[nodiscard]] __device__ inline lc_float2 lc_fmod(lc_float2 x, lc_float y) noexcept { return lc_make_float2(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y)); }
+[[nodiscard]] __device__ inline lc_float2 lc_fmod(lc_float x, lc_float2 y) noexcept { return lc_make_float2(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_fmod(lc_float3 x, lc_float y) noexcept { return lc_make_float3(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_fmod(lc_float x, lc_float3 y) noexcept { return lc_make_float3(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z)); }
+[[nodiscard]] __device__ inline lc_float4 lc_fmod(lc_float4 x, lc_float y) noexcept { return lc_make_float4(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y), lc_fmod_impl(x.w, y)); }
+[[nodiscard]] __device__ inline lc_float4 lc_fmod(lc_float x, lc_float4 y) noexcept { return lc_make_float4(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z), lc_fmod_impl(x, y.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_fmod(lc_double2 x, lc_double y) noexcept { return lc_make_double2(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y)); }
+[[nodiscard]] __device__ inline lc_double2 lc_fmod(lc_double x, lc_double2 y) noexcept { return lc_make_double2(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_fmod(lc_double3 x, lc_double y) noexcept { return lc_make_double3(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_fmod(lc_double x, lc_double3 y) noexcept { return lc_make_double3(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_fmod(lc_double4 x, lc_double y) noexcept { return lc_make_double4(lc_fmod_impl(x.x, y), lc_fmod_impl(x.y, y), lc_fmod_impl(x.z, y), lc_fmod_impl(x.w, y)); }
+[[nodiscard]] __device__ inline lc_double4 lc_fmod(lc_double x, lc_double4 y) noexcept { return lc_make_double4(lc_fmod_impl(x, y.x), lc_fmod_impl(x, y.y), lc_fmod_impl(x, y.z), lc_fmod_impl(x, y.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_fract(lc_half x) noexcept { return lc_fract_impl(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_fract(lc_half2 x) noexcept { return lc_make_half2(lc_fract_impl(x.x), lc_fract_impl(x.y)); }

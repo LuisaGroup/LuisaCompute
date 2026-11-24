@@ -866,6 +866,17 @@ struct lc_float{i}x{i} {{
         generate_vector_call("smoothstep", "lc_smoothstep_impl", floating_type_codes, ["e0", "e1", "x"])
         generate_vector_call("mod", "lc_mod_impl", floating_type_codes, ["x", "y"])
         generate_vector_call("fmod", "lc_fmod_impl", floating_type_codes, ["x", "y"])
+        for t in ["half", *bfloat16_types, "float", "double"]:
+            for n in range(2, 5):
+                args_vs = ", ".join(f"lc_fmod_impl(x.{e}, y)" for e in "xyzw"[:n])
+                args_sv = ", ".join(f"lc_fmod_impl(x, y.{e})" for e in "xyzw"[:n])
+                print(
+                    f"[[nodiscard]] __device__ inline lc_{t}{n} lc_fmod(lc_{t}{n} x, lc_{t} y) noexcept {{ return lc_make_{t}{n}({args_vs}); }}",
+                    file=file)
+                print(
+                    f"[[nodiscard]] __device__ inline lc_{t}{n} lc_fmod(lc_{t} x, lc_{t}{n} y) noexcept {{ return lc_make_{t}{n}({args_sv}); }}",
+                    file=file)
+        print(file=file)
         generate_vector_call("fract", "lc_fract_impl", floating_type_codes, ["x"])
 
         # clz/popcount/reverse

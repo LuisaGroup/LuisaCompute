@@ -692,7 +692,7 @@ private:
         const schedule::Instruction &instruction);
     void _print(const schedule::Instruction &instruction);
     void _assert(const schedule::Instruction &instruction);
-    void _assume(const schedule::Instruction &instruction);
+    void _emit_assume(const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_clock(
         const schedule::Instruction &instruction);
     void _store_debug_data(
