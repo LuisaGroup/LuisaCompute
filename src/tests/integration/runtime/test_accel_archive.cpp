@@ -616,6 +616,38 @@ struct EnvelopeSlices {
         REQUIRE_COND(ext->import_mesh_archive(stream.handle(), mesh.handle(), desc, binding, bad_pay).status ==
                          AccelArchiveStatus::CORRUPT_PAYLOAD,
                      "Corrupted payload import must return CORRUPT_PAYLOAD");
+
+        // 3b. Pinned staging + verify_payload_checksum=true exercises GPU verification kernel rejection
+        auto bad_st = ext->acquire_staging_buffer(bad_pay.size());
+        REQUIRE_COND(bad_st.mapped_data != nullptr && bad_st.capacity >= bad_pay.size(),
+                     "acquire_staging_buffer returned invalid buffer for negative payload test");
+        std::memcpy(bad_st.mapped_data, bad_pay.data(), bad_pay.size());
+        AccelArchiveImportOptions verify_opts{};
+        verify_opts.verify_payload_checksum = true;
+        auto pin_bad_res = ext->import_mesh_archive_with_options(
+            stream.handle(), mesh.handle(), desc, binding,
+            luisa::span<const std::byte>{bad_st.mapped_data, bad_pay.size()}, verify_opts);
+        ext->release_staging_buffer(std::move(bad_st));
+        REQUIRE_COND(pin_bad_res.status == AccelArchiveStatus::CORRUPT_PAYLOAD,
+                     "Pinned verified import must reject corrupt payload with CORRUPT_PAYLOAD");
+
+        // 3c. Direct file import (including DirectStorage unbuffered path) + verify=true rejects corrupt payload
+        const std::filesystem::path bad_file_path = opts.archive_dir / "corrupt_payload.bin";
+        REQUIRE_COND(write_binary_file(bad_file_path, luisa::span<const std::byte>{bad_pay}),
+                     "Failed to write corrupt_payload.bin for verified file-import negative test");
+        const std::string bad_file_str = bad_file_path.string();
+        for (bool bypass_cache : {true, false}) {
+            Mesh bad_file_mesh = device.create_mesh(vb, tb, blas_opt);
+            AccelArchiveImportOptions fbad_opts{};
+            fbad_opts.verify_payload_checksum = true;
+            fbad_opts.bypass_os_file_cache = bypass_cache;
+            auto fbad_res = import_mesh_archive_file(
+                ext, stream, bad_file_mesh, blas_opt, geom_hash, bad_file_str, fbad_opts);
+            REQUIRE_COND(fbad_res.status == AccelArchiveStatus::CORRUPT_PAYLOAD,
+                         "Verified direct file import must reject corrupt payload with CORRUPT_PAYLOAD");
+        }
+        std::error_code ec;
+        std::filesystem::remove(bad_file_path, ec);
     }
 
     // 4. Native compat blob mismatch inside valid outer envelope checksums

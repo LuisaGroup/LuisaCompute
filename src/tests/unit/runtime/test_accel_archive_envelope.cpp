@@ -327,6 +327,81 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    "fast_archive_checksum_128_properties"_test = [] {
+        // Empty payload agrees between full compute and finalize_payload_checksum.
+        uint8_t empty_a[16]{};
+        uint8_t empty_b[16]{};
+        accel_archive::compute_payload_checksum(luisa::span<const std::byte>{}, empty_a);
+        uint32_t zero_lanes[4]{0u, 0u, 0u, 0u};
+        accel_archive::finalize_payload_checksum(zero_lanes, 0u, empty_b);
+        expect(std::memcmp(empty_a, empty_b, 16u) == 0);
+
+        const std::array<size_t, 10> sizes{1u, 2u, 3u, 5u, 7u, 13u, 17u, 1025u, 4099u, 262147u};
+        for (const size_t sz : sizes) {
+            luisa::vector<std::byte> buf(sz);
+            for (size_t i = 0u; i < sz; ++i) {
+                buf[i] = static_cast<std::byte>((i * 73u + 19u) & 0xffu);
+            }
+
+            uint8_t full_a[16]{};
+            uint8_t full_b[16]{};
+            accel_archive::compute_payload_checksum(buf, full_a);
+            accel_archive::compute_payload_checksum(buf, full_b);
+            expect(std::memcmp(full_a, full_b, 16u) == 0);
+
+            // Split computation matching HIP's 48-byte (12-word) header fold produces identical checksum.
+            if (sz > 48u) {
+                uint32_t l_head[4]{};
+                uint32_t l_tail[4]{};
+                accel_archive::compute_payload_checksum_partial(
+                    luisa::span<const std::byte>{buf.data(), 48u}, 0u, l_head);
+                accel_archive::compute_payload_checksum_partial(
+                    luisa::span<const std::byte>{buf.data() + 48u, sz - 48u}, 12u, l_tail);
+                uint32_t combined[4]{
+                    l_head[0] + l_tail[0],
+                    l_head[1] ^ l_tail[1],
+                    l_head[2] + l_tail[2],
+                    l_head[3] ^ l_tail[3]};
+                uint8_t split_c[16]{};
+                accel_archive::finalize_payload_checksum(combined, sz, split_c);
+                expect(std::memcmp(full_a, split_c, 16u) == 0);
+            }
+
+            // Single-bit flips at start, middle, and tail byte alter checksum.
+            const std::array<size_t, 3> flip_offsets{0u, sz / 2u, sz - 1u};
+            for (const size_t fo : flip_offsets) {
+                auto mutated = buf;
+                mutated[fo] = static_cast<std::byte>(std::to_integer<uint8_t>(mutated[fo]) ^ 0x01u);
+                uint8_t mut_c[16]{};
+                accel_archive::compute_payload_checksum(mutated, mut_c);
+                expect(std::memcmp(full_a, mut_c, 16u) != 0);
+            }
+
+            // Envelope encode_envelope_with_payload_checksum matches decode validation cleanly.
+            const luisa::vector<PaddedVertex> sv{{0.f, 0.f, 0.f, 0u}, {1.f, 0.f, 0.f, 0u}, {0.f, 1.f, 0.f, 0u}};
+            const luisa::vector<Triangle> st{{0u, 1u, 2u}};
+            const auto d = make_sample_desc(sv, st, AccelOption{.hint = AccelOption::UsageHint::FAST_TRACE});
+            std::array<std::byte, 4> compat{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+            luisa::vector<std::byte> env_ok;
+            expect(static_cast<bool>(accel_archive::encode_envelope_with_payload_checksum(
+                AccelArchiveBackendKind::DX, d, false, sz, compat, buf, full_a, env_ok)));
+            accel_archive::AccelArchiveEnvelopeView v_ok{};
+            expect(static_cast<bool>(accel_archive::decode_and_validate_envelope(
+                env_ok, AccelArchiveBackendKind::DX, d, v_ok)));
+
+            uint8_t bad_sum[16]{};
+            std::memcpy(bad_sum, full_a, 16u);
+            bad_sum[7] ^= 0x80u;
+            luisa::vector<std::byte> env_bad;
+            expect(static_cast<bool>(accel_archive::encode_envelope_with_payload_checksum(
+                AccelArchiveBackendKind::DX, d, false, sz, compat, buf, bad_sum, env_bad)));
+            accel_archive::AccelArchiveEnvelopeView v_bad{};
+            expect(accel_archive::decode_and_validate_envelope(
+                       env_bad, AccelArchiveBackendKind::DX, d, v_bad)
+                       .status == AccelArchiveStatus::CORRUPT_PAYLOAD);
+        }
+    };
+
     "cuda_optix_compat_codec"_test = [] {
         cuda::CudaOptixAccelArchiveCompatBlob blob{};
         blob.optix_abi_version = 118u;

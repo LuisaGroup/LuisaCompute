@@ -13,6 +13,7 @@
 #include "log.h"
 #include "primitive_base.h"
 #include "stream.h"
+#include "vulkan_builtin_spirv_embedded.h"
 
 namespace lc::vk {
 
@@ -289,6 +290,354 @@ void VkAccelArchiveExt::_destroy_all_pools() noexcept {
         vkDestroyQueryPool(vk_dev, _size_query_pool, Device::alloc_callbacks());
         _size_query_pool = VK_NULL_HANDLE;
     }
+
+    std::lock_guard csum_init_lock{_csum_init_mtx};
+    std::lock_guard csum_lock{_csum_mtx};
+    if (_csum_pipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk_dev, _csum_pipeline, Device::alloc_callbacks());
+        _csum_pipeline = VK_NULL_HANDLE;
+    }
+    if (_csum_shader != VK_NULL_HANDLE) {
+        vkDestroyShaderModule(vk_dev, _csum_shader, Device::alloc_callbacks());
+        _csum_shader = VK_NULL_HANDLE;
+    }
+    if (_csum_pipe_layout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(vk_dev, _csum_pipe_layout, Device::alloc_callbacks());
+        _csum_pipe_layout = VK_NULL_HANDLE;
+    }
+    if (_csum_desc_pool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(vk_dev, _csum_desc_pool, Device::alloc_callbacks());
+        _csum_desc_pool = VK_NULL_HANDLE;
+        _csum_desc_set = VK_NULL_HANDLE;
+    }
+    if (_csum_dsl != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(vk_dev, _csum_dsl, Device::alloc_callbacks());
+        _csum_dsl = VK_NULL_HANDLE;
+    }
+    if (_csum_rb_mapped != nullptr && _csum_rb_mem != VK_NULL_HANDLE) {
+        vkUnmapMemory(vk_dev, _csum_rb_mem);
+        _csum_rb_mapped = nullptr;
+    }
+    if (_csum_rb_buf != VK_NULL_HANDLE) {
+        vkDestroyBuffer(vk_dev, _csum_rb_buf, Device::alloc_callbacks());
+        _csum_rb_buf = VK_NULL_HANDLE;
+    }
+    if (_csum_rb_mem != VK_NULL_HANDLE) {
+        vkFreeMemory(vk_dev, _csum_rb_mem, Device::alloc_callbacks());
+        _csum_rb_mem = VK_NULL_HANDLE;
+    }
+    if (_csum_dev_buf != VK_NULL_HANDLE) {
+        vkDestroyBuffer(vk_dev, _csum_dev_buf, Device::alloc_callbacks());
+        _csum_dev_buf = VK_NULL_HANDLE;
+    }
+    if (_csum_dev_mem != VK_NULL_HANDLE) {
+        vkFreeMemory(vk_dev, _csum_dev_mem, Device::alloc_callbacks());
+        _csum_dev_mem = VK_NULL_HANDLE;
+    }
+    _csum_ready = false;
+}
+
+bool VkAccelArchiveExt::_ensure_checksum_pipeline() noexcept {
+    std::lock_guard init_lock{_csum_init_mtx};
+    if (_csum_attempted) {
+        return _csum_ready;
+    }
+    _csum_attempted = true;
+    if (_device == nullptr || _device->logic_device() == VK_NULL_HANDLE ||
+        luisa_compute_vk_builtin_accel_archive_checksum_spv_size == 0u ||
+        (luisa_compute_vk_builtin_accel_archive_checksum_spv_size % 4u) != 0u) {
+        return false;
+    }
+    const auto vk_dev = _device->logic_device();
+
+    VkDescriptorSetLayoutBinding bindings[2]{};
+    bindings[0].binding = 0u;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1u;
+    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[1].binding = 1u;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1u;
+    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo dsl_ci{};
+    dsl_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    dsl_ci.bindingCount = 2u;
+    dsl_ci.pBindings = bindings;
+    if (vkCreateDescriptorSetLayout(vk_dev, &dsl_ci, Device::alloc_callbacks(), &_csum_dsl) != VK_SUCCESS) {
+        return false;
+    }
+
+    VkPushConstantRange pcr{};
+    pcr.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pcr.offset = 0u;
+    pcr.size = 20u;
+
+    VkPipelineLayoutCreateInfo pl_ci{};
+    pl_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pl_ci.setLayoutCount = 1u;
+    pl_ci.pSetLayouts = &_csum_dsl;
+    pl_ci.pushConstantRangeCount = 1u;
+    pl_ci.pPushConstantRanges = &pcr;
+    if (vkCreatePipelineLayout(vk_dev, &pl_ci, Device::alloc_callbacks(), &_csum_pipe_layout) != VK_SUCCESS) {
+        return false;
+    }
+
+    luisa::vector<uint32_t> spv(luisa_compute_vk_builtin_accel_archive_checksum_spv_size / 4u);
+    std::memcpy(spv.data(), luisa_compute_vk_builtin_accel_archive_checksum_spv, luisa_compute_vk_builtin_accel_archive_checksum_spv_size);
+
+    VkShaderModuleCreateInfo sm_ci{};
+    sm_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    sm_ci.codeSize = spv.size() * sizeof(uint32_t);
+    sm_ci.pCode = spv.data();
+    if (vkCreateShaderModule(vk_dev, &sm_ci, Device::alloc_callbacks(), &_csum_shader) != VK_SUCCESS) {
+        return false;
+    }
+
+    VkComputePipelineCreateInfo cp_ci{};
+    cp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    cp_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    cp_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    cp_ci.stage.module = _csum_shader;
+    cp_ci.stage.pName = "main";
+    cp_ci.layout = _csum_pipe_layout;
+    if (vkCreateComputePipelines(vk_dev, VK_NULL_HANDLE, 1u, &cp_ci, Device::alloc_callbacks(), &_csum_pipeline) != VK_SUCCESS) {
+        return false;
+    }
+
+    VkDescriptorPoolSize pool_size{};
+    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    pool_size.descriptorCount = 2u;
+    VkDescriptorPoolCreateInfo dp_ci{};
+    dp_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    dp_ci.maxSets = 1u;
+    dp_ci.poolSizeCount = 1u;
+    dp_ci.pPoolSizes = &pool_size;
+    if (vkCreateDescriptorPool(vk_dev, &dp_ci, Device::alloc_callbacks(), &_csum_desc_pool) != VK_SUCCESS) {
+        return false;
+    }
+
+    VkDescriptorSetAllocateInfo ds_ai{};
+    ds_ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    ds_ai.descriptorPool = _csum_desc_pool;
+    ds_ai.descriptorSetCount = 1u;
+    ds_ai.pSetLayouts = &_csum_dsl;
+    if (vkAllocateDescriptorSets(vk_dev, &ds_ai, &_csum_desc_set) != VK_SUCCESS) {
+        return false;
+    }
+
+    auto create_small_buf = [&](
+                                VkBufferUsageFlags usage,
+                                VkMemoryPropertyFlags req_flags,
+                                VkMemoryPropertyFlags pref_flags,
+                                VkBuffer &out_buf,
+                                VkDeviceMemory &out_mem,
+                                bool map_it,
+                                void **out_mapped,
+                                bool &out_coherent) -> bool {
+        VkBufferCreateInfo bci{};
+        bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bci.size = 256u;
+        bci.usage = usage;
+        _device->allocator().apply_queue_sharing(bci);
+        if (vkCreateBuffer(vk_dev, &bci, Device::alloc_callbacks(), &out_buf) != VK_SUCCESS) {
+            return false;
+        }
+        VkMemoryRequirements mr{};
+        vkGetBufferMemoryRequirements(vk_dev, out_buf, &mr);
+        const uint32_t mtype = find_best_memory_type(
+            _device->allocator().memory_properties(),
+            mr.memoryTypeBits,
+            req_flags,
+            pref_flags);
+        if (mtype == UINT32_MAX) {
+            return false;
+        }
+        VkMemoryAllocateInfo mai{};
+        mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        mai.allocationSize = std::max<VkDeviceSize>(mr.size, 256u);
+        mai.memoryTypeIndex = mtype;
+        if (vkAllocateMemory(vk_dev, &mai, Device::alloc_callbacks(), &out_mem) != VK_SUCCESS) {
+            return false;
+        }
+        if (vkBindBufferMemory(vk_dev, out_buf, out_mem, 0u) != VK_SUCCESS) {
+            return false;
+        }
+        out_coherent = (_device->allocator().memory_properties().memoryTypes[mtype].propertyFlags &
+                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
+        if (map_it) {
+            if (vkMapMemory(vk_dev, out_mem, 0u, 256u, 0u, out_mapped) != VK_SUCCESS) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    bool dummy_coh = true;
+    if (!create_small_buf(
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            _csum_dev_buf,
+            _csum_dev_mem,
+            false,
+            nullptr,
+            dummy_coh) ||
+        !create_small_buf(
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+            _csum_rb_buf,
+            _csum_rb_mem,
+            true,
+            &_csum_rb_mapped,
+            _csum_rb_host_coherent)) {
+        return false;
+    }
+
+    _csum_ready = true;
+    return true;
+}
+
+void VkAccelArchiveExt::_record_checksum_dispatch(
+    VkCommandBuffer cmd,
+    VkBuffer src_buf,
+    uint32_t base_byte_offset,
+    uint64_t byte_size,
+    uint32_t start_word) noexcept {
+    VkDescriptorBufferInfo src_info{src_buf, 0u, VK_WHOLE_SIZE};
+    VkDescriptorBufferInfo out_info{_csum_dev_buf, 0u, 256u};
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = _csum_desc_set;
+    writes[0].dstBinding = 0u;
+    writes[0].descriptorCount = 1u;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[0].pBufferInfo = &src_info;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = _csum_desc_set;
+    writes[1].dstBinding = 1u;
+    writes[1].descriptorCount = 1u;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].pBufferInfo = &out_info;
+    vkUpdateDescriptorSets(_device->logic_device(), 2u, writes, 0u, nullptr);
+
+    vkCmdFillBuffer(cmd, _csum_dev_buf, 0u, 16u, 0u);
+
+    const uint64_t total_words_u64 = (byte_size + 3ull) / 4ull;
+    if (total_words_u64 > start_word) {
+        VkBufferMemoryBarrier2 clear_to_comp{};
+        clear_to_comp.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        clear_to_comp.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        clear_to_comp.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        clear_to_comp.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        clear_to_comp.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        clear_to_comp.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        clear_to_comp.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        clear_to_comp.buffer = _csum_dev_buf;
+        clear_to_comp.offset = 0u;
+        clear_to_comp.size = 16u;
+        VkDependencyInfo dep1{};
+        dep1.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep1.bufferMemoryBarrierCount = 1u;
+        dep1.pBufferMemoryBarriers = &clear_to_comp;
+        detail::cmd_pipeline_barrier(cmd, _device, &dep1);
+
+        const uint32_t total_words = static_cast<uint32_t>(total_words_u64);
+        const uint32_t words_todo = total_words - start_word;
+        const uint32_t groups = std::min<uint32_t>(2048u, (words_todo + 255u) / 256u);
+        const uint32_t rem = static_cast<uint32_t>(byte_size & 3ull);
+        const uint32_t tail_mask = (rem != 0u) ? ((1u << (rem * 8u)) - 1u) : 0xffffffffu;
+        const uint32_t pc[5]{
+            total_words,
+            tail_mask,
+            base_byte_offset,
+            start_word,
+            groups * 256u};
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _csum_pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _csum_pipe_layout, 0u, 1u, &_csum_desc_set, 0u, nullptr);
+        vkCmdPushConstants(cmd, _csum_pipe_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0u, 20u, pc);
+        vkCmdDispatch(cmd, groups, 1u, 1u);
+
+        VkBufferMemoryBarrier2 comp_to_copy{};
+        comp_to_copy.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        comp_to_copy.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        comp_to_copy.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        comp_to_copy.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        comp_to_copy.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+        comp_to_copy.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        comp_to_copy.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        comp_to_copy.buffer = _csum_dev_buf;
+        comp_to_copy.offset = 0u;
+        comp_to_copy.size = 16u;
+        VkDependencyInfo dep2{};
+        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep2.bufferMemoryBarrierCount = 1u;
+        dep2.pBufferMemoryBarriers = &comp_to_copy;
+        detail::cmd_pipeline_barrier(cmd, _device, &dep2);
+    } else {
+        VkBufferMemoryBarrier2 clear_to_copy{};
+        clear_to_copy.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        clear_to_copy.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        clear_to_copy.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        clear_to_copy.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        clear_to_copy.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+        clear_to_copy.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        clear_to_copy.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        clear_to_copy.buffer = _csum_dev_buf;
+        clear_to_copy.offset = 0u;
+        clear_to_copy.size = 16u;
+        VkDependencyInfo dep2{};
+        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep2.bufferMemoryBarrierCount = 1u;
+        dep2.pBufferMemoryBarriers = &clear_to_copy;
+        detail::cmd_pipeline_barrier(cmd, _device, &dep2);
+    }
+
+    VkBufferCopy2 region{};
+    region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2;
+    region.srcOffset = 0u;
+    region.dstOffset = 0u;
+    region.size = 16u;
+    VkCopyBufferInfo2 copy_buf{};
+    copy_buf.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2;
+    copy_buf.srcBuffer = _csum_dev_buf;
+    copy_buf.dstBuffer = _csum_rb_buf;
+    copy_buf.regionCount = 1u;
+    copy_buf.pRegions = &region;
+    detail::cmd_copy_buffer(cmd, _device, &copy_buf);
+
+    VkBufferMemoryBarrier2 rb_to_host{};
+    rb_to_host.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+    rb_to_host.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+    rb_to_host.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    rb_to_host.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+    rb_to_host.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+    rb_to_host.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    rb_to_host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    rb_to_host.buffer = _csum_rb_buf;
+    rb_to_host.offset = 0u;
+    rb_to_host.size = 16u;
+    VkDependencyInfo dep_rb{};
+    dep_rb.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_rb.bufferMemoryBarrierCount = 1u;
+    dep_rb.pBufferMemoryBarriers = &rb_to_host;
+    detail::cmd_pipeline_barrier(cmd, _device, &dep_rb);
+}
+
+void VkAccelArchiveExt::_read_checksum_lanes(uint32_t (&out_lanes)[4]) noexcept {
+    if (!_csum_rb_host_coherent && _csum_rb_mem != VK_NULL_HANDLE) {
+        VkMappedMemoryRange range{};
+        range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        range.memory = _csum_rb_mem;
+        range.offset = 0u;
+        range.size = VK_WHOLE_SIZE;
+        vkInvalidateMappedMemoryRanges(_device->logic_device(), 1u, &range);
+    }
+    std::memcpy(out_lanes, _csum_rb_mapped, 16u);
 }
 
 std::shared_ptr<VkAccelArchiveExt::StagingSlot> VkAccelArchiveExt::_acquire_pool_slot(
@@ -781,69 +1130,100 @@ AccelArchiveResult VkAccelArchiveExt::export_mesh_archive(
     const uint64_t base_addr = vram_ser_slot->device_address;
     const uint64_t aligned_offset = (256u - (base_addr & 255u)) & 255u;
     const uint64_t aligned_addr = base_addr + aligned_offset;
+    const bool use_gpu_checksum =
+        serialized_size <= 0xffff0000ull &&
+        _ensure_checksum_pipeline();
+    uint8_t gpu_payload_csum[16]{};
+    bool gpu_csum_valid = false;
 
-    stream->execute_immediate([&](CommandBuffer &cb) {
-        cb.resource_barrier->record(src_buffer, ResourceBarrier::Usage::kCopyAccelSrc);
-        cb.resource_barrier->update_states(cb.cmdbuffer());
+    {
+        std::unique_lock csum_lock{_csum_mtx, std::defer_lock};
+        if (use_gpu_checksum) {
+            csum_lock.lock();
+        }
+        stream->execute_immediate([&](CommandBuffer &cb) {
+            cb.resource_barrier->record(src_buffer, ResourceBarrier::Usage::kCopyAccelSrc);
+            cb.resource_barrier->update_states(cb.cmdbuffer());
 
-        VkBufferMemoryBarrier2 ser_prep{};
-        ser_prep.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        ser_prep.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
-        ser_prep.srcAccessMask = 0u;
-        ser_prep.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
-        ser_prep.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        ser_prep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ser_prep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ser_prep.buffer = vram_ser_slot->buffer;
-        ser_prep.offset = aligned_offset;
-        ser_prep.size = serialized_size;
-        VkDependencyInfo dep1{};
-        dep1.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep1.bufferMemoryBarrierCount = 1u;
-        dep1.pBufferMemoryBarriers = &ser_prep;
-        detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep1);
+            VkBufferMemoryBarrier2 ser_prep{};
+            ser_prep.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            ser_prep.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+            ser_prep.srcAccessMask = 0u;
+            ser_prep.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+            ser_prep.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            ser_prep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            ser_prep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            ser_prep.buffer = vram_ser_slot->buffer;
+            ser_prep.offset = aligned_offset;
+            ser_prep.size = serialized_size;
+            VkDependencyInfo dep1{};
+            dep1.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep1.bufferMemoryBarrierCount = 1u;
+            dep1.pBufferMemoryBarriers = &ser_prep;
+            detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep1);
 
-        VkCopyAccelerationStructureToMemoryInfoKHR copy_info{};
-        copy_info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_TO_MEMORY_INFO_KHR;
-        copy_info.src = src_accel;
-        copy_info.dst.deviceAddress = aligned_addr;
-        copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_SERIALIZE_KHR;
-        vkCmdCopyAccelerationStructureToMemoryKHR(cb.cmdbuffer(), &copy_info);
+            VkCopyAccelerationStructureToMemoryInfoKHR copy_info{};
+            copy_info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_TO_MEMORY_INFO_KHR;
+            copy_info.src = src_accel;
+            copy_info.dst.deviceAddress = aligned_addr;
+            copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_SERIALIZE_KHR;
+            vkCmdCopyAccelerationStructureToMemoryKHR(cb.cmdbuffer(), &copy_info);
 
-        VkBufferMemoryBarrier2 ser_to_dma{};
-        ser_to_dma.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        ser_to_dma.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
-        ser_to_dma.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        ser_to_dma.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-        ser_to_dma.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-        ser_to_dma.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ser_to_dma.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ser_to_dma.buffer = vram_ser_slot->buffer;
-        ser_to_dma.offset = aligned_offset;
-        ser_to_dma.size = serialized_size;
-        VkDependencyInfo dep2{};
-        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep2.bufferMemoryBarrierCount = 1u;
-        dep2.pBufferMemoryBarriers = &ser_to_dma;
-        detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep2);
+            VkBufferMemoryBarrier2 ser_to_dma{};
+            ser_to_dma.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            ser_to_dma.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+            ser_to_dma.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            ser_to_dma.dstStageMask = use_gpu_checksum ?
+                                          (VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT) :
+                                          VK_PIPELINE_STAGE_2_COPY_BIT;
+            ser_to_dma.dstAccessMask = use_gpu_checksum ?
+                                           (VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT) :
+                                           VK_ACCESS_2_TRANSFER_READ_BIT;
+            ser_to_dma.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            ser_to_dma.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            ser_to_dma.buffer = vram_ser_slot->buffer;
+            ser_to_dma.offset = aligned_offset;
+            ser_to_dma.size = serialized_size;
+            VkDependencyInfo dep2{};
+            dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep2.bufferMemoryBarrierCount = 1u;
+            dep2.pBufferMemoryBarriers = &ser_to_dma;
+            detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep2);
 
-        VkBufferCopy2 region{};
-        region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2;
-        region.srcOffset = aligned_offset;
-        region.dstOffset = 0u;
-        region.size = serialized_size;
-        VkCopyBufferInfo2 copy_buf{};
-        copy_buf.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2;
-        copy_buf.srcBuffer = vram_ser_slot->buffer;
-        copy_buf.dstBuffer = pinned_rb_slot->buffer;
-        copy_buf.regionCount = 1u;
-        copy_buf.pRegions = &region;
-        detail::cmd_copy_buffer(cb.cmdbuffer(), _device, &copy_buf);
+            VkBufferCopy2 region{};
+            region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2;
+            region.srcOffset = aligned_offset;
+            region.dstOffset = 0u;
+            region.size = serialized_size;
+            VkCopyBufferInfo2 copy_buf{};
+            copy_buf.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2;
+            copy_buf.srcBuffer = vram_ser_slot->buffer;
+            copy_buf.dstBuffer = pinned_rb_slot->buffer;
+            copy_buf.regionCount = 1u;
+            copy_buf.pRegions = &region;
+            detail::cmd_copy_buffer(cb.cmdbuffer(), _device, &copy_buf);
 
-        // wait_after=true frees dispose_after_flush before execute_immediate returns;
-        // keep rb_lease on the stack across encode_envelope below.
-        cb.states()->dispose_after_flush(std::move(vram_lease));
-    }, true);
+            if (use_gpu_checksum) {
+                _record_checksum_dispatch(
+                    cb.cmdbuffer(),
+                    vram_ser_slot->buffer,
+                    static_cast<uint32_t>(aligned_offset),
+                    serialized_size,
+                    0u);
+            }
+
+            // wait_after=true frees dispose_after_flush before execute_immediate returns;
+            // keep rb_lease on the stack across encode_envelope below.
+            cb.states()->dispose_after_flush(std::move(vram_lease));
+        }, true);
+
+        if (use_gpu_checksum) {
+            uint32_t lanes[4]{};
+            _read_checksum_lanes(lanes);
+            accel_archive::finalize_payload_checksum(lanes, serialized_size, gpu_payload_csum);
+            gpu_csum_valid = true;
+        }
+    }
 
     if (!pinned_rb_slot->host_coherent) {
         VkMappedMemoryRange range{};
@@ -870,16 +1250,28 @@ AccelArchiveResult VkAccelArchiveExt::export_mesh_archive(
 
     const uint64_t final_unpacked = hdr.deserialized_size;
     auto compat_blob = make_compat_blob(_device, hdr);
-    auto encode_res = accel_archive::encode_envelope(
-        AccelArchiveBackendKind::VULKAN,
-        desc,
-        is_compacted,
-        final_unpacked,
-        luisa::span<const std::byte>{
-            reinterpret_cast<const std::byte *>(&compat_blob),
-            sizeof(compat_blob)},
-        payload,
-        out_archive);
+    auto encode_res = gpu_csum_valid ?
+                          accel_archive::encode_envelope_with_payload_checksum(
+                              AccelArchiveBackendKind::VULKAN,
+                              desc,
+                              is_compacted,
+                              final_unpacked,
+                              luisa::span<const std::byte>{
+                                  reinterpret_cast<const std::byte *>(&compat_blob),
+                                  sizeof(compat_blob)},
+                              payload,
+                              gpu_payload_csum,
+                              out_archive) :
+                          accel_archive::encode_envelope(
+                              AccelArchiveBackendKind::VULKAN,
+                              desc,
+                              is_compacted,
+                              final_unpacked,
+                              luisa::span<const std::byte>{
+                                  reinterpret_cast<const std::byte *>(&compat_blob),
+                                  sizeof(compat_blob)},
+                              payload,
+                              out_archive);
     if (!encode_res) {
         return encode_res;
     }
@@ -964,9 +1356,14 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive_with_options(
     uint64_t aligned_addr = 0u;
     uint64_t aligned_offset = 0u;
     bool used_dma_copy = false;
+    bool dma_already_copied_and_verified = false;
 
     if (pinned_src_slot) {
-        if (options.verify_payload_checksum) {
+        const bool use_gpu_verify =
+            options.verify_payload_checksum &&
+            payload_size <= 0xffff0000ull &&
+            _ensure_checksum_pipeline();
+        if (options.verify_payload_checksum && !use_gpu_verify) {
             if (auto p = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum); !p) {
                 return p;
             }
@@ -974,7 +1371,8 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive_with_options(
         dma_stage_slot = _acquire_pool_slot(
             _vram_pool,
             payload_size + 256u,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -993,6 +1391,84 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive_with_options(
         aligned_offset = (256u - (base_addr & 255u)) & 255u;
         aligned_addr = base_addr + aligned_offset;
         used_dma_copy = true;
+
+        if (use_gpu_verify) {
+            if (!pinned_src_slot->host_coherent && pinned_src_slot->memory != VK_NULL_HANDLE) {
+                VkMappedMemoryRange range{};
+                range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+                range.memory = pinned_src_slot->memory;
+                range.offset = 0u;
+                range.size = VK_WHOLE_SIZE;
+                vkFlushMappedMemoryRanges(_device->logic_device(), 1u, &range);
+            }
+            bool csum_ok = false;
+            {
+                std::lock_guard csum_lock{_csum_mtx};
+                stream->execute_immediate([&](CommandBuffer &cb) {
+                    VkMemoryBarrier2 host_to_transfer{};
+                    host_to_transfer.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+                    host_to_transfer.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+                    host_to_transfer.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
+                    host_to_transfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    host_to_transfer.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+                    VkDependencyInfo dep_h2t{};
+                    dep_h2t.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                    dep_h2t.memoryBarrierCount = 1u;
+                    dep_h2t.pMemoryBarriers = &host_to_transfer;
+                    detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep_h2t);
+
+                    VkBufferCopy2 region{};
+                    region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2;
+                    region.srcOffset = pinned_slot_offset;
+                    region.dstOffset = aligned_offset;
+                    region.size = payload_size;
+                    VkCopyBufferInfo2 copy_buf{};
+                    copy_buf.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2;
+                    copy_buf.srcBuffer = pinned_src_slot->buffer;
+                    copy_buf.dstBuffer = dma_stage_slot->buffer;
+                    copy_buf.regionCount = 1u;
+                    copy_buf.pRegions = &region;
+                    detail::cmd_copy_buffer(cb.cmdbuffer(), _device, &copy_buf);
+
+                    VkBufferMemoryBarrier2 xfer_to_comp{};
+                    xfer_to_comp.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+                    xfer_to_comp.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    xfer_to_comp.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                    xfer_to_comp.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                    xfer_to_comp.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+                    xfer_to_comp.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    xfer_to_comp.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    xfer_to_comp.buffer = dma_stage_slot->buffer;
+                    xfer_to_comp.offset = aligned_offset;
+                    xfer_to_comp.size = payload_size;
+                    VkDependencyInfo dep_x2c{};
+                    dep_x2c.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                    dep_x2c.bufferMemoryBarrierCount = 1u;
+                    dep_x2c.pBufferMemoryBarriers = &xfer_to_comp;
+                    detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep_x2c);
+
+                    _record_checksum_dispatch(
+                        cb.cmdbuffer(),
+                        dma_stage_slot->buffer,
+                        static_cast<uint32_t>(aligned_offset),
+                        payload_size,
+                        0u);
+                }, /*wait_after=*/true);
+
+                uint32_t lanes[4]{};
+                _read_checksum_lanes(lanes);
+                uint8_t computed[16]{};
+                accel_archive::finalize_payload_checksum(lanes, payload_size, computed);
+                csum_ok = std::memcmp(computed, expected_payload_checksum, 16u) == 0;
+            }
+            pinned_lease = VkSlotLease{};
+            if (!csum_ok) {
+                return accel_archive::make_archive_error(
+                    AccelArchiveStatus::CORRUPT_PAYLOAD,
+                    "Vulkan GPU verification kernel detected corrupt native AS payload.");
+            }
+            dma_already_copied_and_verified = true;
+        }
     } else {
         // Prefer ReBAR (DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT) for direct CPU parallel write + GPU VRAM deserialize.
         direct_upload_slot = _acquire_pool_slot(
@@ -1052,7 +1528,8 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive_with_options(
             dma_stage_slot = _acquire_pool_slot(
                 _vram_pool,
                 payload_size + 256u,
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                    VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -1107,7 +1584,35 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive_with_options(
             ResourceBarrier::Usage::kCopyAccelDst);
         cb.resource_barrier->update_states(cb.cmdbuffer());
 
-        if (used_dma_copy) {
+        if (used_dma_copy && dma_already_copied_and_verified) {
+            VkBufferMemoryBarrier2 comp_to_as{};
+            comp_to_as.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            comp_to_as.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            comp_to_as.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            comp_to_as.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+            comp_to_as.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+                                       VK_ACCESS_2_TRANSFER_READ_BIT;
+            comp_to_as.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            comp_to_as.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            comp_to_as.buffer = dma_stage_slot->buffer;
+            comp_to_as.offset = aligned_offset;
+            comp_to_as.size = payload_size;
+            VkDependencyInfo dep_c2a{};
+            dep_c2a.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_c2a.bufferMemoryBarrierCount = 1u;
+            dep_c2a.pBufferMemoryBarriers = &comp_to_as;
+            detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep_c2a);
+
+            cb.states()->dispose_after_flush(std::move(dma_lease));
+        } else if (used_dma_copy) {
+            if (!pinned_src_slot->host_coherent && pinned_src_slot->memory != VK_NULL_HANDLE) {
+                VkMappedMemoryRange range{};
+                range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+                range.memory = pinned_src_slot->memory;
+                range.offset = 0u;
+                range.size = VK_WHOLE_SIZE;
+                vkFlushMappedMemoryRanges(_device->logic_device(), 1u, &range);
+            }
             VkMemoryBarrier2 host_to_transfer{};
             host_to_transfer.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
             host_to_transfer.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;

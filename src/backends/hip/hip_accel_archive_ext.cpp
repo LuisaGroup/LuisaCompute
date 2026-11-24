@@ -14,6 +14,7 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/vstl/functional.h>
 
+#include "hip_accel_archive_builtin_embedded.h"
 #include "hip_check.h"
 #include "hip_device.h"
 #include "hip_geometry.h"
@@ -199,6 +200,15 @@ struct HIPAccelArchiveExt::Impl {
     uint64_t tick{0u};
     uint64_t next_token{0u};
 
+    std::mutex csum_init_mtx;
+    std::mutex csum_mtx;
+    bool csum_attempted{false};
+    bool csum_ready{false};
+    hipModule_t csum_module{nullptr};
+    hipFunction_t csum_fn{nullptr};
+    hipDeviceptr_t d_hash{nullptr};
+    unsigned int *h_hash{nullptr};
+
     explicit Impl(HIPDevice *dev) noexcept : device{dev} {}
 
     ~Impl() noexcept {
@@ -206,6 +216,28 @@ struct HIPAccelArchiveExt::Impl {
     }
 
     void destroy_all() noexcept {
+        {
+            std::lock_guard cinit{csum_init_mtx};
+            std::lock_guard clock{csum_mtx};
+            if (device != nullptr && device->_hip_context != nullptr &&
+                (csum_module != nullptr || d_hash != nullptr || h_hash != nullptr)) {
+                ScopedHipContext ctx_guard{device->_hip_context};
+                if (csum_module != nullptr) {
+                    (void)hipModuleUnload(csum_module);
+                    csum_module = nullptr;
+                    csum_fn = nullptr;
+                }
+                if (d_hash != nullptr) {
+                    (void)hipFree(d_hash);
+                    d_hash = nullptr;
+                }
+                if (h_hash != nullptr) {
+                    (void)hipHostFree(h_hash);
+                    h_hash = nullptr;
+                }
+            }
+            csum_ready = false;
+        }
         std::lock_guard lck{mtx};
         if (device == nullptr || device->_hip_context == nullptr) {
             data_slots.clear();
@@ -234,6 +266,82 @@ struct HIPAccelArchiveExt::Impl {
         free_vec(data_slots);
         free_vec(hdr_slots);
         total_data_bytes = 0u;
+    }
+
+    [[nodiscard]] bool ensure_checksum_kernel() noexcept {
+        std::lock_guard cinit{csum_init_mtx};
+        if (csum_attempted) {
+            return csum_ready;
+        }
+        csum_attempted = true;
+        if (device == nullptr || device->_hip_context == nullptr ||
+            luisa_compute_hip_accel_archive_builtin_size == 0u) {
+            return false;
+        }
+        ScopedHipContext ctx_guard{device->_hip_context};
+        if (hipModuleLoadData(&csum_module, luisa_compute_hip_accel_archive_builtin) != hipSuccess ||
+            csum_module == nullptr) {
+            csum_module = nullptr;
+            return false;
+        }
+        if (hipModuleGetFunction(&csum_fn, csum_module, "accel_archive_checksum") != hipSuccess ||
+            csum_fn == nullptr) {
+            (void)hipModuleUnload(csum_module);
+            csum_module = nullptr;
+            csum_fn = nullptr;
+            return false;
+        }
+        if (hipMalloc(&d_hash, 16u) != hipSuccess || d_hash == nullptr) {
+            (void)hipModuleUnload(csum_module);
+            csum_module = nullptr;
+            csum_fn = nullptr;
+            d_hash = nullptr;
+            return false;
+        }
+        void *h_raw = nullptr;
+        if (hipHostMalloc(&h_raw, 16u, hipHostMallocDefault) != hipSuccess || h_raw == nullptr) {
+            (void)hipFree(d_hash);
+            d_hash = nullptr;
+            (void)hipModuleUnload(csum_module);
+            csum_module = nullptr;
+            csum_fn = nullptr;
+            return false;
+        }
+        h_hash = static_cast<unsigned int *>(h_raw);
+        csum_ready = true;
+        return true;
+    }
+
+    // Caller must hold csum_mtx and have device->_hip_context pushed.
+    [[nodiscard]] bool launch_checksum_locked(
+        hipStream_t stream,
+        hipDeviceptr_t dev_words,
+        uint64_t byte_size,
+        uint32_t start_word) noexcept {
+        if (!csum_ready || byte_size > 0xffff0000ull) {
+            return false;
+        }
+        if (hipMemsetAsync(d_hash, 0, 16u, stream) != hipSuccess) {
+            return false;
+        }
+        const uint64_t total_words_u64 = (byte_size + 3ull) / 4ull;
+        if (total_words_u64 > start_word) {
+            unsigned int total_words = static_cast<unsigned int>(total_words_u64);
+            unsigned int words_todo = total_words - start_word;
+            unsigned int groups = std::min<unsigned int>(2048u, (words_todo + 255u) / 256u);
+            unsigned int rem = static_cast<unsigned int>(byte_size & 3ull);
+            unsigned int tail_mask = (rem != 0u) ? ((1u << (rem * 8u)) - 1u) : 0xffffffffu;
+            unsigned int sw = start_word;
+            void *args[]{&dev_words, &total_words, &tail_mask, &sw, &d_hash};
+            if (hipModuleLaunchKernel(
+                    csum_fn,
+                    groups, 1u, 1u,
+                    256u, 1u, 1u,
+                    0u, stream, args, nullptr) != hipSuccess) {
+                return false;
+            }
+        }
+        return hipMemcpyDtoHAsync(h_hash, d_hash, 16u, stream) == hipSuccess;
     }
 
     void poll_events_locked(luisa::vector<PinnedSlot> &vec) noexcept {
@@ -746,13 +854,31 @@ AccelArchiveResult HIPAccelArchiveExt::export_mesh_archive(
         _impl->release_idle_immediately(_impl->data_slots, rb_tok);
     });
 
+    bool const use_gpu_checksum =
+        hdr.total_size <= 0xffff0000ull &&
+        _impl->ensure_checksum_kernel();
+    bool gpu_csum_launched = false;
     {
+        std::unique_lock csum_lck{_impl->csum_mtx, std::defer_lock};
+        if (use_gpu_checksum) {
+            csum_lck.lock();
+        }
         ScopedHipContext ctx_guard{_device->_hip_context};
-        if (hipMemcpyDtoHAsync(rb_ptr, dev_geom, hdr.total_size, hip_stream) != hipSuccess ||
-            hipStreamSynchronize(hip_stream) != hipSuccess) {
+        if (hipMemcpyDtoHAsync(rb_ptr, dev_geom, hdr.total_size, hip_stream) != hipSuccess) {
             return accel_archive::make_archive_error(
                 AccelArchiveStatus::BACKEND_ERROR,
                 "Failed reading serialized HIPRT geometry from device memory.");
+        }
+        // Hash device-resident words >= 12 (bytes 48..total_size-1) on the GPU concurrently/on-device;
+        // words 0..11 hold device pointers before host relocation below and are folded in 48B CPU check.
+        if (use_gpu_checksum) {
+            gpu_csum_launched = _impl->launch_checksum_locked(
+                hip_stream, dev_geom, hdr.total_size, /*start_word=*/12u);
+        }
+        if (hipStreamSynchronize(hip_stream) != hipSuccess) {
+            return accel_archive::make_archive_error(
+                AccelArchiveStatus::BACKEND_ERROR,
+                "Failed synchronizing HIPRT geometry export stream.");
         }
     }
 
@@ -766,6 +892,30 @@ AccelArchiveResult HIPAccelArchiveExt::export_mesh_archive(
     hdr.box_nodes_offset -= base_ptr;
     hdr.prim_nodes_offset -= base_ptr;
     std::memcpy(rb_ptr, &hdr, sizeof(hdr));
+
+    uint8_t gpu_payload_csum[16]{};
+    bool gpu_csum_valid = false;
+    if (gpu_csum_launched) {
+        uint32_t lanes[4]{};
+        {
+            std::lock_guard csum_lck{_impl->csum_mtx};
+            for (size_t i = 0u; i < 4u; ++i) {
+                lanes[i] = _impl->h_hash[i];
+            }
+        }
+        uint32_t hdr_lanes[4]{};
+        const size_t hdr_prefix_bytes = std::min<size_t>(sizeof(HiprtGeomHeaderLayout), static_cast<size_t>(hdr.total_size));
+        accel_archive::compute_payload_checksum_partial(
+            luisa::span<const std::byte>{rb_ptr, hdr_prefix_bytes},
+            0u,
+            hdr_lanes);
+        lanes[0] += hdr_lanes[0];
+        lanes[1] ^= hdr_lanes[1];
+        lanes[2] += hdr_lanes[2];
+        lanes[3] ^= hdr_lanes[3];
+        accel_archive::finalize_payload_checksum(lanes, hdr.total_size, gpu_payload_csum);
+        gpu_csum_valid = true;
+    }
 
     CompatInfo compat_to_write = _compat;
     compat_to_write.rtip = hdr.rtip;
@@ -785,16 +935,28 @@ AccelArchiveResult HIPAccelArchiveExt::export_mesh_archive(
     }
 
     const bool is_compacted = mesh->is_compacted();
-    auto encode_res = accel_archive::encode_envelope(
-        AccelArchiveBackendKind::HIP,
-        desc,
-        is_compacted,
-        hdr.total_size,
-        luisa::span<const std::byte>{
-            reinterpret_cast<const std::byte *>(&compat_to_write),
-            sizeof(compat_to_write)},
-        payload,
-        out_archive);
+    auto encode_res = gpu_csum_valid ?
+                          accel_archive::encode_envelope_with_payload_checksum(
+                              AccelArchiveBackendKind::HIP,
+                              desc,
+                              is_compacted,
+                              hdr.total_size,
+                              luisa::span<const std::byte>{
+                                  reinterpret_cast<const std::byte *>(&compat_to_write),
+                                  sizeof(compat_to_write)},
+                              payload,
+                              gpu_payload_csum,
+                              out_archive) :
+                          accel_archive::encode_envelope(
+                              AccelArchiveBackendKind::HIP,
+                              desc,
+                              is_compacted,
+                              hdr.total_size,
+                              luisa::span<const std::byte>{
+                                  reinterpret_cast<const std::byte *>(&compat_to_write),
+                                  sizeof(compat_to_write)},
+                              payload,
+                              out_archive);
     if (!encode_res) {
         return encode_res;
     }
@@ -876,7 +1038,11 @@ AccelArchiveResult HIPAccelArchiveExt::import_mesh_archive_with_options(
         view.payload.data(), view.payload.size(), hip_stream, caller_pinned_tok);
 
     if (is_pinned_zero_copy) {
-        if (options.verify_payload_checksum) {
+        const bool use_gpu_verify =
+            options.verify_payload_checksum &&
+            geom_size <= 0xffff0000ull &&
+            _impl->ensure_checksum_kernel();
+        if (options.verify_payload_checksum && !use_gpu_verify) {
             if (auto csum_res = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum);
                 !csum_res) {
                 _impl->release_idle_immediately(_impl->data_slots, caller_pinned_tok);
@@ -914,7 +1080,65 @@ AccelArchiveResult HIPAccelArchiveExt::import_mesh_archive_with_options(
         patched_hdr.prim_nodes_offset += base_addr;
         std::memcpy(hdr_ptr, &patched_hdr, sizeof(patched_hdr));
 
-        {
+        if (use_gpu_verify) {
+            // Stream unpatched payload DMA directly to dev_geom -> verify via GPU compute kernel ->
+            // only if checksum matches, patch the 48-byte device header in place.
+            bool csum_ok = false;
+            {
+                ScopedHipContext ctx_guard{_device->_hip_context};
+                std::lock_guard csum_lck{_impl->csum_mtx};
+                if (hipMemcpyHtoDAsync(
+                        reinterpret_cast<hipDeviceptr_t>(dev_geom),
+                        view.payload.data(),
+                        static_cast<size_t>(geom_size),
+                        hip_stream) == hipSuccess &&
+                    _impl->launch_checksum_locked(
+                        hip_stream, reinterpret_cast<hipDeviceptr_t>(dev_geom), geom_size, 0u) &&
+                    hipStreamSynchronize(hip_stream) == hipSuccess) {
+                    uint32_t lanes[4]{};
+                    for (size_t i = 0u; i < 4u; ++i) {
+                        lanes[i] = _impl->h_hash[i];
+                    }
+                    uint8_t computed[16]{};
+                    accel_archive::finalize_payload_checksum(lanes, geom_size, computed);
+                    csum_ok = std::memcmp(computed, expected_payload_checksum, 16u) == 0;
+                }
+            }
+            _impl->release_idle_immediately(_impl->data_slots, caller_pinned_tok);
+            if (!csum_ok) {
+                {
+                    ScopedHipContext ctx_guard{_device->_hip_context};
+                    (void)hipFree(dev_geom);
+                }
+                _impl->release_idle_immediately(_impl->hdr_slots, hdr_tok);
+                return accel_archive::make_archive_error(
+                    AccelArchiveStatus::CORRUPT_PAYLOAD,
+                    "HIP GPU verification kernel detected corrupt native AS payload.");
+            }
+
+            {
+                ScopedHipContext ctx_guard{_device->_hip_context};
+                if (hipMemcpyHtoDAsync(
+                        reinterpret_cast<hipDeviceptr_t>(dev_geom),
+                        hdr_ptr,
+                        sizeof(HiprtGeomHeaderLayout),
+                        hip_stream) != hipSuccess) {
+                    (void)hipFree(dev_geom);
+                    _impl->release_idle_immediately(_impl->hdr_slots, hdr_tok);
+                    return accel_archive::make_archive_error(
+                        AccelArchiveStatus::BACKEND_ERROR,
+                        "hipMemcpyHtoDAsync failed patching verified HIPRT geometry header.");
+                }
+                _impl->record_stream_event(_impl->hdr_slots, hdr_tok, hip_stream);
+                mesh->replace_geometry_from_archive(
+                    _device->hiprt_context(),
+                    hip_stream,
+                    reinterpret_cast<hiprtGeometry>(dev_geom),
+                    expected_desc.triangle_count,
+                    view.meta.is_compacted,
+                    /*owns_direct_device_geom=*/true);
+            }
+        } else {
             ScopedHipContext ctx_guard{_device->_hip_context};
             const hipError_t e1 = hipMemcpyHtoDAsync(
                 reinterpret_cast<hipDeviceptr_t>(dev_geom),

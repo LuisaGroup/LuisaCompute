@@ -148,6 +148,15 @@ struct CUDAAccelArchiveExt::Impl {
     uint64_t tick{0u};
     uint64_t next_token{0u};
 
+    std::mutex csum_init_mtx;
+    std::mutex csum_mtx;
+    bool csum_attempted{false};
+    bool csum_ready{false};
+    CUmodule csum_module{nullptr};
+    CUfunction csum_fn{nullptr};
+    CUdeviceptr d_hash{0ull};
+    uint32_t *h_hash{nullptr};
+
     explicit Impl(CUDADevice *dev) noexcept : device{dev} {}
 
     ~Impl() noexcept {
@@ -155,6 +164,28 @@ struct CUDAAccelArchiveExt::Impl {
     }
 
     void destroy_all() noexcept {
+        {
+            std::lock_guard cinit{csum_init_mtx};
+            std::lock_guard clock{csum_mtx};
+            if (device != nullptr && (csum_module != nullptr || d_hash != 0ull || h_hash != nullptr)) {
+                device->with_handle([&] {
+                    if (csum_module != nullptr) {
+                        (void)cuModuleUnload(csum_module);
+                        csum_module = nullptr;
+                        csum_fn = nullptr;
+                    }
+                    if (d_hash != 0ull) {
+                        (void)cuMemFree(d_hash);
+                        d_hash = 0ull;
+                    }
+                    if (h_hash != nullptr) {
+                        (void)cuMemFreeHost(h_hash);
+                        h_hash = nullptr;
+                    }
+                });
+            }
+            csum_ready = false;
+        }
         std::lock_guard lck{mtx};
         if (device == nullptr || slots.empty()) {
             slots.clear();
@@ -179,6 +210,220 @@ struct CUDAAccelArchiveExt::Impl {
         });
         slots.clear();
         total_bytes = 0u;
+    }
+
+    [[nodiscard]] bool ensure_checksum_kernel() noexcept {
+        std::lock_guard cinit{csum_init_mtx};
+        if (csum_attempted) {
+            return csum_ready;
+        }
+        csum_attempted = true;
+        if (device == nullptr) {
+            return false;
+        }
+        static constexpr const char kChecksumPtx[] = R"ptx(
+.version 7.0
+.target sm_50
+.address_size 64
+
+.visible .entry accel_archive_checksum(
+    .param .u64 param_words,
+    .param .u32 param_total_words,
+    .param .u32 param_tail_mask,
+    .param .u32 param_start_word,
+    .param .u64 param_out_hash
+)
+{
+    .shared .align 4 .u32 s0[256];
+    .shared .align 4 .u32 s1[256];
+    .shared .align 4 .u32 s2[256];
+    .shared .align 4 .u32 s3[256];
+
+    .reg .pred %p<3>;
+    .reg .u32 %r<36>;
+    .reg .u64 %rd<12>;
+
+    ld.param.u64 %rd0, [param_words];
+    ld.param.u32 %r0, [param_total_words];
+    ld.param.u32 %r1, [param_tail_mask];
+    ld.param.u32 %r2, [param_start_word];
+    ld.param.u64 %rd1, [param_out_hash];
+
+    mov.u32 %r3, %tid.x;
+    mov.u32 %r4, %ctaid.x;
+    mov.u32 %r5, %ntid.x;
+    mov.u32 %r6, %nctaid.x;
+    mad.lo.u32 %r7, %r4, %r5, %r3;
+    add.u32 %r8, %r7, %r2;
+    mul.lo.u32 %r9, %r5, %r6;
+
+    mov.u32 %r10, 0;
+    mov.u32 %r11, 0;
+    mov.u32 %r12, 0;
+    mov.u32 %r13, 0;
+
+$L_loop:
+    setp.ge.u32 %p0, %r8, %r0;
+    @%p0 bra $L_loop_done;
+
+    mul.wide.u32 %rd2, %r8, 4;
+    add.u64 %rd3, %rd0, %rd2;
+    ld.global.u32 %r14, [%rd3];
+
+    add.u32 %r15, %r8, 1;
+    setp.eq.u32 %p1, %r15, %r0;
+    @%p1 and.b32 %r14, %r14, %r1;
+
+    mul.lo.u32 %r16, %r8, 0x9E3779B1;
+    add.u32 %r16, %r16, 0x85EBCA6B;
+    xor.b32 %r17, %r14, %r16;
+    shr.u32 %r18, %r17, 16;
+    xor.b32 %r17, %r17, %r18;
+    mul.lo.u32 %r17, %r17, 0x7FEB352D;
+    shr.u32 %r18, %r17, 15;
+    xor.b32 %r17, %r17, %r18;
+    mul.lo.u32 %r17, %r17, 0x846CA68B;
+    shr.u32 %r18, %r17, 16;
+    xor.b32 %r17, %r17, %r18;
+
+    add.u32 %r19, %r14, 0x27D4EB2D;
+    xor.b32 %r20, %r8, 0xA5A55A5A;
+    mul.lo.u32 %r20, %r20, 0xC2B2AE35;
+    xor.b32 %r21, %r19, %r20;
+    shr.u32 %r22, %r21, 16;
+    xor.b32 %r21, %r21, %r22;
+    mul.lo.u32 %r21, %r21, 0x85EBCA6B;
+    shr.u32 %r22, %r21, 13;
+    xor.b32 %r21, %r21, %r22;
+    mul.lo.u32 %r21, %r21, 0xC2B2AE35;
+    shr.u32 %r22, %r21, 16;
+    xor.b32 %r21, %r21, %r22;
+
+    add.u32 %r10, %r10, %r17;
+    xor.b32 %r11, %r11, %r17;
+    add.u32 %r12, %r12, %r21;
+    xor.b32 %r13, %r13, %r21;
+
+    add.u32 %r8, %r8, %r9;
+    bra $L_loop;
+
+$L_loop_done:
+    mul.wide.u32 %rd4, %r3, 4;
+    mov.u64 %rd5, s0; add.u64 %rd6, %rd5, %rd4; st.shared.u32 [%rd6], %r10;
+    mov.u64 %rd5, s1; add.u64 %rd6, %rd5, %rd4; st.shared.u32 [%rd6], %r11;
+    mov.u64 %rd5, s2; add.u64 %rd6, %rd5, %rd4; st.shared.u32 [%rd6], %r12;
+    mov.u64 %rd5, s3; add.u64 %rd6, %rd5, %rd4; st.shared.u32 [%rd6], %r13;
+    bar.sync 0;
+
+    mov.u32 %r23, 128;
+$L_red:
+    setp.eq.u32 %p0, %r23, 0;
+    @%p0 bra $L_red_done;
+    setp.lt.u32 %p1, %r3, %r23;
+    @!%p1 bra $L_red_skip;
+    add.u32 %r24, %r3, %r23;
+    mul.wide.u32 %rd7, %r24, 4;
+
+    mov.u64 %rd5, s0; add.u64 %rd8, %rd5, %rd4; add.u64 %rd9, %rd5, %rd7;
+    ld.shared.u32 %r25, [%rd8]; ld.shared.u32 %r26, [%rd9]; add.u32 %r25, %r25, %r26; st.shared.u32 [%rd8], %r25;
+
+    mov.u64 %rd5, s1; add.u64 %rd8, %rd5, %rd4; add.u64 %rd9, %rd5, %rd7;
+    ld.shared.u32 %r25, [%rd8]; ld.shared.u32 %r26, [%rd9]; xor.b32 %r25, %r25, %r26; st.shared.u32 [%rd8], %r25;
+
+    mov.u64 %rd5, s2; add.u64 %rd8, %rd5, %rd4; add.u64 %rd9, %rd5, %rd7;
+    ld.shared.u32 %r25, [%rd8]; ld.shared.u32 %r26, [%rd9]; add.u32 %r25, %r25, %r26; st.shared.u32 [%rd8], %r25;
+
+    mov.u64 %rd5, s3; add.u64 %rd8, %rd5, %rd4; add.u64 %rd9, %rd5, %rd7;
+    ld.shared.u32 %r25, [%rd8]; ld.shared.u32 %r26, [%rd9]; xor.b32 %r25, %r25, %r26; st.shared.u32 [%rd8], %r25;
+
+$L_red_skip:
+    bar.sync 0;
+    shr.u32 %r23, %r23, 1;
+    bra $L_red;
+
+$L_red_done:
+    setp.ne.u32 %p0, %r3, 0;
+    @%p0 bra $L_exit;
+    ld.shared.u32 %r27, [s0];
+    ld.shared.u32 %r28, [s1];
+    ld.shared.u32 %r29, [s2];
+    ld.shared.u32 %r30, [s3];
+    atom.global.add.u32 %r31, [%rd1 + 0], %r27;
+    atom.global.xor.b32 %r31, [%rd1 + 4], %r28;
+    atom.global.add.u32 %r31, [%rd1 + 8], %r29;
+    atom.global.xor.b32 %r31, [%rd1 + 12], %r30;
+
+$L_exit:
+    ret;
+}
+)ptx";
+        bool ok = false;
+        device->with_handle([&] {
+            if (cuModuleLoadData(&csum_module, kChecksumPtx) != CUDA_SUCCESS ||
+                csum_module == nullptr) {
+                csum_module = nullptr;
+                return;
+            }
+            if (cuModuleGetFunction(&csum_fn, csum_module, "accel_archive_checksum") != CUDA_SUCCESS ||
+                csum_fn == nullptr) {
+                (void)cuModuleUnload(csum_module);
+                csum_module = nullptr;
+                csum_fn = nullptr;
+                return;
+            }
+            if (cuMemAlloc(&d_hash, 16u) != CUDA_SUCCESS || d_hash == 0ull) {
+                (void)cuModuleUnload(csum_module);
+                csum_module = nullptr;
+                csum_fn = nullptr;
+                d_hash = 0ull;
+                return;
+            }
+            void *h_raw = nullptr;
+            if (cuMemHostAlloc(&h_raw, 16u, CU_MEMHOSTALLOC_PORTABLE) != CUDA_SUCCESS || h_raw == nullptr) {
+                (void)cuMemFree(d_hash);
+                d_hash = 0ull;
+                (void)cuModuleUnload(csum_module);
+                csum_module = nullptr;
+                csum_fn = nullptr;
+                return;
+            }
+            h_hash = static_cast<uint32_t *>(h_raw);
+            ok = true;
+        });
+        csum_ready = ok;
+        return ok;
+    }
+
+    // Caller must hold csum_mtx and execute inside device->with_handle().
+    [[nodiscard]] bool launch_checksum_locked_ctx(
+        CUstream stream,
+        CUdeviceptr dev_words,
+        uint64_t byte_size,
+        uint32_t start_word) noexcept {
+        if (!csum_ready || byte_size > 0xffff0000ull) {
+            return false;
+        }
+        if (cuMemsetD32Async(d_hash, 0u, 4u, stream) != CUDA_SUCCESS) {
+            return false;
+        }
+        const uint64_t total_words_u64 = (byte_size + 3ull) / 4ull;
+        if (total_words_u64 > start_word) {
+            uint32_t total_words = static_cast<uint32_t>(total_words_u64);
+            uint32_t words_todo = total_words - start_word;
+            uint32_t groups = std::min<uint32_t>(2048u, (words_todo + 255u) / 256u);
+            uint32_t rem = static_cast<uint32_t>(byte_size & 3ull);
+            uint32_t tail_mask = (rem != 0u) ? ((1u << (rem * 8u)) - 1u) : 0xffffffffu;
+            uint32_t sw = start_word;
+            void *params[]{&dev_words, &total_words, &tail_mask, &sw, &d_hash};
+            if (cuLaunchKernel(
+                    csum_fn,
+                    groups, 1u, 1u,
+                    256u, 1u, 1u,
+                    0u, stream, params, nullptr) != CUDA_SUCCESS) {
+                return false;
+            }
+        }
+        return cuMemcpyDtoHAsync(h_hash, d_hash, 16u, stream) == CUDA_SUCCESS;
     }
 
     void poll_events_locked() noexcept {
@@ -613,6 +858,13 @@ AccelArchiveResult CUDAAccelArchiveExt::export_mesh_archive(
         dst_host = pageable_fallback.data();
     }
 
+    uint8_t gpu_payload_csum[16]{};
+    bool gpu_csum_valid = false;
+    const bool try_gpu_checksum =
+        _impl &&
+        snapshot.bvh_active_size <= 0xffff0000ull &&
+        _impl->ensure_checksum_kernel();
+
     const auto cuda_or_optix_res = _device->with_handle([&]() -> AccelArchiveResult {
         const OptixResult info_err = optix::api().optixAccelGetRelocationInfo(
             _device->handle().optix_context(),
@@ -623,6 +875,33 @@ AccelArchiveResult CUDAAccelArchiveExt::export_mesh_archive(
                 AccelArchiveStatus::BACKEND_ERROR,
                 info_err,
                 "optixAccelGetRelocationInfo failed");
+        }
+        const auto cuda_stream = stream->handle();
+        if (try_gpu_checksum) {
+            std::lock_guard csum_lck{_impl->csum_mtx};
+            const CUresult copy_err = cuMemcpyDtoHAsync(
+                dst_host,
+                snapshot.bvh_buffer_handle,
+                snapshot.bvh_active_size,
+                cuda_stream);
+            if (copy_err != CUDA_SUCCESS) {
+                return make_cuda_error(copy_err, "cuMemcpyDtoHAsync failed reading CUDA/OptiX GAS");
+            }
+            const bool launched = _impl->launch_checksum_locked_ctx(
+                cuda_stream, snapshot.bvh_buffer_handle, snapshot.bvh_active_size, 0u);
+            const CUresult sync_err = cuStreamSynchronize(cuda_stream);
+            if (sync_err != CUDA_SUCCESS) {
+                return make_cuda_error(sync_err, "cuStreamSynchronize failed during CUDA/OptiX GAS export");
+            }
+            if (launched) {
+                uint32_t lanes[4]{};
+                for (size_t i = 0u; i < 4u; ++i) {
+                    lanes[i] = _impl->h_hash[i];
+                }
+                accel_archive::finalize_payload_checksum(lanes, snapshot.bvh_active_size, gpu_payload_csum);
+                gpu_csum_valid = true;
+            }
+            return {};
         }
         const CUresult copy_err = cuMemcpyDtoH(
             dst_host,
@@ -650,14 +929,24 @@ AccelArchiveResult CUDAAccelArchiveExt::export_mesh_archive(
     std::memcpy(compat_blob.relocation_info, reloc_info.info, sizeof(compat_blob.relocation_info));
 
     const auto encoded_compat = encode_cuda_optix_compat_blob(compat_blob);
-    auto encode_res = accel_archive::encode_envelope(
-        AccelArchiveBackendKind::CUDA,
-        desc,
-        snapshot.is_compacted,
-        compat_blob.active_bvh_bytes,
-        encoded_compat,
-        payload,
-        out_archive);
+    auto encode_res = gpu_csum_valid ?
+                          accel_archive::encode_envelope_with_payload_checksum(
+                              AccelArchiveBackendKind::CUDA,
+                              desc,
+                              snapshot.is_compacted,
+                              compat_blob.active_bvh_bytes,
+                              encoded_compat,
+                              payload,
+                              gpu_payload_csum,
+                              out_archive) :
+                          accel_archive::encode_envelope(
+                              AccelArchiveBackendKind::CUDA,
+                              desc,
+                              snapshot.is_compacted,
+                              compat_blob.active_bvh_bytes,
+                              encoded_compat,
+                              payload,
+                              out_archive);
     if (!encode_res) {
         return encode_res;
     }
@@ -745,9 +1034,14 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive_with_options(
     const std::byte *htod_src = view.payload.data();
     std::byte *pooled_ptr = nullptr;
     size_t pooled_cap = 0u;
+    bool use_gpu_verify = false;
 
     if (is_pinned_zero_copy) {
-        if (options.verify_payload_checksum) {
+        use_gpu_verify =
+            options.verify_payload_checksum &&
+            gas_bytes <= 0xffff0000ull &&
+            _impl->ensure_checksum_kernel();
+        if (options.verify_payload_checksum && !use_gpu_verify) {
             if (auto p = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum); !p) {
                 _impl->release_idle(pinned_tok);
                 return p;
@@ -804,7 +1098,32 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive_with_options(
             return make_cuda_error(htod_err, "cuMemcpyHtoDAsync failed uploading OptiX GAS payload");
         }
 
-        if (pinned_tok != 0u && _impl) {
+        if (use_gpu_verify) {
+            bool csum_ok = false;
+            {
+                std::lock_guard csum_lck{_impl->csum_mtx};
+                if (_impl->launch_checksum_locked_ctx(cuda_stream, target_bvh, gas_bytes, 0u) &&
+                    cuStreamSynchronize(cuda_stream) == CUDA_SUCCESS) {
+                    uint32_t lanes[4]{};
+                    for (size_t i = 0u; i < 4u; ++i) {
+                        lanes[i] = _impl->h_hash[i];
+                    }
+                    uint8_t computed[16]{};
+                    accel_archive::finalize_payload_checksum(lanes, gas_bytes, computed);
+                    csum_ok = std::memcmp(computed, expected_payload_checksum, 16u) == 0;
+                }
+            }
+            if (pinned_tok != 0u && _impl) {
+                _impl->release_idle(pinned_tok);
+                pinned_tok = 0u;
+            }
+            if (!csum_ok) {
+                free_on_failure();
+                return accel_archive::make_archive_error(
+                    AccelArchiveStatus::CORRUPT_PAYLOAD,
+                    "CUDA GPU verification kernel detected corrupt native GAS payload.");
+            }
+        } else if (pinned_tok != 0u && _impl) {
             _impl->record_stream_event_locked_ctx(pinned_tok, cuda_stream);
         }
 

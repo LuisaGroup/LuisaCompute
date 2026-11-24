@@ -1,5 +1,6 @@
 #include <DXApi/dx_accel_archive_ext.h>
 
+#include "../../common/hlsl/shader_compiler.h"
 #include <DXApi/LCCmdBuffer.h>
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/CommandAllocator.h>
@@ -481,6 +482,16 @@ struct DxAccelArchiveExt::Impl {
     Microsoft::WRL::ComPtr<ID3D12Resource> export_info_uav;
     Microsoft::WRL::ComPtr<ID3D12Resource> export_info_rb;
 
+    std::mutex csum_init_mtx;
+    std::mutex csum_mtx;
+    bool csum_attempted{false};
+    bool csum_ready{false};
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> csum_rs;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> csum_pso;
+    Microsoft::WRL::ComPtr<ID3D12Resource> csum_zero_up;
+    Microsoft::WRL::ComPtr<ID3D12Resource> csum_uav;
+    Microsoft::WRL::ComPtr<ID3D12Resource> csum_rb;
+
     std::shared_ptr<DxBufferPool> gpu_upload_pool;
     std::shared_ptr<DxBufferPool> pinned_cached_pool;
     std::shared_ptr<DxBufferPool> vram_staging_pool;
@@ -495,6 +506,11 @@ struct DxAccelArchiveExt::Impl {
           export_rb_pool{std::make_shared<DxBufferPool>(native_dev, DxPoolKind::ExportReadback, gpu_upload_supported)} {}
 
     ~Impl() noexcept {
+        csum_rb.Reset();
+        csum_uav.Reset();
+        csum_zero_up.Reset();
+        csum_pso.Reset();
+        csum_rs.Reset();
         export_info_rb.Reset();
         export_info_uav.Reset();
         gpu_upload_pool.reset();
@@ -505,6 +521,282 @@ struct DxAccelArchiveExt::Impl {
         ds_queue.Reset();
         ds_fence.Reset();
         ds_factory.Reset();
+    }
+
+    [[nodiscard]] bool ensure_checksum_kernel(Device *dev) noexcept {
+        std::lock_guard init_lck{csum_init_mtx};
+        if (csum_attempted) return csum_ready;
+        csum_attempted = true;
+        auto *comp = Device::compiler();
+        if (comp == nullptr || dev == nullptr || dev->device == nullptr) {
+            return false;
+        }
+        static constexpr vstd::string_view kHlsl = R"(
+cbuffer Params : register(b0) {
+    uint total_words;
+    uint tail_mask;
+    uint base_byte_offset;
+    uint start_word;
+    uint grid_stride;
+};
+ByteAddressBuffer src_buf : register(t0);
+RWByteAddressBuffer out_hash : register(u0);
+groupshared uint s0[256];
+groupshared uint s1[256];
+groupshared uint s2[256];
+groupshared uint s3[256];
+
+[numthreads(256, 1, 1)]
+void main(uint3 gtid : SV_GroupThreadID, uint3 dtid : SV_DispatchThreadID) {
+    uint a0 = 0u;
+    uint a1 = 0u;
+    uint a2 = 0u;
+    uint a3 = 0u;
+    for (uint idx = start_word + dtid.x; idx < total_words; idx += grid_stride) {
+        uint w = src_buf.Load(base_byte_offset + idx * 4u);
+        if (idx + 1u == total_words) {
+            w &= tail_mask;
+        }
+        uint x = w ^ (idx * 0x9E3779B1u + 0x85EBCA6Bu);
+        x ^= (x >> 16u);
+        x *= 0x7FEB352Du;
+        x ^= (x >> 15u);
+        x *= 0x846CA68Bu;
+        x ^= (x >> 16u);
+
+        uint y = (w + 0x27D4EB2Du) ^ ((idx ^ 0xA5A55A5Au) * 0xC2B2AE35u);
+        y ^= (y >> 16u);
+        y *= 0x85EBCA6Bu;
+        y ^= (y >> 13u);
+        y *= 0xC2B2AE35u;
+        y ^= (y >> 16u);
+
+        a0 += x;
+        a1 ^= x;
+        a2 += y;
+        a3 ^= y;
+    }
+    uint tid = gtid.x;
+    s0[tid] = a0;
+    s1[tid] = a1;
+    s2[tid] = a2;
+    s3[tid] = a3;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            s0[tid] += s0[tid + stride];
+            s1[tid] ^= s1[tid + stride];
+            s2[tid] += s2[tid + stride];
+            s3[tid] ^= s3[tid + stride];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (tid == 0u) {
+        uint unused_val = 0u;
+        out_hash.InterlockedAdd(0u, s0[0], unused_val);
+        out_hash.InterlockedXor(4u, s1[0], unused_val);
+        out_hash.InterlockedAdd(8u, s2[0], unused_val);
+        out_hash.InterlockedXor(12u, s3[0], unused_val);
+    }
+}
+)";
+        auto comp_res = comp->compile_compute(
+            kHlsl,
+            /*optimize=*/true,
+            /*shaderModel=*/60u,
+            /*enableUnsafeMath=*/false,
+            /*spirv=*/false,
+            /*debug=*/false);
+        hlsl::ComUniquePtr<IDxcBlob> dxil_blob;
+        bool compile_ok = false;
+        comp_res.visit([&](auto &&arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, hlsl::ComUniquePtr<IDxcBlob>>) {
+                dxil_blob = std::move(arg);
+                compile_ok = static_cast<bool>(dxil_blob);
+            }
+        });
+        if (!compile_ok || !dxil_blob) {
+            return false;
+        }
+
+        D3D12_ROOT_PARAMETER root_params[3]{};
+        root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        root_params[0].Constants.ShaderRegister = 0u;
+        root_params[0].Constants.RegisterSpace = 0u;
+        root_params[0].Constants.Num32BitValues = 5u;
+        root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+        root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        root_params[1].Descriptor.ShaderRegister = 0u;
+        root_params[1].Descriptor.RegisterSpace = 0u;
+        root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+        root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        root_params[2].Descriptor.ShaderRegister = 0u;
+        root_params[2].Descriptor.RegisterSpace = 0u;
+        root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+        D3D12_ROOT_SIGNATURE_DESC rs_desc{};
+        rs_desc.NumParameters = 3u;
+        rs_desc.pParameters = root_params;
+        rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+        ComPtr<ID3DBlob> sig_blob;
+        ComPtr<ID3DBlob> err_blob;
+        if (FAILED(D3D12SerializeRootSignature(
+                &rs_desc, D3D_ROOT_SIGNATURE_VERSION_1, &sig_blob, &err_blob)) ||
+            !sig_blob) {
+            return false;
+        }
+        if (FAILED(dev->device->CreateRootSignature(
+                0u, sig_blob->GetBufferPointer(), sig_blob->GetBufferSize(),
+                IID_PPV_ARGS(&csum_rs))) ||
+            !csum_rs) {
+            return false;
+        }
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc{};
+        pso_desc.pRootSignature = csum_rs.Get();
+        pso_desc.CS.pShaderBytecode = dxil_blob->GetBufferPointer();
+        pso_desc.CS.BytecodeLength = dxil_blob->GetBufferSize();
+        if (FAILED(dev->device->CreateComputePipelineState(&pso_desc, IID_PPV_ARGS(&csum_pso))) ||
+            !csum_pso) {
+            csum_rs.Reset();
+            return false;
+        }
+
+        bool const enhanced = dev->feature_check.enhanced_barriers_supported();
+        auto const init_uav = enhanced ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        auto const desc_plain = CD3DX12_RESOURCE_DESC::Buffer(256u, D3D12_RESOURCE_FLAG_NONE);
+        auto const desc_uav = CD3DX12_RESOURCE_DESC::Buffer(256u, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        auto const hp_up = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+        auto const hp_def = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+        auto const hp_rb = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK);
+        if (FAILED(dev->device->CreateCommittedResource(
+                &hp_up, D3D12_HEAP_FLAG_NONE, &desc_plain,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&csum_zero_up))) ||
+            FAILED(dev->device->CreateCommittedResource(
+                &hp_def, D3D12_HEAP_FLAG_NONE, &desc_uav,
+                init_uav, nullptr, IID_PPV_ARGS(&csum_uav))) ||
+            FAILED(dev->device->CreateCommittedResource(
+                &hp_rb, D3D12_HEAP_FLAG_NONE, &desc_plain,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&csum_rb)))) {
+            csum_zero_up.Reset();
+            csum_uav.Reset();
+            csum_rb.Reset();
+            csum_pso.Reset();
+            csum_rs.Reset();
+            return false;
+        }
+        void *zero_mapped = nullptr;
+        D3D12_RANGE empty_read{0, 0};
+        if (FAILED(csum_zero_up->Map(0, &empty_read, &zero_mapped)) || zero_mapped == nullptr) {
+            csum_zero_up.Reset();
+            csum_uav.Reset();
+            csum_rb.Reset();
+            csum_pso.Reset();
+            csum_rs.Reset();
+            return false;
+        }
+        std::memset(zero_mapped, 0, 256u);
+        D3D12_RANGE wrote_range{0, 256u};
+        csum_zero_up->Unmap(0, &wrote_range);
+
+        csum_ready = true;
+        return true;
+    }
+
+    // Caller must hold csum_mtx and guarantee src_gpu_va is in SHADER_RESOURCE state.
+    void record_checksum_dispatch(
+        Device *dev,
+        CommandBufferBuilder &builder,
+        ID3D12GraphicsCommandList *cmdlist,
+        D3D12_GPU_VIRTUAL_ADDRESS src_gpu_va,
+        uint32_t base_byte_offset,
+        uint64_t byte_size,
+        uint32_t start_word) const {
+        bool const enhanced = dev->feature_check.enhanced_barriers_supported();
+        auto const post_state = enhanced ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        emit_resource_barrier(
+            dev, builder, csum_uav.Get(),
+            D3D12_BARRIER_SYNC_NONE,
+            D3D12_BARRIER_SYNC_COPY,
+            D3D12_BARRIER_ACCESS_COMMON,
+            D3D12_BARRIER_ACCESS_COPY_DEST,
+            post_state,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        cmdlist->CopyBufferRegion(csum_uav.Get(), 0u, csum_zero_up.Get(), 0u, 16u);
+
+        uint64_t const total_words_u64 = (byte_size + 3ull) / 4ull;
+        if (total_words_u64 > start_word) {
+            uint32_t const total_words = static_cast<uint32_t>(total_words_u64);
+            uint32_t const words_todo = total_words - start_word;
+            uint32_t const groups = std::min<uint32_t>(2048u, (words_todo + 255u) / 256u);
+            uint32_t const rem = static_cast<uint32_t>(byte_size & 3ull);
+            uint32_t const tail_mask = (rem != 0u) ? ((1u << (rem * 8u)) - 1u) : 0xffffffffu;
+            uint32_t const root_consts[5]{
+                total_words,
+                tail_mask,
+                base_byte_offset,
+                start_word,
+                groups * 256u};
+
+            emit_resource_barrier(
+                dev, builder, csum_uav.Get(),
+                D3D12_BARRIER_SYNC_COPY,
+                D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                D3D12_BARRIER_ACCESS_COPY_DEST,
+                D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            cmdlist->SetComputeRootSignature(csum_rs.Get());
+            cmdlist->SetPipelineState(csum_pso.Get());
+            cmdlist->SetComputeRoot32BitConstants(0u, 5u, root_consts, 0u);
+            cmdlist->SetComputeRootShaderResourceView(1u, src_gpu_va);
+            cmdlist->SetComputeRootUnorderedAccessView(2u, csum_uav->GetGPUVirtualAddress());
+            cmdlist->Dispatch(groups, 1u, 1u);
+            emit_resource_barrier(
+                dev, builder, csum_uav.Get(),
+                D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                D3D12_BARRIER_SYNC_COPY,
+                D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+                D3D12_BARRIER_ACCESS_COPY_SOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+        } else {
+            emit_resource_barrier(
+                dev, builder, csum_uav.Get(),
+                D3D12_BARRIER_SYNC_COPY,
+                D3D12_BARRIER_SYNC_COPY,
+                D3D12_BARRIER_ACCESS_COPY_DEST,
+                D3D12_BARRIER_ACCESS_COPY_SOURCE,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+        }
+
+        cmdlist->CopyBufferRegion(csum_rb.Get(), 0u, csum_uav.Get(), 0u, 16u);
+        emit_resource_barrier(
+            dev, builder, csum_uav.Get(),
+            D3D12_BARRIER_SYNC_COPY,
+            D3D12_BARRIER_SYNC_NONE,
+            D3D12_BARRIER_ACCESS_COPY_SOURCE,
+            D3D12_BARRIER_ACCESS_COMMON,
+            D3D12_RESOURCE_STATE_COPY_SOURCE,
+            post_state);
+    }
+
+    [[nodiscard]] bool read_checksum_lanes(uint32_t (&out_lanes)[4]) noexcept {
+        void *mapped = nullptr;
+        D3D12_RANGE rr{0, 16};
+        if (FAILED(csum_rb->Map(0, &rr, &mapped)) || mapped == nullptr) {
+            return false;
+        }
+        std::memcpy(out_lanes, mapped, 16u);
+        D3D12_RANGE empty_write{0, 0};
+        csum_rb->Unmap(0, &empty_write);
+        return true;
     }
 
     [[nodiscard]] bool ensure_export_info_buffers(Device *dev) noexcept {
@@ -902,7 +1194,7 @@ AccelArchiveResult DxAccelArchiveExt::export_mesh_archive(
                 ser_desc.SerializedSizeInBytes, ser_desc.NumBottomLevelAccelerationStructurePointers));
     }
 
-    // Pass 2: Serialize BLAS into pooled GPU UAV buffer -> pooled Readback buffer.
+    // Pass 2: Serialize BLAS into pooled GPU UAV buffer -> GPU checksum + pooled Readback buffer.
     auto const aligned_ser_size = CalcAlign(ser_desc.SerializedSizeInBytes, 256u);
     DxBufferPool::Acquisition ser_uav_acq{};
     DxBufferPool::Acquisition ser_rb_acq{};
@@ -923,7 +1215,17 @@ AccelArchiveResult DxAccelArchiveExt::export_mesh_archive(
         _impl->export_rb_pool->release_gpu_by_token(ser_rb_acq.token);
     });
 
+    bool const use_gpu_checksum =
+        ser_desc.SerializedSizeInBytes <= 0xffff0000ull &&
+        _impl->ensure_checksum_kernel(&native_dev);
+    uint8_t gpu_payload_csum[16]{};
+    bool gpu_csum_valid = false;
+
     {
+        std::unique_lock csum_lck{_impl->csum_mtx, std::defer_lock};
+        if (use_gpu_checksum) {
+            csum_lck.lock();
+        }
         auto allocator = cmd_buf->queue.create_allocator(0);
         auto *cmd_buffer = allocator->get_buffer();
         {
@@ -941,29 +1243,63 @@ AccelArchiveResult DxAccelArchiveExt::export_mesh_archive(
                 ser_uav_acq.gpu_va,
                 blas_va,
                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_SERIALIZE);
-            emit_resource_barrier(
-                &native_dev, builder, ser_uav_acq.resource,
-                D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
-                D3D12_BARRIER_SYNC_COPY,
-                D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
-                D3D12_BARRIER_ACCESS_COPY_SOURCE,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                D3D12_RESOURCE_STATE_COPY_SOURCE);
-            cmdlist->CopyBufferRegion(
-                ser_rb_acq.resource, 0u,
-                ser_uav_acq.resource, 0u,
-                ser_desc.SerializedSizeInBytes);
-            emit_resource_barrier(
-                &native_dev, builder, ser_uav_acq.resource,
-                D3D12_BARRIER_SYNC_COPY,
-                D3D12_BARRIER_SYNC_NONE,
-                D3D12_BARRIER_ACCESS_COPY_SOURCE,
-                D3D12_BARRIER_ACCESS_COMMON,
-                D3D12_RESOURCE_STATE_COPY_SOURCE,
-                enhanced ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            if (use_gpu_checksum) {
+                emit_resource_barrier(
+                    &native_dev, builder, ser_uav_acq.resource,
+                    D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                    D3D12_BARRIER_SYNC_COPY | D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                    D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+                    D3D12_BARRIER_ACCESS_COPY_SOURCE | D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                cmdlist->CopyBufferRegion(
+                    ser_rb_acq.resource, 0u,
+                    ser_uav_acq.resource, 0u,
+                    ser_desc.SerializedSizeInBytes);
+                _impl->record_checksum_dispatch(
+                    &native_dev, builder, cmdlist,
+                    ser_uav_acq.gpu_va, 0u, ser_desc.SerializedSizeInBytes, 0u);
+                emit_resource_barrier(
+                    &native_dev, builder, ser_uav_acq.resource,
+                    D3D12_BARRIER_SYNC_COPY | D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                    D3D12_BARRIER_SYNC_NONE,
+                    D3D12_BARRIER_ACCESS_COPY_SOURCE | D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                    D3D12_BARRIER_ACCESS_COMMON,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                    enhanced ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            } else {
+                emit_resource_barrier(
+                    &native_dev, builder, ser_uav_acq.resource,
+                    D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                    D3D12_BARRIER_SYNC_COPY,
+                    D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+                    D3D12_BARRIER_ACCESS_COPY_SOURCE,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+                cmdlist->CopyBufferRegion(
+                    ser_rb_acq.resource, 0u,
+                    ser_uav_acq.resource, 0u,
+                    ser_desc.SerializedSizeInBytes);
+                emit_resource_barrier(
+                    &native_dev, builder, ser_uav_acq.resource,
+                    D3D12_BARRIER_SYNC_COPY,
+                    D3D12_BARRIER_SYNC_NONE,
+                    D3D12_BARRIER_ACCESS_COPY_SOURCE,
+                    D3D12_BARRIER_ACCESS_COMMON,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    enhanced ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            }
         }
         cmd_buf->queue.execute(std::move(allocator), {}, {}, false);
         cmd_buf->queue.complete();
+
+        if (use_gpu_checksum) {
+            uint32_t lanes[4]{};
+            if (_impl->read_checksum_lanes(lanes)) {
+                accel_archive::finalize_payload_checksum(lanes, ser_desc.SerializedSizeInBytes, gpu_payload_csum);
+                gpu_csum_valid = true;
+            }
+        }
     }
 
     void *rb_mapped = nullptr;
@@ -995,16 +1331,28 @@ AccelArchiveResult DxAccelArchiveExt::export_mesh_archive(
     luisa::span<const std::byte> payload_span{
         static_cast<const std::byte *>(rb_mapped),
         ser_desc.SerializedSizeInBytes};
-    auto encode_res = accel_archive::encode_envelope(
-        AccelArchiveBackendKind::DX,
-        desc,
-        is_compacted,
-        hdr.DeserializedSizeInBytes,
-        luisa::span<const std::byte>{
-            reinterpret_cast<const std::byte *>(&compat_to_write),
-            sizeof(compat_to_write)},
-        payload_span,
-        out_archive);
+    auto encode_res = gpu_csum_valid ?
+                          accel_archive::encode_envelope_with_payload_checksum(
+                              AccelArchiveBackendKind::DX,
+                              desc,
+                              is_compacted,
+                              hdr.DeserializedSizeInBytes,
+                              luisa::span<const std::byte>{
+                                  reinterpret_cast<const std::byte *>(&compat_to_write),
+                                  sizeof(compat_to_write)},
+                              payload_span,
+                              gpu_payload_csum,
+                              out_archive) :
+                          accel_archive::encode_envelope(
+                              AccelArchiveBackendKind::DX,
+                              desc,
+                              is_compacted,
+                              hdr.DeserializedSizeInBytes,
+                              luisa::span<const std::byte>{
+                                  reinterpret_cast<const std::byte *>(&compat_to_write),
+                                  sizeof(compat_to_write)},
+                              payload_span,
+                              out_archive);
     if (!encode_res) {
         return encode_res;
     }
@@ -1091,7 +1439,11 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_with_options(
         view.payload.data(), payload_size, caller_pinned, caller_offset);
 
     if (is_pinned_zero_copy) {
-        if (options.verify_payload_checksum) {
+        bool const use_gpu_verify =
+            options.verify_payload_checksum &&
+            payload_size <= 0xffff0000ull &&
+            _impl->ensure_checksum_kernel(&native_dev);
+        if (options.verify_payload_checksum && !use_gpu_verify) {
             auto csum_res = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum);
             if (!csum_res) {
                 _impl->pinned_cached_pool->release_gpu_by_token(caller_pinned.token);
@@ -1099,7 +1451,7 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_with_options(
             }
         }
 
-        // CopyBufferRegion SDMA from pinned L0 -> VRAM DEFAULT staging -> DESERIALIZE.
+        // CopyBufferRegion SDMA from pinned L0 -> VRAM DEFAULT staging -> (optional GPU verify) -> DESERIALIZE.
         DxBufferPool::Acquisition vram_acq{};
         if (!_impl->vram_staging_pool->acquire(payload_size, false, vram_acq)) {
             _impl->pinned_cached_pool->release_gpu_by_token(caller_pinned.token);
@@ -1108,70 +1460,176 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_with_options(
                 "Failed to acquire DX12 VRAM staging buffer for pinned import.");
         }
 
-        auto allocator = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
-        auto new_accel_buf = vstd::create_unique(new DefaultBuffer(
-            &native_dev,
-            CalcAlign(deserialized_size, 65536u),
-            native_dev.default_allocator.get(),
-            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-            false,
-            "blas-accel-buffer"));
+        if (use_gpu_verify) {
+            bool csum_ok = false;
+            {
+                std::lock_guard csum_lck{_impl->csum_mtx};
+                auto verify_alloc = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
+                {
+                    auto *cmd_buffer = verify_alloc->get_buffer();
+                    auto builder = cmd_buffer->build();
+                    auto *cmdlist = builder.get_cb()->cmd_list();
+                    emit_resource_barrier(
+                        &native_dev, builder, vram_acq.resource,
+                        D3D12_BARRIER_SYNC_NONE,
+                        D3D12_BARRIER_SYNC_COPY,
+                        D3D12_BARRIER_ACCESS_COMMON,
+                        D3D12_BARRIER_ACCESS_COPY_DEST,
+                        D3D12_RESOURCE_STATE_COMMON,
+                        D3D12_RESOURCE_STATE_COPY_DEST);
+                    cmdlist->CopyBufferRegion(
+                        vram_acq.resource, 0u,
+                        caller_pinned.resource, caller_offset,
+                        payload_size);
+                    emit_resource_barrier(
+                        &native_dev, builder, vram_acq.resource,
+                        D3D12_BARRIER_SYNC_COPY,
+                        D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                        D3D12_BARRIER_ACCESS_COPY_DEST,
+                        D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                        D3D12_RESOURCE_STATE_COPY_DEST,
+                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    _impl->record_checksum_dispatch(
+                        &native_dev, builder, cmdlist,
+                        vram_acq.gpu_va, 0u, payload_size, 0u);
+                    emit_resource_barrier(
+                        &native_dev, builder, vram_acq.resource,
+                        D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                        D3D12_BARRIER_SYNC_ALL,
+                        D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                        D3D12_BARRIER_ACCESS_COMMON,
+                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                        D3D12_RESOURCE_STATE_COMMON);
+                }
+                cmd_buf->queue.execute(std::move(verify_alloc), {}, {}, false);
+                cmd_buf->queue.complete();
+                uint32_t lanes[4]{};
+                if (_impl->read_checksum_lanes(lanes)) {
+                    uint8_t computed[16]{};
+                    accel_archive::finalize_payload_checksum(lanes, payload_size, computed);
+                    csum_ok = std::memcmp(computed, expected_payload_checksum, 16u) == 0;
+                }
+            }
+            _impl->pinned_cached_pool->release_gpu_by_token(caller_pinned.token);
+            if (!csum_ok) {
+                _impl->vram_staging_pool->release_gpu_by_token(vram_acq.token);
+                return accel_archive::make_archive_error(
+                    AccelArchiveStatus::CORRUPT_PAYLOAD,
+                    "DX12 GPU verification kernel detected corrupt native AS payload.");
+            }
 
-        {
-            auto *cmd_buffer = allocator->get_buffer();
-            auto builder = cmd_buffer->build();
-            auto *cmdlist = builder.get_cb()->cmd_list();
-            emit_resource_barrier(
-                &native_dev, builder, vram_acq.resource,
-                D3D12_BARRIER_SYNC_NONE,
-                D3D12_BARRIER_SYNC_COPY,
-                D3D12_BARRIER_ACCESS_COMMON,
-                D3D12_BARRIER_ACCESS_COPY_DEST,
-                D3D12_RESOURCE_STATE_COMMON,
-                D3D12_RESOURCE_STATE_COPY_DEST);
-            cmdlist->CopyBufferRegion(
-                vram_acq.resource, 0u,
-                caller_pinned.resource, caller_offset,
-                payload_size);
-            emit_resource_barrier(
-                &native_dev, builder, vram_acq.resource,
-                D3D12_BARRIER_SYNC_COPY,
-                D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
-                D3D12_BARRIER_ACCESS_COPY_DEST,
-                D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
-                D3D12_RESOURCE_STATE_COPY_DEST,
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            cmdlist->CopyRaytracingAccelerationStructure(
-                new_accel_buf->GetAddress(),
-                vram_acq.gpu_va,
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE);
-            BottomAccel::EmitPostCopyBarrier(builder, new_accel_buf.get());
-            emit_resource_barrier(
-                &native_dev, builder, vram_acq.resource,
-                D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
-                D3D12_BARRIER_SYNC_ALL,
-                D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
-                D3D12_BARRIER_ACCESS_COMMON,
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                D3D12_RESOURCE_STATE_COMMON);
+            auto allocator = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
+            auto new_accel_buf = vstd::create_unique(new DefaultBuffer(
+                &native_dev,
+                CalcAlign(deserialized_size, 65536u),
+                native_dev.default_allocator.get(),
+                D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                false,
+                "blas-accel-buffer"));
+            {
+                auto *cmd_buffer = allocator->get_buffer();
+                auto builder = cmd_buffer->build();
+                auto *cmdlist = builder.get_cb()->cmd_list();
+                emit_resource_barrier(
+                    &native_dev, builder, vram_acq.resource,
+                    D3D12_BARRIER_SYNC_ALL,
+                    D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                    D3D12_BARRIER_ACCESS_COMMON,
+                    D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_COMMON,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                cmdlist->CopyRaytracingAccelerationStructure(
+                    new_accel_buf->GetAddress(),
+                    vram_acq.gpu_va,
+                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE);
+                BottomAccel::EmitPostCopyBarrier(builder, new_accel_buf.get());
+                emit_resource_barrier(
+                    &native_dev, builder, vram_acq.resource,
+                    D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                    D3D12_BARRIER_SYNC_ALL,
+                    D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                    D3D12_BARRIER_ACCESS_COMMON,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_COMMON);
+            }
+            blas->ReplaceFromArchive(
+                allocator.get(),
+                std::move(new_accel_buf),
+                deserialized_size,
+                view.meta.is_compacted,
+                expected_desc.triangle_count);
+            allocator->execute_after_complete([
+                                                  vram_pool = _impl->vram_staging_pool,
+                                                  vram_tok = vram_acq.token]() noexcept {
+                vram_pool->release_gpu_by_token(vram_tok);
+            });
+            cmd_buf->queue.execute(std::move(allocator), {}, {}, false);
+        } else {
+            auto allocator = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
+            auto new_accel_buf = vstd::create_unique(new DefaultBuffer(
+                &native_dev,
+                CalcAlign(deserialized_size, 65536u),
+                native_dev.default_allocator.get(),
+                D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                false,
+                "blas-accel-buffer"));
+
+            {
+                auto *cmd_buffer = allocator->get_buffer();
+                auto builder = cmd_buffer->build();
+                auto *cmdlist = builder.get_cb()->cmd_list();
+                emit_resource_barrier(
+                    &native_dev, builder, vram_acq.resource,
+                    D3D12_BARRIER_SYNC_NONE,
+                    D3D12_BARRIER_SYNC_COPY,
+                    D3D12_BARRIER_ACCESS_COMMON,
+                    D3D12_BARRIER_ACCESS_COPY_DEST,
+                    D3D12_RESOURCE_STATE_COMMON,
+                    D3D12_RESOURCE_STATE_COPY_DEST);
+                cmdlist->CopyBufferRegion(
+                    vram_acq.resource, 0u,
+                    caller_pinned.resource, caller_offset,
+                    payload_size);
+                emit_resource_barrier(
+                    &native_dev, builder, vram_acq.resource,
+                    D3D12_BARRIER_SYNC_COPY,
+                    D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                    D3D12_BARRIER_ACCESS_COPY_DEST,
+                    D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_COPY_DEST,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                cmdlist->CopyRaytracingAccelerationStructure(
+                    new_accel_buf->GetAddress(),
+                    vram_acq.gpu_va,
+                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE);
+                BottomAccel::EmitPostCopyBarrier(builder, new_accel_buf.get());
+                emit_resource_barrier(
+                    &native_dev, builder, vram_acq.resource,
+                    D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                    D3D12_BARRIER_SYNC_ALL,
+                    D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                    D3D12_BARRIER_ACCESS_COMMON,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_COMMON);
+            }
+
+            blas->ReplaceFromArchive(
+                allocator.get(),
+                std::move(new_accel_buf),
+                deserialized_size,
+                view.meta.is_compacted,
+                expected_desc.triangle_count);
+
+            allocator->execute_after_complete([
+                                                  pinned_pool = _impl->pinned_cached_pool,
+                                                  vram_pool = _impl->vram_staging_pool,
+                                                  pinned_tok = caller_pinned.token,
+                                                  vram_tok = vram_acq.token]() noexcept {
+                pinned_pool->release_gpu_by_token(pinned_tok);
+                vram_pool->release_gpu_by_token(vram_tok);
+            });
+            cmd_buf->queue.execute(std::move(allocator), {}, {}, false);
         }
-
-        blas->ReplaceFromArchive(
-            allocator.get(),
-            std::move(new_accel_buf),
-            deserialized_size,
-            view.meta.is_compacted,
-            expected_desc.triangle_count);
-
-        allocator->execute_after_complete([
-                                              pinned_pool = _impl->pinned_cached_pool,
-                                              vram_pool = _impl->vram_staging_pool,
-                                              pinned_tok = caller_pinned.token,
-                                              vram_tok = vram_acq.token]() noexcept {
-            pinned_pool->release_gpu_by_token(pinned_tok);
-            vram_pool->release_gpu_by_token(vram_tok);
-        });
-        cmd_buf->queue.execute(std::move(allocator), {}, {}, false);
     } else {
         // Pageable host memory: blast into persistent GPU_UPLOAD (ReBAR VRAM) or UPLOAD pool
         // in parallel while concurrently hashing the payload in cached RAM.
@@ -1190,7 +1648,7 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_with_options(
             _impl->gpu_upload_pool->release_gpu_by_token(up_acq.token);
             return accel_archive::make_archive_error(
                 AccelArchiveStatus::CORRUPT_PAYLOAD,
-                "DX12 AS archive payload XXH3-128 checksum mismatch.");
+                "DX12 AS archive payload checksum mismatch.");
         }
 
         auto allocator = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
@@ -1299,9 +1757,12 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_file(
             "DX12 DXR AS archive extension is not supported on this device.");
     }
 
-    // When verification is disabled and DirectStorage is available, stream the payload
-    // directly NVMe -> DEFAULT VRAM without touching host payload buffers!
-    if (!options.verify_payload_checksum && _impl->ensure_dstorage(_device)) {
+    // Combine DirectStorage NVMe -> DEFAULT VRAM directly with our GPU verification kernel
+    // when verify_payload_checksum is requested so verified file import never touches host payload RAM!
+    bool const can_verify_with_gpu =
+        !options.verify_payload_checksum ||
+        _impl->ensure_checksum_kernel(&_device->native_device);
+    if (can_verify_with_gpu && _impl->ensure_dstorage(_device)) {
         LCCmdBuffer *cmd_buf = nullptr;
         BottomAccel *blas = nullptr;
         auto handle_res = check_stream_and_blas(_device, stream_handle, mesh_handle, cmd_buf, blas);
@@ -1379,7 +1840,7 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_file(
         AccelArchiveMetadata meta{};
         uint64_t payload_offset = 0u;
         luisa::span<const std::byte> compat_blob;
-        uint8_t dummy_checksum[16]{};
+        uint8_t expected_payload_checksum[16]{};
         auto pre_res = accel_archive::decode_envelope_prefix(
             prefix,
             total_file_size,
@@ -1388,7 +1849,7 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_file(
             meta,
             payload_offset,
             compat_blob,
-            dummy_checksum);
+            expected_payload_checksum);
         if (!pre_res) {
             return pre_res;
         }
@@ -1412,101 +1873,156 @@ AccelArchiveResult DxAccelArchiveExt::import_mesh_archive_file(
             return check_res;
         }
 
-        Microsoft::WRL::ComPtr<IDStorageFile> ds_file;
-        if (SUCCEEDED(_impl->ds_factory->OpenFile(wpath.data(), IID_PPV_ARGS(ds_file.GetAddressOf()))) &&
-            ds_file) {
-            DxBufferPool::Acquisition vram_acq{};
-            if (_impl->vram_staging_pool->acquire(meta.payload_size, false, vram_acq)) {
-                uint64_t sig_val = 0u;
-                {
-                    std::lock_guard lck{_impl->ds_mtx};
-                    size_t consumed = 0u;
-                    while (consumed < meta.payload_size) {
-                        size_t const chunk = std::min<size_t>(meta.payload_size - consumed, kDxDStorageChunkBytes);
-                        DSTORAGE_REQUEST req{};
-                        req.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT_NONE;
-                        req.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-                        req.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_BUFFER;
-                        req.Source.File.Source = ds_file.Get();
-                        req.Source.File.Offset = payload_offset + consumed;
-                        req.Source.File.Size = static_cast<UINT32>(chunk);
-                        req.Destination.Buffer.Resource = vram_acq.resource;
-                        req.Destination.Buffer.Offset = consumed;
-                        req.Destination.Buffer.Size = static_cast<UINT32>(chunk);
-                        req.UncompressedSize = static_cast<UINT32>(chunk);
-                        _impl->ds_queue->EnqueueRequest(&req);
-                        consumed += chunk;
+        bool const ds_can_verify =
+            !options.verify_payload_checksum ||
+            (meta.payload_size <= 0xffff0000ull &&
+             _impl->ensure_checksum_kernel(&_device->native_device));
+        if (ds_can_verify) {
+            Microsoft::WRL::ComPtr<IDStorageFile> ds_file;
+            if (SUCCEEDED(_impl->ds_factory->OpenFile(wpath.data(), IID_PPV_ARGS(ds_file.GetAddressOf()))) &&
+                ds_file) {
+                DxBufferPool::Acquisition vram_acq{};
+                if (_impl->vram_staging_pool->acquire(meta.payload_size, false, vram_acq)) {
+                    uint64_t sig_val = 0u;
+                    {
+                        std::lock_guard lck{_impl->ds_mtx};
+                        size_t consumed = 0u;
+                        while (consumed < meta.payload_size) {
+                            size_t const chunk = std::min<size_t>(meta.payload_size - consumed, kDxDStorageChunkBytes);
+                            DSTORAGE_REQUEST req{};
+                            req.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT_NONE;
+                            req.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
+                            req.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_BUFFER;
+                            req.Source.File.Source = ds_file.Get();
+                            req.Source.File.Offset = payload_offset + consumed;
+                            req.Source.File.Size = static_cast<UINT32>(chunk);
+                            req.Destination.Buffer.Resource = vram_acq.resource;
+                            req.Destination.Buffer.Offset = consumed;
+                            req.Destination.Buffer.Size = static_cast<UINT32>(chunk);
+                            req.UncompressedSize = static_cast<UINT32>(chunk);
+                            _impl->ds_queue->EnqueueRequest(&req);
+                            consumed += chunk;
+                        }
+                        sig_val = ++_impl->ds_fence_value;
+                        _impl->ds_queue->EnqueueSignal(_impl->ds_fence.Get(), sig_val);
+                        _impl->ds_queue->Submit();
                     }
-                    sig_val = ++_impl->ds_fence_value;
-                    _impl->ds_queue->EnqueueSignal(_impl->ds_fence.Get(), sig_val);
-                    _impl->ds_queue->Submit();
+
+                    // Queue GPU fence wait BEFORE checksum / DESERIALIZE command list on cmd_buf's queue.
+                    auto &native_dev = _device->native_device;
+                    cmd_buf->queue.queue()->Wait(_impl->ds_fence.Get(), sig_val);
+
+                    if (options.verify_payload_checksum) {
+                        bool csum_ok = false;
+                        {
+                            std::lock_guard csum_lck{_impl->csum_mtx};
+                            auto verify_alloc = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
+                            {
+                                auto *cmd_buffer = verify_alloc->get_buffer();
+                                auto builder = cmd_buffer->build();
+                                auto *cmdlist = builder.get_cb()->cmd_list();
+                                emit_resource_barrier(
+                                    &native_dev, builder, vram_acq.resource,
+                                    D3D12_BARRIER_SYNC_ALL,
+                                    D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                                    D3D12_BARRIER_ACCESS_COMMON,
+                                    D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                                    D3D12_RESOURCE_STATE_COMMON,
+                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                                _impl->record_checksum_dispatch(
+                                    &native_dev, builder, cmdlist,
+                                    vram_acq.gpu_va, 0u, meta.payload_size, 0u);
+                                emit_resource_barrier(
+                                    &native_dev, builder, vram_acq.resource,
+                                    D3D12_BARRIER_SYNC_COMPUTE_SHADING,
+                                    D3D12_BARRIER_SYNC_ALL,
+                                    D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                                    D3D12_BARRIER_ACCESS_COMMON,
+                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                    D3D12_RESOURCE_STATE_COMMON);
+                            }
+                            cmd_buf->queue.execute(std::move(verify_alloc), {}, {}, false);
+                            cmd_buf->queue.complete();
+                            uint32_t lanes[4]{};
+                            if (_impl->read_checksum_lanes(lanes)) {
+                                uint8_t computed[16]{};
+                                accel_archive::finalize_payload_checksum(lanes, meta.payload_size, computed);
+                                csum_ok = std::memcmp(computed, expected_payload_checksum, 16u) == 0;
+                            }
+                        }
+                        if (!csum_ok) {
+                            ds_file.Reset();
+                            _impl->vram_staging_pool->release_gpu_by_token(vram_acq.token);
+                            return accel_archive::make_archive_error(
+                                AccelArchiveStatus::CORRUPT_PAYLOAD,
+                                "DirectStorage GPU verification kernel detected corrupt AS payload.");
+                        }
+                    }
+
+                    auto allocator = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
+                    auto new_accel_buf = vstd::create_unique(new DefaultBuffer(
+                        &native_dev,
+                        CalcAlign(deserialized_size, 65536u),
+                        native_dev.default_allocator.get(),
+                        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                        false,
+                        "blas-accel-buffer"));
+
+                    {
+                        auto *cmd_buffer = allocator->get_buffer();
+                        auto builder = cmd_buffer->build();
+                        auto *cmdlist = builder.get_cb()->cmd_list();
+                        emit_resource_barrier(
+                            &native_dev, builder, vram_acq.resource,
+                            D3D12_BARRIER_SYNC_ALL,
+                            D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                            D3D12_BARRIER_ACCESS_COMMON,
+                            D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                            D3D12_RESOURCE_STATE_COMMON,
+                            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                        cmdlist->CopyRaytracingAccelerationStructure(
+                            new_accel_buf->GetAddress(),
+                            vram_acq.gpu_va,
+                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE);
+                        BottomAccel::EmitPostCopyBarrier(builder, new_accel_buf.get());
+                        emit_resource_barrier(
+                            &native_dev, builder, vram_acq.resource,
+                            D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                            D3D12_BARRIER_SYNC_ALL,
+                            D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                            D3D12_BARRIER_ACCESS_COMMON,
+                            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                            D3D12_RESOURCE_STATE_COMMON);
+                    }
+
+                    blas->ReplaceFromArchive(
+                        allocator.get(),
+                        std::move(new_accel_buf),
+                        deserialized_size,
+                        meta.is_compacted,
+                        expected_desc.triangle_count);
+
+                    auto file_holder = std::make_shared<Microsoft::WRL::ComPtr<IDStorageFile>>(std::move(ds_file));
+                    allocator->execute_after_complete([
+                                                          vram_pool = _impl->vram_staging_pool,
+                                                          vram_tok = vram_acq.token,
+                                                          file_holder]() noexcept {
+                        file_holder->Reset();
+                        vram_pool->release_gpu_by_token(vram_tok);
+                    });
+                    cmd_buf->queue.execute(std::move(allocator), {}, {}, false);
+
+                    AccelArchiveResult res{};
+                    res.status = AccelArchiveStatus::OK;
+                    res.readiness = AccelArchiveReadiness::READY_ON_STREAM;
+                    res.unpacked_as_size = deserialized_size;
+                    res.serialized_payload_size = meta.payload_size;
+                    res.is_compacted = meta.is_compacted;
+                    res.message = options.verify_payload_checksum ?
+                                      "imported_dstorage_verified_on_stream" :
+                                      "imported_dstorage_on_stream";
+                    return res;
                 }
-
-                // Queue GPU fence wait BEFORE our DESERIALIZE command list on cmd_buf's queue.
-                auto &native_dev = _device->native_device;
-                cmd_buf->queue.queue()->Wait(_impl->ds_fence.Get(), sig_val);
-
-                auto allocator = cmd_buf->queue.create_allocator(native_dev.max_allocator_count);
-                auto new_accel_buf = vstd::create_unique(new DefaultBuffer(
-                    &native_dev,
-                    CalcAlign(deserialized_size, 65536u),
-                    native_dev.default_allocator.get(),
-                    D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-                    false,
-                    "blas-accel-buffer"));
-
-                {
-                    auto *cmd_buffer = allocator->get_buffer();
-                    auto builder = cmd_buffer->build();
-                    auto *cmdlist = builder.get_cb()->cmd_list();
-                    emit_resource_barrier(
-                        &native_dev, builder, vram_acq.resource,
-                        D3D12_BARRIER_SYNC_ALL,
-                        D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
-                        D3D12_BARRIER_ACCESS_COMMON,
-                        D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
-                        D3D12_RESOURCE_STATE_COMMON,
-                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-                    cmdlist->CopyRaytracingAccelerationStructure(
-                        new_accel_buf->GetAddress(),
-                        vram_acq.gpu_va,
-                        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE);
-                    BottomAccel::EmitPostCopyBarrier(builder, new_accel_buf.get());
-                    emit_resource_barrier(
-                        &native_dev, builder, vram_acq.resource,
-                        D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
-                        D3D12_BARRIER_SYNC_ALL,
-                        D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
-                        D3D12_BARRIER_ACCESS_COMMON,
-                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                        D3D12_RESOURCE_STATE_COMMON);
-                }
-
-                blas->ReplaceFromArchive(
-                    allocator.get(),
-                    std::move(new_accel_buf),
-                    deserialized_size,
-                    meta.is_compacted,
-                    expected_desc.triangle_count);
-
-                auto file_holder = std::make_shared<Microsoft::WRL::ComPtr<IDStorageFile>>(std::move(ds_file));
-                allocator->execute_after_complete([
-                                                      vram_pool = _impl->vram_staging_pool,
-                                                      vram_tok = vram_acq.token,
-                                                      file_holder]() noexcept {
-                    file_holder->Reset();
-                    vram_pool->release_gpu_by_token(vram_tok);
-                });
-                cmd_buf->queue.execute(std::move(allocator), {}, {}, false);
-
-                AccelArchiveResult res{};
-                res.status = AccelArchiveStatus::OK;
-                res.readiness = AccelArchiveReadiness::READY_ON_STREAM;
-                res.unpacked_as_size = deserialized_size;
-                res.serialized_payload_size = meta.payload_size;
-                res.is_compacted = meta.is_compacted;
-                res.message = "imported_dstorage_on_stream";
-                return res;
             }
         }
     }

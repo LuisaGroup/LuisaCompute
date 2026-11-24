@@ -66,12 +66,38 @@ constexpr uint64_t kGeometryHashSeed = 0x4c43415347454f4dull;
 constexpr uint64_t kArchiveKeySeed = 0x4c4341534b455931ull;
 constexpr uint64_t kHeaderChecksumSeed = 0x4c43415348445231ull;
 constexpr uint64_t kCompatChecksumSeed = 0x4c434153434d5031ull;
-constexpr uint64_t kPayloadChecksumSeed = 0x4c43415350415931ull;
 
 [[nodiscard]] luisa::Hash128 hash_span_128(luisa::span<const std::byte> bytes, uint64_t seed) noexcept {
     static const std::byte dummy{0};
     const void *ptr = bytes.empty() ? static_cast<const void *>(&dummy) : static_cast<const void *>(bytes.data());
     return luisa::hash128(ptr, bytes.size(), seed);
+}
+
+inline void fast_checksum_step(
+    uint32_t w,
+    uint32_t idx,
+    uint32_t &lane0,
+    uint32_t &lane1,
+    uint32_t &lane2,
+    uint32_t &lane3) noexcept {
+    uint32_t x = w ^ (idx * 0x9E3779B1u + 0x85EBCA6Bu);
+    x ^= x >> 16u;
+    x *= 0x7FEB352Du;
+    x ^= x >> 15u;
+    x *= 0x846CA68Bu;
+    x ^= x >> 16u;
+
+    uint32_t y = (w + 0x27D4EB2Du) ^ ((idx ^ 0xA5A55A5Au) * 0xC2B2AE35u);
+    y ^= y >> 16u;
+    y *= 0x85EBCA6Bu;
+    y ^= y >> 13u;
+    y *= 0xC2B2AE35u;
+    y ^= y >> 16u;
+
+    lane0 += x;
+    lane1 ^= x;
+    lane2 += y;
+    lane3 ^= y;
 }
 
 [[nodiscard]] bool hash_equals(const uint8_t (&lhs)[16], const luisa::Hash128 &rhs) noexcept {
@@ -202,6 +228,272 @@ AccelArchiveResult make_archive_error(AccelArchiveStatus status, luisa::string m
     return res;
 }
 
+void compute_payload_checksum_partial(
+    luisa::span<const std::byte> slice,
+    uint32_t start_word_index,
+    uint32_t (&out_lanes)[4]) noexcept {
+    uint32_t l0 = 0u;
+    uint32_t l1 = 0u;
+    uint32_t l2 = 0u;
+    uint32_t l3 = 0u;
+    const size_t nbytes = slice.size();
+    const std::byte *p = slice.data();
+    const size_t full_words = nbytes / 4u;
+    size_t i = 0u;
+
+    // 4-way unrolled scalar accumulator loop for ILP / vectorization while keeping exact word-index semantics.
+    uint32_t a0 = 0u, a1 = 0u, a2 = 0u, a3 = 0u;
+    uint32_t b0 = 0u, b1 = 0u, b2 = 0u, b3 = 0u;
+    uint32_t c0 = 0u, c1 = 0u, c2 = 0u, c3 = 0u;
+    uint32_t d0 = 0u, d1 = 0u, d2 = 0u, d3 = 0u;
+    while (i + 4u <= full_words) {
+        uint32_t w0 = 0u, w1 = 0u, w2 = 0u, w3 = 0u;
+        std::memcpy(&w0, p + (i + 0u) * 4u, 4u);
+        std::memcpy(&w1, p + (i + 1u) * 4u, 4u);
+        std::memcpy(&w2, p + (i + 2u) * 4u, 4u);
+        std::memcpy(&w3, p + (i + 3u) * 4u, 4u);
+        const uint32_t base_idx = start_word_index + static_cast<uint32_t>(i);
+        fast_checksum_step(w0, base_idx + 0u, a0, a1, a2, a3);
+        fast_checksum_step(w1, base_idx + 1u, b0, b1, b2, b3);
+        fast_checksum_step(w2, base_idx + 2u, c0, c1, c2, c3);
+        fast_checksum_step(w3, base_idx + 3u, d0, d1, d2, d3);
+        i += 4u;
+    }
+    l0 = a0 + b0 + c0 + d0;
+    l1 = a1 ^ b1 ^ c1 ^ d1;
+    l2 = a2 + b2 + c2 + d2;
+    l3 = a3 ^ b3 ^ c3 ^ d3;
+
+    while (i < full_words) {
+        uint32_t w = 0u;
+        std::memcpy(&w, p + i * 4u, 4u);
+        fast_checksum_step(w, start_word_index + static_cast<uint32_t>(i), l0, l1, l2, l3);
+        ++i;
+    }
+    const size_t rem = nbytes & 3u;
+    if (rem != 0u) {
+        uint32_t w = 0u;
+        std::memcpy(&w, p + full_words * 4u, rem);
+        fast_checksum_step(w, start_word_index + static_cast<uint32_t>(full_words), l0, l1, l2, l3);
+    }
+
+    out_lanes[0] = l0;
+    out_lanes[1] = l1;
+    out_lanes[2] = l2;
+    out_lanes[3] = l3;
+}
+
+void finalize_payload_checksum(
+    const uint32_t (&lanes)[4],
+    uint64_t total_byte_size,
+    uint8_t (&out_checksum)[16]) noexcept {
+    const uint32_t sz_lo = static_cast<uint32_t>(total_byte_size & 0xffffffffull);
+    const uint32_t sz_hi = static_cast<uint32_t>(total_byte_size >> 32u);
+    const uint32_t out_w[4]{
+        lanes[0] ^ sz_lo,
+        lanes[1] ^ sz_hi,
+        lanes[2] + sz_lo * 0x9E3779B1u + 0x243F6A88u,
+        lanes[3] ^ ((sz_lo * 0x85EBCA6Bu) ^ 0xB7E15162u),
+    };
+    std::memcpy(out_checksum, out_w, 16u);
+}
+
+namespace {
+
+void run_parallel_copy_and_checksum(
+    std::byte *dst,
+    luisa::span<const std::byte> payload,
+    bool do_copy,
+    bool do_checksum,
+    uint8_t (&out_checksum)[16]) noexcept {
+    const size_t total = payload.size();
+    const std::byte *src = payload.data();
+    constexpr size_t kParallelThreshold = 256ull * 1024ull;
+    if (total < kParallelThreshold) {
+        if (do_copy && dst != nullptr && total > 0u) {
+            std::memcpy(dst, src, total);
+        }
+        if (do_checksum) {
+            uint32_t lanes[4]{};
+            compute_payload_checksum_partial(payload, 0u, lanes);
+            finalize_payload_checksum(lanes, total, out_checksum);
+        }
+        return;
+    }
+
+    const unsigned hw = std::max(2u, std::thread::hardware_concurrency());
+    const size_t max_workers = std::min<size_t>({static_cast<size_t>(hw), size_t{8u}, std::max<size_t>(1u, total / (128ull * 1024ull))});
+    if (max_workers >= 2u) {
+        struct SliceTask {
+            const std::byte *src{nullptr};
+            std::byte *dst{nullptr};
+            size_t len{0u};
+            uint32_t start_word{0u};
+            uint32_t lanes[4]{};
+            bool do_copy{false};
+            bool do_checksum{false};
+#ifdef _WIN32
+            PTP_WORK work{nullptr};
+#endif
+        };
+
+        auto run_task = [](SliceTask *t) noexcept {
+            if (t->do_copy && !t->do_checksum) {
+                std::memcpy(t->dst, t->src, t->len);
+                return;
+            }
+            if (!t->do_copy && t->do_checksum) {
+                compute_payload_checksum_partial(luisa::span<const std::byte>{t->src, t->len}, t->start_word, t->lanes);
+                return;
+            }
+            // Copy + checksum chunked in 128 KiB L1/L2-hot strips.
+            constexpr size_t kSubChunk = 128ull * 1024ull;
+            uint32_t l0 = 0u, l1 = 0u, l2 = 0u, l3 = 0u;
+            size_t pos = 0u;
+            while (pos < t->len) {
+                const size_t n = std::min(kSubChunk, t->len - pos);
+                std::memcpy(t->dst + pos, t->src + pos, n);
+                uint32_t sub_lanes[4]{};
+                compute_payload_checksum_partial(
+                    luisa::span<const std::byte>{t->src + pos, n},
+                    t->start_word + static_cast<uint32_t>(pos / 4u),
+                    sub_lanes);
+                l0 += sub_lanes[0];
+                l1 ^= sub_lanes[1];
+                l2 += sub_lanes[2];
+                l3 ^= sub_lanes[3];
+                pos += n;
+            }
+            t->lanes[0] = l0;
+            t->lanes[1] = l1;
+            t->lanes[2] = l2;
+            t->lanes[3] = l3;
+        };
+
+        std::array<SliceTask, 8u> tasks{};
+        // Word-aligned boundaries (multiples of 4096 bytes) ensure exact 4-byte word indices across workers.
+        const size_t raw_chunk = (total + max_workers - 1u) / max_workers;
+        const size_t aligned_chunk = std::max<size_t>(4096u, ((raw_chunk + 4095u) / 4096u) * 4096u);
+        size_t active = 0u;
+        for (size_t i = 0u; i < max_workers; ++i) {
+            const size_t begin = i * aligned_chunk;
+            if (begin >= total) {
+                break;
+            }
+            const size_t len = std::min(aligned_chunk, total - begin);
+            tasks[active].src = src + begin;
+            tasks[active].dst = do_copy ? (dst + begin) : nullptr;
+            tasks[active].len = len;
+            tasks[active].start_word = static_cast<uint32_t>(begin / 4u);
+            tasks[active].do_copy = do_copy;
+            tasks[active].do_checksum = do_checksum;
+            ++active;
+        }
+
+        if (active >= 2u) {
+#ifdef _WIN32
+            auto work_cb = [](PTP_CALLBACK_INSTANCE, PVOID ctx, PTP_WORK) noexcept {
+                auto *t = static_cast<SliceTask *>(ctx);
+                if (t->do_copy && !t->do_checksum) {
+                    std::memcpy(t->dst, t->src, t->len);
+                } else if (!t->do_copy && t->do_checksum) {
+                    compute_payload_checksum_partial(luisa::span<const std::byte>{t->src, t->len}, t->start_word, t->lanes);
+                } else {
+                    constexpr size_t kSubChunk = 128ull * 1024ull;
+                    uint32_t l0 = 0u, l1 = 0u, l2 = 0u, l3 = 0u;
+                    size_t pos = 0u;
+                    while (pos < t->len) {
+                        const size_t n = std::min(kSubChunk, t->len - pos);
+                        std::memcpy(t->dst + pos, t->src + pos, n);
+                        uint32_t sub_lanes[4]{};
+                        compute_payload_checksum_partial(
+                            luisa::span<const std::byte>{t->src + pos, n},
+                            t->start_word + static_cast<uint32_t>(pos / 4u),
+                            sub_lanes);
+                        l0 += sub_lanes[0];
+                        l1 ^= sub_lanes[1];
+                        l2 += sub_lanes[2];
+                        l3 ^= sub_lanes[3];
+                        pos += n;
+                    }
+                    t->lanes[0] = l0;
+                    t->lanes[1] = l1;
+                    t->lanes[2] = l2;
+                    t->lanes[3] = l3;
+                }
+            };
+            bool all_created = true;
+            size_t created = 0u;
+            for (size_t i = 0u; i < active; ++i) {
+                tasks[i].work = CreateThreadpoolWork(work_cb, &tasks[i], nullptr);
+                if (tasks[i].work == nullptr) {
+                    all_created = false;
+                    break;
+                }
+                ++created;
+                SubmitThreadpoolWork(tasks[i].work);
+            }
+            for (size_t i = 0u; i < created; ++i) {
+                WaitForThreadpoolWorkCallbacks(tasks[i].work, FALSE);
+                CloseThreadpoolWork(tasks[i].work);
+            }
+            if (all_created) {
+                if (do_checksum) {
+                    uint32_t combined[4]{};
+                    for (size_t i = 0u; i < active; ++i) {
+                        combined[0] += tasks[i].lanes[0];
+                        combined[1] ^= tasks[i].lanes[1];
+                        combined[2] += tasks[i].lanes[2];
+                        combined[3] ^= tasks[i].lanes[3];
+                    }
+                    finalize_payload_checksum(combined, total, out_checksum);
+                }
+                return;
+            }
+            // Fallback single-threaded if threadpool creation failed partway.
+#else
+            std::vector<std::thread> threads;
+            threads.reserve(active - 1u);
+            for (size_t i = 1u; i < active; ++i) {
+                threads.emplace_back([&, i]() { run_task(&tasks[i]); });
+            }
+            run_task(&tasks[0]);
+            for (auto &th : threads) {
+                th.join();
+            }
+            if (do_checksum) {
+                uint32_t combined[4]{};
+                for (size_t i = 0u; i < active; ++i) {
+                    combined[0] += tasks[i].lanes[0];
+                    combined[1] ^= tasks[i].lanes[1];
+                    combined[2] += tasks[i].lanes[2];
+                    combined[3] ^= tasks[i].lanes[3];
+                }
+                finalize_payload_checksum(combined, total, out_checksum);
+            }
+            return;
+#endif
+        }
+    }
+
+    if (do_copy && dst != nullptr && total > 0u) {
+        std::memcpy(dst, src, total);
+    }
+    if (do_checksum) {
+        uint32_t lanes[4]{};
+        compute_payload_checksum_partial(payload, 0u, lanes);
+        finalize_payload_checksum(lanes, total, out_checksum);
+    }
+}
+
+}// namespace
+
+void compute_payload_checksum(
+    luisa::span<const std::byte> payload,
+    uint8_t (&out_checksum)[16]) noexcept {
+    run_parallel_copy_and_checksum(nullptr, payload, false, true, out_checksum);
+}
+
 AccelArchiveResult encode_envelope(
     AccelArchiveBackendKind backend,
     const AccelArchiveMeshDesc &desc,
@@ -209,6 +501,30 @@ AccelArchiveResult encode_envelope(
     uint64_t unpacked_as_size,
     luisa::span<const std::byte> compat_blob,
     luisa::span<const std::byte> payload,
+    luisa::vector<std::byte> &out_archive) noexcept {
+    uint8_t payload_csum[16]{};
+    if (!payload.empty()) {
+        compute_payload_checksum(payload, payload_csum);
+    }
+    return encode_envelope_with_payload_checksum(
+        backend,
+        desc,
+        is_compacted,
+        unpacked_as_size,
+        compat_blob,
+        payload,
+        payload_csum,
+        out_archive);
+}
+
+AccelArchiveResult encode_envelope_with_payload_checksum(
+    AccelArchiveBackendKind backend,
+    const AccelArchiveMeshDesc &desc,
+    bool is_compacted,
+    uint64_t unpacked_as_size,
+    luisa::span<const std::byte> compat_blob,
+    luisa::span<const std::byte> payload,
+    const uint8_t (&payload_checksum)[16],
     luisa::vector<std::byte> &out_archive) noexcept {
     if (backend == AccelArchiveBackendKind::UNKNOWN) {
         return make_archive_error(AccelArchiveStatus::INVALID_ARGUMENT, "Backend kind must not be UNKNOWN.");
@@ -250,7 +566,7 @@ AccelArchiveResult encode_envelope(
     hdr.payload_size = static_cast<uint64_t>(payload.size());
     hdr.unpacked_as_size = unpacked_as_size;
     copy_hash(hdr.compat_checksum, hash_span_128(compat_blob, kCompatChecksumSeed));
-    copy_hash(hdr.payload_checksum, hash_span_128(payload, kPayloadChecksumSeed));
+    std::memcpy(hdr.payload_checksum, payload_checksum, 16u);
     copy_hash(
         hdr.header_checksum,
         luisa::hash128(&hdr, offsetof(AccelArchiveEnvelopeHeader, header_checksum), kHeaderChecksumSeed));
@@ -425,7 +741,9 @@ AccelArchiveResult decode_envelope_header_and_compat(
 AccelArchiveResult verify_payload_checksum(
     luisa::span<const std::byte> payload,
     const uint8_t (&expected_checksum)[16]) noexcept {
-    if (!hash_equals(expected_checksum, hash_span_128(payload, kPayloadChecksumSeed))) {
+    uint8_t actual[16]{};
+    compute_payload_checksum(payload, actual);
+    if (std::memcmp(actual, expected_checksum, 16u) != 0) {
         return make_archive_error(AccelArchiveStatus::CORRUPT_PAYLOAD, "Native payload checksum mismatch.");
     }
     return {};
@@ -437,83 +755,27 @@ bool copy_payload_optimized(
     bool verify_checksum,
     const uint8_t (&expected_checksum)[16]) noexcept {
     if (payload.empty()) {
-        return !verify_checksum;
+        if (!verify_checksum) {
+            return true;
+        }
+        uint8_t actual[16]{};
+        compute_payload_checksum(payload, actual);
+        return std::memcmp(actual, expected_checksum, 16u) == 0;
     }
     if (dst == nullptr) {
         return false;
     }
-    const size_t total = payload.size();
-    const std::byte *src = payload.data();
-    auto *out = static_cast<std::byte *>(dst);
-
-    constexpr size_t kParallelThreshold = 2ull * 1024ull * 1024ull;
-    if (total < kParallelThreshold) {
-        if (!verify_checksum) {
-            std::memcpy(out, src, total);
-            return true;
-        }
-        const auto actual = luisa::hash128_and_copy(out, src, total, kPayloadChecksumSeed);
-        return hash_equals(expected_checksum, actual);
+    uint8_t actual[16]{};
+    run_parallel_copy_and_checksum(
+        static_cast<std::byte *>(dst),
+        payload,
+        true,
+        verify_checksum,
+        actual);
+    if (verify_checksum && std::memcmp(actual, expected_checksum, 16u) != 0) {
+        return false;
     }
-
-#ifdef _WIN32
-    const unsigned hw = std::max(2u, std::thread::hardware_concurrency());
-    const size_t num_workers = std::min<size_t>({static_cast<size_t>(hw), size_t{8u}, total / (512ull * 1024ull)});
-    if (num_workers >= 2u) {
-        struct SliceTask {
-            const std::byte *src{nullptr};
-            std::byte *dst{nullptr};
-            size_t len{0u};
-            PTP_WORK work{nullptr};
-        };
-        std::array<SliceTask, 8u> tasks{};
-        auto work_cb = [](PTP_CALLBACK_INSTANCE, PVOID ctx, PTP_WORK) noexcept {
-            auto *t = static_cast<SliceTask *>(ctx);
-            std::memcpy(t->dst, t->src, t->len);
-        };
-        const size_t chunk = (total + num_workers - 1u) / num_workers;
-        size_t created = 0u;
-        for (size_t i = 0u; i < num_workers; ++i) {
-            const size_t begin = i * chunk;
-            if (begin >= total) {
-                break;
-            }
-            const size_t len = std::min(chunk, total - begin);
-            tasks[i].src = src + begin;
-            tasks[i].dst = out + begin;
-            tasks[i].len = len;
-            tasks[i].work = CreateThreadpoolWork(work_cb, &tasks[i], nullptr);
-            if (tasks[i].work == nullptr) {
-                break;
-            }
-            ++created;
-            SubmitThreadpoolWork(tasks[i].work);
-        }
-        if (created == num_workers) {
-            bool hash_ok = true;
-            if (verify_checksum) {
-                const auto actual = hash_span_128(payload, kPayloadChecksumSeed);
-                hash_ok = hash_equals(expected_checksum, actual);
-            }
-            for (size_t i = 0u; i < created; ++i) {
-                WaitForThreadpoolWorkCallbacks(tasks[i].work, FALSE);
-                CloseThreadpoolWork(tasks[i].work);
-            }
-            return hash_ok;
-        }
-        for (size_t i = 0u; i < created; ++i) {
-            WaitForThreadpoolWorkCallbacks(tasks[i].work, FALSE);
-            CloseThreadpoolWork(tasks[i].work);
-        }
-    }
-#endif
-
-    if (!verify_checksum) {
-        std::memcpy(out, src, total);
-        return true;
-    }
-    const auto actual = luisa::hash128_and_copy(out, src, total, kPayloadChecksumSeed);
-    return hash_equals(expected_checksum, actual);
+    return true;
 }
 
 AccelArchiveResult decode_and_validate_envelope(

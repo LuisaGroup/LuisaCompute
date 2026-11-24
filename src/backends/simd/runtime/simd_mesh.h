@@ -31,6 +31,7 @@ private:
     mutable std::mutex _blas_mutex;
     mutable bool _blas_dirty{false};
     bool _built{false};
+    EmbreeImportedBVHHandle _imported_bvh{};
 
 public:
     SIMDMesh(RTCDevice device, const AccelOption &option) noexcept;
@@ -46,6 +47,14 @@ public:
         std::scoped_lock lock{_blas_mutex};
         return static_cast<uint64_t>(_t_count);
     }
+    [[nodiscard]] uint64_t last_vertex_count() const noexcept {
+        std::scoped_lock lock{_blas_mutex};
+        return static_cast<uint64_t>(_v_count);
+    }
+    [[nodiscard]] uint64_t last_vertex_stride() const noexcept {
+        std::scoped_lock lock{_blas_mutex};
+        return static_cast<uint64_t>(_v_stride);
+    }
     [[nodiscard]] bool is_imported_blas() const noexcept {
         return _is_imported_blas.load(std::memory_order_acquire);
     }
@@ -59,7 +68,7 @@ public:
     [[nodiscard]] bool import_from_archive(
         const EmbreeResolvedTriangleGeometry &geom,
         luisa::span<const std::byte> bvh_payload,
-        EmbreeArchiveImportFn import_fn,
+        const EmbreeOutOfTreeABI &abi,
         size_t &out_unpacked_bytes,
         EmbreeArchiveStatus &out_status) noexcept;
     [[nodiscard]] RTCScene handle() const noexcept override;

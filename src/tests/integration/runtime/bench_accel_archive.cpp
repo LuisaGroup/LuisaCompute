@@ -106,11 +106,13 @@ struct ModeBenchResult {
     Stats warm_tlas_ms;
     Stats warm_e2e_ms;
     Stats warm_direct_e2e_ms;
+    Stats warm_direct_verified_e2e_ms;
     Stats cold_read_ms;
     Stats cold_import_ms;
     Stats cold_tlas_ms;
     Stats cold_e2e_ms;
     Stats cold_direct_e2e_ms;
+    Stats cold_direct_verified_e2e_ms;
 
     Stats built_closest_mrays_s;
     Stats imported_closest_mrays_s;
@@ -593,6 +595,8 @@ void write_full_json(
         write_stats_json(ofs, r.warm_e2e_ms, 6);
         ofs << ",\n      \"warm_direct_e2e_ms\": ";
         write_stats_json(ofs, r.warm_direct_e2e_ms, 6);
+        ofs << ",\n      \"warm_direct_verified_e2e_ms\": ";
+        write_stats_json(ofs, r.warm_direct_verified_e2e_ms, 6);
         ofs << ",\n      \"cold_read_ms\": ";
         write_stats_json(ofs, r.cold_read_ms, 6);
         ofs << ",\n      \"cold_import_ms\": ";
@@ -603,6 +607,8 @@ void write_full_json(
         write_stats_json(ofs, r.cold_e2e_ms, 6);
         ofs << ",\n      \"cold_direct_e2e_ms\": ";
         write_stats_json(ofs, r.cold_direct_e2e_ms, 6);
+        ofs << ",\n      \"cold_direct_verified_e2e_ms\": ";
+        write_stats_json(ofs, r.cold_direct_verified_e2e_ms, 6);
         ofs << ",\n      \"built_closest_mrays_s\": ";
         write_stats_json(ofs, r.built_closest_mrays_s, 6);
         ofs << ",\n      \"imported_closest_mrays_s\": ";
@@ -876,11 +882,13 @@ int main(int argc, char *argv[]) {
             std::vector<double> warm_tlas_ms;
             std::vector<double> warm_e2e_ms;
             std::vector<double> warm_direct_e2e_ms;
+            std::vector<double> warm_direct_verified_e2e_ms;
             std::vector<double> cold_read_ms;
             std::vector<double> cold_imp_ms;
             std::vector<double> cold_tlas_ms;
             std::vector<double> cold_e2e_ms;
             std::vector<double> cold_direct_e2e_ms;
+            std::vector<double> cold_direct_verified_e2e_ms;
             std::vector<double> built_closest_mrays;
             std::vector<double> imp_closest_mrays;
             std::vector<double> built_any_mrays;
@@ -1240,6 +1248,30 @@ int main(int argc, char *argv[]) {
                     stream.synchronize();
                 }
 
+                // 2c. Warm direct file import + verified GPU/fast checksum -> TLAS
+                for (uint32_t it = 0u; it < total_iters; ++it) {
+                    Clock c_e2e;
+                    Mesh imp_mesh = device.create_mesh(vb, tb, option);
+                    auto ires = import_mesh_archive_file(
+                        ext, stream, imp_mesh, option, m.content_hash, arc_path_str,
+                        AccelArchiveImportOptions{.verify_payload_checksum = true, .bypass_os_file_cache = false});
+                    if (ires.readiness == AccelArchiveReadiness::READY_ON_STREAM) {
+                        stream.synchronize();
+                    }
+                    LUISA_ASSERT(static_cast<bool>(ires), "warm direct verified import failed: {}", ires.message);
+                    const Mesh *imp_ptr = &imp_mesh;
+                    Accel imp_tlas = device.create_accel(tlas_option);
+                    populate_tlas_from_descriptors(imp_tlas, luisa::span{&imp_ptr, 1u}, instances);
+                    stream << imp_tlas.build(Accel::BuildRequest::FORCE_BUILD) << synchronize();
+                    const double t_tot = c_e2e.toc();
+                    if (it >= cfg.warmup) {
+                        warm_direct_verified_e2e_ms.push_back(t_tot);
+                    }
+                    imp_tlas = Accel{};
+                    imp_mesh = Mesh{};
+                    stream.synchronize();
+                }
+
                 // 3b. Cold direct file import -> TLAS (DirectStorage / unbuffered)
                 for (uint32_t it = 0u; it < total_iters; ++it) {
                     Clock c_e2e;
@@ -1264,6 +1296,30 @@ int main(int argc, char *argv[]) {
                     stream.synchronize();
                 }
 
+                // 3c. Cold direct file import + verified GPU/fast checksum -> TLAS (DirectStorage verified NVMe-to-VRAM)
+                for (uint32_t it = 0u; it < total_iters; ++it) {
+                    Clock c_e2e;
+                    Mesh imp_mesh = device.create_mesh(vb, tb, option);
+                    auto ires = import_mesh_archive_file(
+                        ext, stream, imp_mesh, option, m.content_hash, arc_path_str,
+                        AccelArchiveImportOptions{.verify_payload_checksum = true, .bypass_os_file_cache = true});
+                    if (ires.readiness == AccelArchiveReadiness::READY_ON_STREAM) {
+                        stream.synchronize();
+                    }
+                    LUISA_ASSERT(static_cast<bool>(ires), "cold direct verified import failed: {}", ires.message);
+                    const Mesh *imp_ptr = &imp_mesh;
+                    Accel imp_tlas = device.create_accel(tlas_option);
+                    populate_tlas_from_descriptors(imp_tlas, luisa::span{&imp_ptr, 1u}, instances);
+                    stream << imp_tlas.build(Accel::BuildRequest::FORCE_BUILD) << synchronize();
+                    const double t_tot = c_e2e.toc();
+                    if (it >= cfg.warmup) {
+                        cold_direct_verified_e2e_ms.push_back(t_tot);
+                    }
+                    imp_tlas = Accel{};
+                    imp_mesh = Mesh{};
+                    stream.synchronize();
+                }
+
                 std::error_code ec;
                 std::filesystem::remove(arc_path, ec);
             } else {
@@ -1282,11 +1338,13 @@ int main(int argc, char *argv[]) {
             rec.warm_tlas_ms = compute_stats(warm_tlas_ms);
             rec.warm_e2e_ms = compute_stats(warm_e2e_ms);
             rec.warm_direct_e2e_ms = compute_stats(warm_direct_e2e_ms);
+            rec.warm_direct_verified_e2e_ms = compute_stats(warm_direct_verified_e2e_ms);
             rec.cold_read_ms = compute_stats(cold_read_ms);
             rec.cold_import_ms = compute_stats(cold_imp_ms);
             rec.cold_tlas_ms = compute_stats(cold_tlas_ms);
             rec.cold_e2e_ms = compute_stats(cold_e2e_ms);
             rec.cold_direct_e2e_ms = compute_stats(cold_direct_e2e_ms);
+            rec.cold_direct_verified_e2e_ms = compute_stats(cold_direct_verified_e2e_ms);
             rec.built_closest_mrays_s = compute_stats(built_closest_mrays);
             rec.imported_closest_mrays_s = compute_stats(imp_closest_mrays);
             rec.built_any_mrays_s = compute_stats(built_any_mrays);
@@ -1316,8 +1374,10 @@ int main(int argc, char *argv[]) {
                       << " reloc_fast=" << rec.relocate_fast_ms.median << "ms"
                       << " warm_e2e=" << rec.warm_e2e_ms.median << "ms"
                       << " warm_dir=" << rec.warm_direct_e2e_ms.median << "ms"
+                      << " warm_dir_ver=" << rec.warm_direct_verified_e2e_ms.median << "ms"
                       << " cold_e2e=" << rec.cold_e2e_ms.median << "ms"
                       << " cold_dir=" << rec.cold_direct_e2e_ms.median << "ms"
+                      << " cold_dir_ver=" << rec.cold_direct_verified_e2e_ms.median << "ms"
                       << " tlas_med=" << rec.tlas_build_ms.median << "ms"
                       << " bytes=" << rec.archive_bytes
                       << " unpacked=" << rec.unpacked_as_bytes

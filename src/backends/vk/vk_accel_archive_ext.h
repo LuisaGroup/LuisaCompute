@@ -36,6 +36,32 @@ private:
     VkQueryPool _size_query_pool{VK_NULL_HANDLE};
     std::mutex _query_mtx;
 
+    std::mutex _csum_init_mtx;
+    std::mutex _csum_mtx;
+    bool _csum_attempted{false};
+    bool _csum_ready{false};
+    VkDescriptorSetLayout _csum_dsl{VK_NULL_HANDLE};
+    VkPipelineLayout _csum_pipe_layout{VK_NULL_HANDLE};
+    VkShaderModule _csum_shader{VK_NULL_HANDLE};
+    VkPipeline _csum_pipeline{VK_NULL_HANDLE};
+    VkDescriptorPool _csum_desc_pool{VK_NULL_HANDLE};
+    VkDescriptorSet _csum_desc_set{VK_NULL_HANDLE};
+    VkBuffer _csum_dev_buf{VK_NULL_HANDLE};
+    VkDeviceMemory _csum_dev_mem{VK_NULL_HANDLE};
+    VkBuffer _csum_rb_buf{VK_NULL_HANDLE};
+    VkDeviceMemory _csum_rb_mem{VK_NULL_HANDLE};
+    void *_csum_rb_mapped{nullptr};
+    bool _csum_rb_host_coherent{true};
+
+    [[nodiscard]] bool _ensure_checksum_pipeline() noexcept;
+    void _record_checksum_dispatch(
+        VkCommandBuffer cmd,
+        VkBuffer src_buf,
+        uint32_t base_byte_offset,
+        uint64_t byte_size,
+        uint32_t start_word) noexcept;
+    void _read_checksum_lanes(uint32_t (&out_lanes)[4]) noexcept;
+
     [[nodiscard]] std::shared_ptr<StagingSlot> _acquire_pool_slot(
         luisa::vector<std::shared_ptr<StagingSlot>> &pool,
         size_t min_bytes,

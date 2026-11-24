@@ -256,6 +256,30 @@ struct AccelArchiveEnvelopeView {
     luisa::span<const std::byte> payload,
     luisa::vector<std::byte> &out_archive) noexcept;
 
+[[nodiscard]] LUISA_RUNTIME_API AccelArchiveResult encode_envelope_with_payload_checksum(
+    AccelArchiveBackendKind backend,
+    const AccelArchiveMeshDesc &desc,
+    bool is_compacted,
+    uint64_t unpacked_as_size,
+    luisa::span<const std::byte> compat_blob,
+    luisa::span<const std::byte> payload,
+    const uint8_t (&payload_checksum)[16],
+    luisa::vector<std::byte> &out_archive) noexcept;
+
+LUISA_RUNTIME_API void compute_payload_checksum_partial(
+    luisa::span<const std::byte> slice,
+    uint32_t start_word_index,
+    uint32_t (&out_lanes)[4]) noexcept;
+
+LUISA_RUNTIME_API void finalize_payload_checksum(
+    const uint32_t (&lanes)[4],
+    uint64_t total_byte_size,
+    uint8_t (&out_checksum)[16]) noexcept;
+
+LUISA_RUNTIME_API void compute_payload_checksum(
+    luisa::span<const std::byte> payload,
+    uint8_t (&out_checksum)[16]) noexcept;
+
 [[nodiscard]] LUISA_RUNTIME_API AccelArchiveResult decode_and_validate_envelope(
     luisa::span<const std::byte> archive_bytes,
     AccelArchiveBackendKind expected_backend,

@@ -100,6 +100,8 @@ endif ()
             accel_process.comp.hlsl accel_process.spv)
     _luisa_compute_compile_vulkan_builtin(
             bindless_upload.comp.hlsl bindless_upload.spv)
+    _luisa_compute_compile_vulkan_builtin(
+            accel_archive_checksum.comp.hlsl accel_archive_checksum.spv)
 
     set(_vk_builtin_embedded_cpp
             "${_vk_builtin_binary_dir}/vulkan_builtin_spirv_embedded.cpp")
