@@ -372,6 +372,13 @@ public:
     [[nodiscard]] virtual bool enable_shader_abort() const noexcept {
         return true;
     }
+    // Backend-owned dispatch-bounds expectations
+    // (VK_KHR_shader_expect_assume, OpExpectKHR on the out-of-bounds predicate).
+    // The expectation is optimization metadata only: the predicate, the branch
+    // targets and the set of returning invocations never change.
+    [[nodiscard]] virtual bool enable_shader_expect_assume() const noexcept {
+        return true;
+    }
     // Mixed-precision dot product with FP32 accumulation
     // (VK_VALVE_shader_mixed_float_dot_product, feature bit
     // shaderMixedFloatDotProductFloat16AccFloat32 only).

@@ -58,6 +58,9 @@ enum class ShaderCapability : uint32_t {
     // VK_VALVE_shader_mixed_float_dot_product: OpFDot2MixAcc32VALVE
     // (FP16 inputs, FP32 accumulator).
     MIXED_FLOAT_DOT_PRODUCT,
+    // VK_KHR_shader_expect_assume: OpExpectKHR on the backend-owned
+    // dispatch-bounds predicate.
+    EXPECT_ASSUME,
     COUNT
 };
 
@@ -109,7 +112,10 @@ inline constexpr std::array shader_capability_declarations{
                                 spirv::target_feature::shader_abort},
     ShaderCapabilityDeclaration{ShaderCapability::MIXED_FLOAT_DOT_PRODUCT,
                                 "VK_VALVE_shader_mixed_float_dot_product",
-                                spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32}};
+                                spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32},
+    ShaderCapabilityDeclaration{ShaderCapability::EXPECT_ASSUME,
+                                "VK_KHR_shader_expect_assume",
+                                spirv::target_feature::shader_expect_assume}};
 
 // One OpCapability an enabled capability may need.
 //
@@ -186,7 +192,12 @@ inline constexpr std::array shader_spirv_capability_declarations{
     // negotiates shaderMixedFloatDotProductFloat16AccFloat32 only.
     ShaderSpirvCapabilityDeclaration{ShaderCapability::MIXED_FLOAT_DOT_PRODUCT,
                                      "SPV_VALVE_mixed_float_dot_product", 6912u,
-                                     "DotProductFloat16AccFloat32VALVE"}};
+                                     "DotProductFloat16AccFloat32VALVE"},
+    // SPV_KHR_expect_assume: OpExpectKHR (and OpAssumeTrueKHR, which this
+    // backend never emits).
+    ShaderSpirvCapabilityDeclaration{ShaderCapability::EXPECT_ASSUME,
+                                     "SPV_KHR_expect_assume", 5629u,
+                                     "ExpectAssumeKHR"}};
 
 // Declaration of exactly one capability. `ShaderCapability::COUNT` is not a
 // capability; it falls back to the first row instead of inventing an entry.
@@ -215,6 +226,7 @@ struct ShaderExtensionAvailability {
     bool constant_data{false};
     bool abort{false};
     bool mixed_float_dot_product{false};
+    bool expect_assume{false};
 
     [[nodiscard]] constexpr bool enabled(
         ShaderCapability capability) const noexcept {
@@ -233,6 +245,7 @@ struct ShaderExtensionAvailability {
             case ShaderCapability::ABORT: return abort;
             case ShaderCapability::MIXED_FLOAT_DOT_PRODUCT:
                 return mixed_float_dot_product;
+            case ShaderCapability::EXPECT_ASSUME: return expect_assume;
             case ShaderCapability::COUNT: break;
         }
         return false;

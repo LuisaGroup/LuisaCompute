@@ -569,7 +569,12 @@ int main(int argc, char *argv[]) {
         auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
             ast_kernel.function()->function(), &module,
             ShaderOption{.enable_cache = false},
-            {.cooperative_vector = true});
+            // A cooperative-vector module also needs the replicated-composite
+            // feature: glslang builds a cooperative-vector splat with
+            // OpCompositeConstructReplicateEXT, and the Vulkan backend only
+            // enables cooperative vectors when that feature was negotiated.
+            {.cooperative_vector = true,
+             .shader_replicated_composites = true});
         spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
         std::string diagnostics;
         tools.SetMessageConsumer(
@@ -600,7 +605,8 @@ int main(int argc, char *argv[]) {
                "OpCooperativeVectorLoadNV on the Workgroup allocation";
         expect(eq(
             compiled.required_target_features,
-            lc::spirv::target_feature::cooperative_vector));
+            lc::spirv::target_feature::cooperative_vector |
+            lc::spirv::target_feature::shader_replicated_composites));
     };
 
     "spirv_cooperative_outer_product_accumulate_emits_nv_instruction"_test = [] {
@@ -650,7 +656,12 @@ int main(int argc, char *argv[]) {
         auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
             ast_kernel.function()->function(), &module,
             ShaderOption{.enable_cache = false},
-            {.cooperative_vector = true});
+            // A cooperative-vector module also needs the replicated-composite
+            // feature: glslang builds a cooperative-vector splat with
+            // OpCompositeConstructReplicateEXT, and the Vulkan backend only
+            // enables cooperative vectors when that feature was negotiated.
+            {.cooperative_vector = true,
+             .shader_replicated_composites = true});
         spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
         std::string diagnostics;
         tools.SetMessageConsumer(
@@ -675,7 +686,8 @@ int main(int argc, char *argv[]) {
                "OpCooperativeVectorOuterProductAccumulateNV";
         expect(eq(
             compiled.required_target_features,
-            lc::spirv::target_feature::cooperative_vector));
+            lc::spirv::target_feature::cooperative_vector |
+            lc::spirv::target_feature::shader_replicated_composites));
     };
 
     "spirv_sampler_constant_range_is_a_backend_only_boundary"_test = [] {

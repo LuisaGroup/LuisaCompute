@@ -1,6 +1,7 @@
 #include "entry.h"
 #include "../../storage_buffer_metadata.h"
 #include "arithmetic_support.h"
+#include "memory_access_plan.h"
 #include "texture_sampling.h"
 #include <luisa/core/logging.h>
 #include <luisa/xir/passes/integer_alignment.h>
@@ -1673,6 +1674,20 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = glsl(GLSLstd450Trunc, operand(0));
             break;
         case xir::ArithmeticOp::ROUND: {
+            if (_target_features.round_policy ==
+                SpirvRoundPolicy::NATIVE_GLSL_ROUND) {
+                // Single-instruction form. GLSL.std.450 leaves the tie direction
+                // to the implementation, so only a qualified device may select
+                // this policy; it needs no target feature and no
+                // NoContraction decoration.
+                id = glsl(GLSLstd450Round, operand(0));
+                break;
+            }
+            // Portable sequence with the exact XIR contract: halves round away
+            // from zero and the original sign bit is copied onto the integral
+            // magnitude, so ±0.0 and NaN sign bits survive. Comparing an exactly
+            // typed 0.5 fraction against the floor (instead of adding 0.5) keeps
+            // the float immediately below 0.5 from rounding up.
             auto value = operand(0);
             auto magnitude = glsl(GLSLstd450FAbs, value);
             auto integral = glsl(GLSLstd450Floor, magnitude);
@@ -4040,11 +4055,20 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id byte_o
                  "SPIR-V word-storage scalar read requires a 1-, 2-, 4-, or 8-byte type, got {} bytes for {}.",
                  scalar_size, elem_type->description());
 
+    // Freeze this level's exact alignment proof once and use it for every word
+    // operand below, including both words of an eight-byte access.
+    auto aligned_access =
+        plan_spirv_aligned_word_access(memory_access, byte_alignment);
     auto load_word = [&](spv::Id word_index) noexcept {
         auto ptr = _create_access_chain(
             _builder.getStorageClass(buffer), buffer,
             {_builder.makeUintConstant(0u), word_index});
-        return _builder.createLoad(ptr, spv::NoPrecision, memory_access);
+        if (aligned_access.aligned()) {
+            return _builder.createLoad(
+                ptr, spv::NoPrecision, aligned_access.mask,
+                spv::Scope::Max, aligned_access.literal);
+        }
+        return _builder.createLoad(ptr, spv::NoPrecision, aligned_access.mask);
     };
     auto load_word_window = [&](spv::Id address, size_t byte_count,
                                 bool can_cross_word) noexcept {
@@ -4337,11 +4361,22 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id byte_off
                  "SPIR-V word-storage scalar write requires a 1-, 2-, 4-, or 8-byte type, got {} bytes for {}.",
                  scalar_size, elem_type->description());
 
+    // Same frozen proof as the read path: the exact byte alignment of this level
+    // decides whether the word stores may carry `Aligned 4`. The masked
+    // compare-exchange window keeps its plain atomic path, which the plan never
+    // annotates.
+    auto aligned_access =
+        plan_spirv_aligned_word_access(memory_access, byte_alignment);
     auto store_word = [&](spv::Id word_index, spv::Id word) noexcept {
         auto ptr = _create_access_chain(
             _builder.getStorageClass(buffer), buffer,
             {_builder.makeUintConstant(0u), word_index});
-        _builder.createStore(word, ptr, memory_access);
+        if (aligned_access.aligned()) {
+            _builder.createStore(word, ptr, aligned_access.mask,
+                                 spv::Scope::Max, aligned_access.literal);
+            return;
+        }
+        _builder.createStore(word, ptr, aligned_access.mask);
     };
     auto scalar_word = [&]() noexcept {
         if (elem_type->is_bool()) {
@@ -5407,39 +5442,35 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         _require_subgroup_type(
             inst->operand(0)->type(), xir::to_string(inst->op()));
     };
-    auto emit_shuffle = [this](const Type *type, spv::Id value,
-                               spv::Id scope, spv::Id lane) noexcept {
-        auto recurse = [&](auto &&self, const Type *component_type,
-                           spv::Id component) noexcept -> spv::Id {
-            if (component_type->is_scalar()) {
-                return _builder.createOp(
-                    spv::Op::OpGroupNonUniformShuffle,
-                    _convert_type(component_type, Usage::READ),
-                    {scope, component, lane});
+    // Scalar and vector values lower to exactly one subgroup read. SPIR-V admits
+    // only scalar/vector result types for these instructions, so a matrix is
+    // decomposed into its column vectors, read one column at a time, and
+    // reconstructed. `lane` is ignored by the broadcast-first form.
+    auto emit_group_read = [this, subgroup_scope](
+                               auto &&self, spv::Op op, const Type *type,
+                               spv::Id value, spv::Id lane) noexcept -> spv::Id {
+        if (type->is_matrix()) {
+            auto column_type = Type::vector(type->element(), type->dimension());
+            auto column_spv_type = _convert_type(column_type, Usage::READ);
+            std::vector<spv::Id> columns;
+            columns.reserve(type->dimension());
+            for (auto i = 0u; i < type->dimension(); ++i) {
+                auto column = _builder.createCompositeExtract(
+                    value, column_spv_type, i);
+                columns.emplace_back(
+                    self(self, op, column_type, column, lane));
             }
-            if (component_type->is_vector() || component_type->is_matrix()) {
-                auto element_type = component_type->is_matrix() ?
-                                        Type::vector(component_type->element(),
-                                                     component_type->dimension()) :
-                                        component_type->element();
-                auto element_spv_type =
-                    _convert_type(element_type, Usage::READ);
-                std::vector<spv::Id> elements;
-                elements.reserve(component_type->dimension());
-                for (auto i = 0u; i < component_type->dimension(); ++i) {
-                    auto element = _builder.createCompositeExtract(
-                        component, element_spv_type, i);
-                    elements.emplace_back(
-                        self(self, element_type, element));
-                }
-                return _builder.createCompositeConstruct(
-                    _convert_type(component_type, Usage::READ), elements);
-            }
-            LUISA_ERROR_WITH_LOCATION(
-                "SPIR-V subgroup shuffle does not support XIR type {}.",
-                component_type->description());
-        };
-        return recurse(recurse, type, value);
+            return _builder.createCompositeConstruct(
+                _convert_type(type, Usage::READ), columns);
+        }
+        LUISA_ASSERT(type->is_scalar() || type->is_vector(),
+                     "SPIR-V subgroup read does not support XIR type {}.",
+                     type->description());
+        auto result_type = _convert_type(type, Usage::READ);
+        if (op == spv::Op::OpGroupNonUniformShuffle) {
+            return _builder.createOp(op, result_type, {subgroup_scope, value, lane});
+        }
+        return _builder.createOp(op, result_type, {subgroup_scope, value});
     };
     switch (inst->op()) {
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK: {
@@ -5731,22 +5762,23 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             require_value_type();
             auto val = _emit_value(inst->operand(0));
             auto lane = _emit_value(inst->operand(1));
-            id = emit_shuffle(inst->type(), val, subgroup_scope, lane);
+            id = emit_group_read(
+                emit_group_read, spv::Op::OpGroupNonUniformShuffle,
+                inst->type(), val, lane);
             break;
         }
         case xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE: {
+            // OpGroupNonUniformBroadcastFirst reads the value of the first
+            // active invocation of the subgroup, which is exactly what a
+            // ballot followed by find-LSB and one shuffle per component
+            // computed. It needs only GroupNonUniformBallot.
             enable_subgroup_ballot();
-            enable_subgroup_shuffle();
             require_value_type();
-            auto uint_type = _builder.makeUintType(32);
-            auto ballot_type = _builder.makeVectorType(uint_type, 4);
-            auto true_val = _builder.makeBoolConstant(true);
-            auto ballot = _builder.createOp(spv::Op::OpGroupNonUniformBallot, ballot_type,
-                                            {subgroup_scope, true_val});
-            auto first_lane = _builder.createOp(spv::Op::OpGroupNonUniformBallotFindLSB, uint_type,
-                                                {subgroup_scope, ballot});
             auto val = _emit_value(inst->operand(0));
-            id = emit_shuffle(inst->type(), val, subgroup_scope, first_lane);
+            id = emit_group_read(
+                emit_group_read,
+                spv::Op::OpGroupNonUniformBroadcastFirst,
+                inst->type(), val, spv::NoResult);
             break;
         }
         case xir::ThreadGroupOp::SHADER_EXECUTION_REORDER:

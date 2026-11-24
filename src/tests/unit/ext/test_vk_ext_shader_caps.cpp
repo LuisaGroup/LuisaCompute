@@ -96,7 +96,13 @@ inline constexpr std::array capability_expectations{
                           "VK_VALVE_shader_mixed_float_dot_product",
                           "SPV_VALVE_mixed_float_dot_product",
                           6912u,
-                          "DotProductFloat16AccFloat32VALVE"}};
+                          "DotProductFloat16AccFloat32VALVE"},
+      CapabilityExpectation{ShaderCapability::EXPECT_ASSUME,
+                            0x0080000000000000ull,
+                            "VK_KHR_shader_expect_assume",
+                            "SPV_KHR_expect_assume",
+                            5629u,
+                            "ExpectAssumeKHR"}};
 
 // Every capability switched off except `capability`.
 [[nodiscard]] ShaderExtensionAvailability only(
@@ -129,6 +135,9 @@ inline constexpr std::array capability_expectations{
         case ShaderCapability::MIXED_FLOAT_DOT_PRODUCT:
             availability.mixed_float_dot_product = true;
             break;
+            case ShaderCapability::EXPECT_ASSUME:
+                availability.expect_assume = true;
+                break;
         case ShaderCapability::COUNT: break;
     }
     return availability;
@@ -146,6 +155,7 @@ inline constexpr std::array capability_expectations{
     availability.constant_data = true;
     availability.abort = true;
     availability.mixed_float_dot_product = true;
+    availability.expect_assume = true;
     return availability;
 }
 
@@ -173,15 +183,15 @@ int main(int argc, char *argv[]) {
     using namespace test_vk_ext_shader_caps_detail;
 
     "vk_shader_capabilities_cover_every_extension_of_the_work_package"_test = [] {
-        expect(eq(shader_capability_count, 10u));
-        expect(eq(shader_capability_declarations.size(), 10u));
-        expect(eq(all_capabilities(), 0x000003ffu));
+        expect(eq(shader_capability_count, 11u));
+        expect(eq(shader_capability_declarations.size(), 11u));
+        expect(eq(all_capabilities(), 0x000007ffu));
         // One bit per enumerator, in declaration order.
         for (uint32_t i = 0u; i < shader_capability_count; i++) {
             expect(eq(shader_capability_bit(static_cast<ShaderCapability>(i)),
                       ShaderCapabilityMask{1u} << i));
         }
-        expect(eq(shader_capability_bit(ShaderCapability::COUNT), 1024u));
+        expect(eq(shader_capability_bit(ShaderCapability::COUNT), 2048u));
     };
 
     "vk_shader_capability_bits_are_stable_and_unique"_test = [] {
@@ -211,7 +221,7 @@ int main(int argc, char *argv[]) {
         // The nine shader-capability bits are the contiguous run above
         // shaderBFloat16Type; the VALVE mixed-float-dot-product bit follows the
         // ray tracing opacity micromap bit.
-        expect(eq(seen, 0x002ff80000000000ull));
+        expect(eq(seen, 0x00aff80000000000ull));
         expect(eq(seen, lc::spirv::target_feature::shader_fma_float32 |
                             lc::spirv::target_feature::shader_64bit_indexing |
                             lc::spirv::target_feature::shader_uniform_buffer_unsized_array |
@@ -221,7 +231,8 @@ int main(int argc, char *argv[]) {
                             lc::spirv::target_feature::shader_ocp_microscaling_types |
                             lc::spirv::target_feature::shader_constant_data |
                             lc::spirv::target_feature::shader_abort |
-                            lc::spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32));
+                            lc::spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32 |
+                          lc::spirv::target_feature::shader_expect_assume));
         expect(eq(lc::spirv::target_feature::shader_fma_float32, 0x0000080000000000ull));
         expect(eq(lc::spirv::target_feature::shader_64bit_indexing, 0x0000100000000000ull));
         expect(eq(lc::spirv::target_feature::shader_uniform_buffer_unsized_array, 0x0000200000000000ull));
@@ -236,7 +247,8 @@ int main(int argc, char *argv[]) {
         // micromap bit, which belongs to the ray tracing capability family
         // rather than to the shader capability table iterated above.
         expect(eq(lc::spirv::target_feature::ray_tracing_opacity_micromap, 0x0010000000000000ull));
-        expect(eq(lc::spirv::target_feature::known_mask, 0x003fffffffffffffull));
+        expect(eq(lc::spirv::target_feature::shader_expect_assume, 0x0080000000000000ull));
+      expect(eq(lc::spirv::target_feature::known_mask, 0x00ffffffffffffffull));
         expect(eq(lc::spirv::target_feature::known_mask & seen, seen));
     };
 
@@ -255,7 +267,7 @@ int main(int argc, char *argv[]) {
     "vk_shader_spirv_declarations_match_the_spirv_specification"_test = [] {
         // Numeric values are from the SPIR-V headers (spirv.h); the strings are
         // the extension names the module has to declare.
-        expect(eq(shader_spirv_capability_declarations.size(), 14u));
+        expect(eq(shader_spirv_capability_declarations.size(), 15u));
         for (auto const &expectation : capability_expectations) {
             auto found{false};
             for (auto const &declaration :
@@ -355,9 +367,9 @@ int main(int argc, char *argv[]) {
     "vk_shader_capabilities_plan_every_extension_when_all_are_enabled"_test = [] {
         constexpr auto plan = plan_shader_capabilities(all_enabled());
         static_assert(plan.available == all_capabilities());
-        static_assert(plan.available_target_features == 0x002ff80000000000ull);
+        static_assert(plan.available_target_features == 0x00aff80000000000ull);
         expect(eq(plan.available, all_capabilities()));
-        expect(eq(plan.available_target_features, 0x002ff80000000000ull));
+        expect(eq(plan.available_target_features, 0x00aff80000000000ull));
         expect(plan.any());
         expect(eq(plan.count(), shader_capability_count));
         expect(eq(missing_shader_capabilities(plan, all_capabilities()), 0u));
@@ -394,7 +406,7 @@ int main(int argc, char *argv[]) {
                       lc::spirv::target_feature::shader_long_vector));
         expect(eq(plan.count(), 2u));
         expect(eq(expected_mask, all_capabilities()));
-        expect(eq(expected_features, 0x002ff80000000000ull));
+        expect(eq(expected_features, 0x00aff80000000000ull));
         // Enabling one capability leaves every other one exactly as planned.
         auto only_split = plan_shader_capabilities(only(ShaderCapability::SPLIT_BARRIER));
         expect(eq(missing_shader_capabilities(
@@ -426,6 +438,6 @@ int main(int argc, char *argv[]) {
             shader_capability_target_features(all_capabilities());
         static_assert((features & ~lc::spirv::target_feature::known_mask) == 0u);
         expect(eq(features & ~lc::spirv::target_feature::known_mask, 0u));
-        expect(eq(features, 0x002ff80000000000ull));
+        expect(eq(features, 0x00aff80000000000ull));
     };
 }

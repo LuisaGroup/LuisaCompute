@@ -6968,9 +6968,12 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
             expect(count_spirv_opcode(
                        disassembly, "GroupNonUniformAllEqual") == 2u)
                 << "vector all-equal must scalarize to two subgroup votes";
+                // A vector value is one subgroup shuffle and a matrix is one vector
+                // shuffle per column, so a 2x2 matrix costs two shuffles - not one per
+                // scalar component.
             expect(count_spirv_opcode(
-                       disassembly, "GroupNonUniformShuffle") == 4u)
-                << "a 2x2 matrix shuffle must scalarize to four subgroup shuffles";
+                       disassembly, "GroupNonUniformShuffle") == 2u)
+                << "a 2x2 matrix shuffle must be one vector shuffle per column";
         }
     };
 

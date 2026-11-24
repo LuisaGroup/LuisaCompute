@@ -441,7 +441,9 @@ constexpr auto capability_owned_target_features =
     target_feature::cooperative_vector |
     target_feature::shader_fma_float32 |
     target_feature::shader_mixed_float_dot_product_float16_acc_float32 |
-    target_feature::shader_split_barrier;
+    target_feature::shader_split_barrier |
+    target_feature::shader_replicated_composites |
+    target_feature::shader_expect_assume;
 
 [[nodiscard]] constexpr SpirvTargetFeatureMask
 target_feature_from_capability(spv::Capability capability) noexcept {
@@ -520,6 +522,18 @@ target_feature_from_capability(spv::Capability capability) noexcept {
             // keeps every declaration of a module that uses it; reconciliation
             // therefore never observes a trimmed live split barrier.
             return target_feature::shader_split_barrier;
+        case spv::Capability::ReplicatedCompositesEXT:
+            // SPV_EXT_replicated_composites owns both the capability and the
+            // Op*CompositeReplicateEXT instructions, so a module that still
+            // declares it really contains a replicated composite. The vendored
+            // trim pass does not list this capability either, which keeps the
+            // declaration (and therefore this bit) live.
+            return target_feature::shader_replicated_composites;
+        case spv::Capability::ExpectAssumeKHR:
+            // SPV_KHR_expect_assume owns OpExpectKHR/OpAssumeTrueKHR. Only the
+            // backend-owned dispatch-bounds predicate emits OpExpectKHR, so a
+            // declared capability is an exact requirement.
+            return target_feature::shader_expect_assume;
         default: return 0u;
     }
 }

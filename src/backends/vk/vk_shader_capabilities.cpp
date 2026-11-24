@@ -28,7 +28,8 @@ inline constexpr std::array extension_rows{
     ExtensionRow{ShaderCapability::OCP_MICROSCALING_TYPES, OptionalExtension::SHADER_OCP_MICROSCALING_TYPES},
     ExtensionRow{ShaderCapability::CONSTANT_DATA, OptionalExtension::SHADER_CONSTANT_DATA},
     ExtensionRow{ShaderCapability::ABORT, OptionalExtension::SHADER_ABORT},
-    ExtensionRow{ShaderCapability::MIXED_FLOAT_DOT_PRODUCT, OptionalExtension::SHADER_MIXED_FLOAT_DOT_PRODUCT}};
+    ExtensionRow{ShaderCapability::MIXED_FLOAT_DOT_PRODUCT, OptionalExtension::SHADER_MIXED_FLOAT_DOT_PRODUCT},
+    ExtensionRow{ShaderCapability::EXPECT_ASSUME, OptionalExtension::SHADER_EXPECT_ASSUME}};
 
 [[nodiscard]] constexpr OptionalExtension optional_extension_of(
     ShaderCapability capability) noexcept {
@@ -90,6 +91,9 @@ ShaderExtensionAvailability shader_extension_availability(
     availability.mixed_float_dot_product =
         vk_ext_shader_caps_detail::extension_enabled(
             device, OptionalExtension::SHADER_MIXED_FLOAT_DOT_PRODUCT);
+    availability.expect_assume =
+        vk_ext_shader_caps_detail::extension_enabled(
+            device, OptionalExtension::SHADER_EXPECT_ASSUME);
     return availability;
 }
 

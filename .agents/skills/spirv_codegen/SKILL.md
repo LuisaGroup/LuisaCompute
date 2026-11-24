@@ -55,6 +55,8 @@ AST -> LLVM -> SPIR-V implementation in `spirv_llvm/`.
 | `bind.cpp` | Descriptor properties, argument buffer, bindless heaps, constant UBO |
 | `type.cpp` | Logical and storage-layout type conversion |
 | `emit.cpp` | Module/function/block emission, prologues, native Phi emission |
+| `control_flow_optimization.h/.cpp` | Backend-only loop-control literal planner (`Unroll` proof) frozen beside the CFG plan |
+| `memory_access_plan.h/.cpp` | Exact `Aligned` operand proof for uint32 word-ABI loads/stores |
 | `condition_inst.cpp` | Emission from the frozen control-flow plan |
 | `instruction.cpp` | Non-control instructions, resources, atomics, ray query, builtins |
 
@@ -318,6 +320,72 @@ Rules:
 
 Never rediscover or redirect edges during emission. Add facts to
 `ControlFlowPlan`, validate them there, then consume the frozen plan.
+
+## Backend-only emission policies
+
+These decisions live entirely in this directory (plus the Vulkan target-feature
+and artifact contract where a capability is involved). None of them may add an
+XIR operation, metadata, or hint.
+
+| Emission | Policy / proof | Fallback |
+|---|---|---|
+| `xir::ArithmeticOp::ROUND` | `SpirvRoundPolicy` (see "Floating-point contraction" above) | portable sequence |
+| `WARP_READ_FIRST_ACTIVE_LANE` | one `OpGroupNonUniformBroadcastFirst` per scalar/vector value, one per matrix column; requires ballot only | n/a (no capability is gained or lost) |
+| `WARP_READ_LANE` | one `OpGroupNonUniformShuffle` per scalar/vector value, one per matrix column; still requires `GroupNonUniformShuffle` | n/a |
+| Splat composites | `setUseReplicatedComposites(true)` only when the device negotiated `shaderReplicatedComposites` | ordinary `Op*Composite` |
+| Dispatch-bounds predicate | `OpExpectKHR(pred, false)` only when `shaderExpectAssume` is enabled | plain predicate |
+| Loop-control literals | `ControlFlowOptimizationPlan`: `Unroll` only for an exact constant trip count, a provably duplicable payload, and a checked code-size budget | `MaskNone` |
+| Word-ABI memory operands | `plan_spirv_aligned_word_access`: `Aligned 4` only when the existing byte-offset proof is exactly ≥ 4 | original masked access |
+
+Subgroup reads: SPIR-V admits only scalar/vector result types, so a matrix is
+decomposed into column vectors, read one column at a time, and reconstructed.
+Never pass an `OpTypeMatrix` to `OpGroupNonUniformBroadcastFirst` or
+`OpGroupNonUniformShuffle`, and never scalarize a vector into one read per
+component. `OpGroupNonUniformBroadcastFirst` is exactly "the value of the first
+active invocation", so it replaces `Ballot` + `BallotFindLSB` + one shuffle per
+component without changing semantics and without requiring the shuffle
+capability: a first-active-only module needs `GroupNonUniform` +
+`GroupNonUniformBallot` (`+ GroupNonUniformExtendedTypes` for narrow types) and
+nothing else.
+
+`SPV_EXT_replicated_composites` (not `SPV_KHR_...`) is negotiated from
+`VK_EXT_shader_replicated_composites` separately from
+`VK_NV_cooperative_vector`, which merely *requires* it. A cooperative-vector
+module therefore also requires the replicated-composite feature: glslang builds
+a cooperative-vector splat with `OpCompositeConstructReplicateEXT` on the NV
+type class regardless of the builder flag, so any fixture or artifact that
+enables `cooperative_vector` must enable `shader_replicated_composites` too. glslang declares
+`ReplicatedCompositesEXT` itself only when it really emits a replicated
+instruction, so the persisted bit is capability-reconciled and a module without
+one never claims it; the capability is deliberately outside
+`can_safely_trim_capabilities`, which leaves such modules untrimmed. The
+extension is negotiated in `device.cpp` rather than through
+`OptionalExtensionRegistry` (which would chain a second
+`VkPhysicalDeviceShaderReplicatedCompositesFeaturesEXT`), so it is intentionally
+absent from `VulkanExtensionStatusExt`.
+
+The dispatch-bounds branch is backend-owned, so `OpExpectKHR` needs no XIR
+likelihood hint. It changes optimization metadata only: the compare, the branch
+targets, and which invocations return are untouched. `OpAssumeTrueKHR`,
+`SubgroupUniformControlFlowKHR`, `Nontemporal`, and any XIR-carried hint stay
+out of scope.
+
+`ControlFlowOptimizationPlan` is built from the same immutable XIR as
+`ControlFlowPlan`, before any physical block ID exists, and emission only
+consumes it. `LUISA_SPIRV_LOOP_HINTS=0` disables it and the environment value is
+part of the shader cache identity. Synthetic software loops (compare-exchange
+remainder, ray-query traversal) stay `MaskNone`; only `xir::LoopInst` regions are
+candidates, and any unknown trip count, early exit, nested construct, memory
+access, atomic, thread-group operation, call, or over-budget expansion rejects
+the loop. `SelectionControlMask::Flatten`, `DontUnroll`, dependency lengths,
+peel/partial counts, and min/max-iteration hints have no exact proof in the
+current XIR and must not be invented.
+
+`plan_spirv_aligned_word_access` annotates only ordinary uint32 word-ABI
+loads/stores, never atomics, the masked compare-exchange window, typed or image
+accesses, `NonPrivatePointerKHR`, or `Nontemporal`. It never rounds a proof up:
+one- and two-byte proofs stay unannotated, and every existing memory-access bit
+(notably `Volatile`) is preserved rather than replaced.
 
 ## Types and layout literals
 
@@ -632,6 +700,7 @@ Useful diagnostics:
 LUISA_DUMP_SOURCE=1             # dump XIR stages and Vulkan SPIR-V disassembly
 LUISA_DUMP_SPV=1                # dump pre-optimization binary
 LUISA_SPIRV_OPT_LEVEL=0         # isolate native emission
+LUISA_SPIRV_LOOP_HINTS=0 # keep every OpLoopMerge at MaskNone (A/B; hashed into the shader cache key)
 LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1 # reject any user-shader HLSL fallback
 ```
 
@@ -709,8 +778,25 @@ zero and signed zero is preserved. Do not implement it as
 `trunc(x + sign(x) * 0.5)`: the addition can round the float immediately below
 `0.5` to `1.0`. Classify the fractional magnitude against an exactly typed
 `0.5`, choose the adjacent integral magnitude, then copy the original sign
-bit. Runtime coverage must include `nextafter` values on both sides of
-positive and negative `0.5`, not only exact halfway values.
+bit.
+
+`SpirvRoundPolicy` (in `target_features.h`) selects between that portable
+sequence and a single `GLSLstd450Round`. **The portable sequence is the
+default**, because GLSL.std.450 leaves `Round`'s tie direction to the
+implementation and at least one shipping driver (NVIDIA) rounds halves to even:
+with the native form, `round(-2.5)` becomes `-2`, so the emitted module is
+valid SPIR-V with *different semantics*, not a codegen bug. Only a device
+qualified on the tie contract may select `NATIVE_GLSL_ROUND`; there is no
+vendor for which that has been proven. The policy is a codegen preference, not
+a target feature, so it must be part of the shader cache key (it is hashed by
+`compute_shader_cache_md5` next to `buffer_float32_atomic_rmw_policy`).
+
+The `ROUND` runtime oracle for `nextafter(±0.5)`, tie direction, and signed zero
+is `vk_user_compute_vector_rounds_half_away_from_zero` in
+`src/tests/unit/runtime/test_vk_spirv_codegen_path.cpp`. `test_device_math`
+alone is not sufficient: its `round(def(2.5f))` inputs are compile-time
+constants, so constant folding evaluates them and never exercises the emitted
+instruction.
 
 Run `test_vk_native_route_guard vk` in both native-XIR and LLVM/HLSL-only
 Vulkan build trees. The native configuration verifies an explicit fallback
@@ -783,6 +869,7 @@ Important targets under `src/tests/unit/ext/`:
 - `test_spirv_raw_float_constants`
 - `test_spirv_float_remainder`
 - `test_spirv_optimizer`
+- `test_vk_ext_shader_caps` and `test_vk_extension_registry` (the shader-capability tables)
 - `test_vk_android_plan`
 - `test_vk_saved_argument_contract`
 - `test_vk_shader_binary_contract`

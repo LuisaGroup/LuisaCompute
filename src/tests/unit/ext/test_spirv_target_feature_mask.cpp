@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
 
     "spirv_target_feature_mask_has_stable_named_values"_test = [] {
-        constexpr std::array<uint64_t, 54u> expected_bits{
+        constexpr std::array<uint64_t, 56u> expected_bits{
             0x0000000000000001ull,
             0x0000000000000002ull,
             0x0000000000000004ull,
@@ -77,8 +77,10 @@ int main(int argc, char *argv[]) {
             0x0004000000000000ull,
             0x0008000000000000ull,
     0x0010000000000000ull,
-    0x0020000000000000ull};
-        constexpr std::array<luisa::string_view, 54u> expected_names{
+    0x0020000000000000ull,
+    0x0040000000000000ull,
+    0x0080000000000000ull};
+        constexpr std::array<luisa::string_view, 56u> expected_names{
             "shaderSampledImageArrayDynamicIndexing",
             "shaderSampledImageArrayNonUniformIndexing",
             "shaderResourceMinLod",
@@ -132,7 +134,9 @@ int main(int argc, char *argv[]) {
             "shaderConstantData",
             "shaderAbort",
       "rayTracingOpacityMicromapExecutionMode",
-      "shaderMixedFloatDotProductFloat16AccFloat32"};
+      "shaderMixedFloatDotProductFloat16AccFloat32",
+      "shaderReplicatedComposites",
+      "shaderExpectAssume"};
 
         constexpr auto &features =
             lc::spirv::spirv_target_feature_descriptions;
@@ -145,8 +149,8 @@ int main(int argc, char *argv[]) {
             expect(lc::spirv::spirv_target_feature_name(expected_bits[i]) ==
                    expected_names[i]);
         }
-    expect(eq(lc::spirv::target_feature::known_mask,
-              0x003fffffffffffffull));
+expect(eq(lc::spirv::target_feature::known_mask,
+                  0x00ffffffffffffffull));
         expect(lc::spirv::spirv_target_feature_name(0u).empty());
         expect(lc::spirv::spirv_target_feature_name(
                    expected_bits[0] | expected_bits[1])

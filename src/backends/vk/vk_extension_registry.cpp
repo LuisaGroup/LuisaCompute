@@ -125,7 +125,8 @@ LC_VK_OPTIONAL_EXTENSION_SWITCH(ray_tracing_linear_swept_spheres, enable_ray_tra
 LC_VK_OPTIONAL_EXTENSION_SWITCH(dense_geometry_format, enable_dense_geometry_format)
 LC_VK_OPTIONAL_EXTENSION_SWITCH(shader_mixed_float_dot_product, enable_shader_mixed_float_dot_product)
 LC_VK_OPTIONAL_EXTENSION_SWITCH(descriptor_update_template, enable_descriptor_update_template)
-    LC_VK_OPTIONAL_EXTENSION_SWITCH(push_descriptor, enable_push_descriptor)
+LC_VK_OPTIONAL_EXTENSION_SWITCH(push_descriptor, enable_push_descriptor)
+LC_VK_OPTIONAL_EXTENSION_SWITCH(shader_expect_assume, enable_shader_expect_assume)
 
 #undef LC_VK_OPTIONAL_EXTENSION_SWITCH
 
@@ -616,6 +617,19 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
      requested_push_descriptor,
      VK_STRUCTURE_TYPE_MAX_ENUM, nullptr, nullptr, VK_STRUCTURE_TYPE_MAX_ENUM,
      false, VK_API_VERSION_1_0},
+    // ---- shader capability (plan P4.1) ----------------------------------
+    // VK_KHR_shader_expect_assume: the native codegen wraps its own
+    // dispatch-bounds predicate in OpExpectKHR. A device without the feature,
+    // a device where the switch is off, and an imported logical device all
+    // keep the plain predicate.
+    {OptionalExtension::SHADER_EXPECT_ASSUME,
+     VK_KHR_SHADER_EXPECT_ASSUME_EXTENSION_NAME, nullptr, nullptr,
+     requested_shader_expect_assume,
+     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_EXPECT_ASSUME_FEATURES_KHR,
+     make_feature_of<VkPhysicalDeviceShaderExpectAssumeFeaturesKHR,
+                     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_EXPECT_ASSUME_FEATURES_KHR>,
+     check_single_bit<VkPhysicalDeviceShaderExpectAssumeFeaturesKHR,
+                      &VkPhysicalDeviceShaderExpectAssumeFeaturesKHR::shaderExpectAssume>},
 };
 
 inline constexpr size_t descriptor_count =

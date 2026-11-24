@@ -1942,16 +1942,34 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_device_extension(VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME);
         }
     }
-    // Probe for cooperative-vector support (VK_NV_cooperative_vector).
-    // SPV_NV_cooperative_vector requires the Vulkan memory model, and splat
-    // construction goes through SPV_EXT_replicated_composites, so the
-    // extension is only usable when both prerequisites are supported.
-    bool enable_vulkan_memory_model = false;
+    // Probe VK_EXT_shader_replicated_composites on its own. The extension lets
+    // SPIR-V lower an exact splat composite to one replicated instruction, which
+    // is a pure instruction-size optimization for every shader and has an
+    // ordinary-composite fallback. It is therefore negotiated independently of
+    // VK_NV_cooperative_vector: the cooperative-vector path below *requires* the
+    // feature as a prerequisite, it does not own the negotiation.
     bool enable_replicated_composites = false;
     VkPhysicalDeviceShaderReplicatedCompositesFeaturesEXT replicated_composites_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_REPLICATED_COMPOSITES_FEATURES_EXT,
         .pNext = nullptr,
         .shaderReplicatedComposites = VK_FALSE};
+    if (supported_ext.find(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceFeatures2 rc_features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &replicated_composites_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &rc_features2);
+        enable_replicated_composites =
+            replicated_composites_features.shaderReplicatedComposites == VK_TRUE;
+        if (enable_replicated_composites) {
+            enable_device_extension(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME);
+        }
+    }
+    shader_replicated_composites_enabled = enable_replicated_composites;
+    // Probe for cooperative-vector support (VK_NV_cooperative_vector).
+    // SPV_NV_cooperative_vector requires the Vulkan memory model, and splat
+    // construction goes through SPV_EXT_replicated_composites, so the
+    // extension is only usable when both prerequisites are supported.
+    bool enable_vulkan_memory_model = false;
     VkPhysicalDeviceCooperativeVectorFeaturesNV cooperative_vector_features_nv{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV,
         .pNext = nullptr,
@@ -1978,14 +1996,8 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             vkGetPhysicalDeviceFeatures2(physical_device, &vmm_features2);
             enable_vulkan_memory_model = vk12_vmm_features.vulkanMemoryModel == VK_TRUE &&
                                          vk12_vmm_features.vulkanMemoryModelDeviceScope == VK_TRUE;
-            if (supported_ext.find(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME) != supported_ext.end()) {
-                VkPhysicalDeviceFeatures2 rc_features2{
-                    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-                    .pNext = &replicated_composites_features};
-                vkGetPhysicalDeviceFeatures2(physical_device, &rc_features2);
-                enable_replicated_composites =
-                    replicated_composites_features.shaderReplicatedComposites == VK_TRUE;
-            }
+            // The replicated-composites prerequisite is the standalone probe
+            // above; do not re-probe or re-enable the extension here.
             // Query the list of supported cooperative-vector configurations.
             uint32_t prop_count = 0u;
             VkResult cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
@@ -2440,14 +2452,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
           cooperative_vector_physical_support = false;
           cooperative_vector_memory_model = false;
           cooperative_vector_replicated_composites = false;
+          shader_replicated_composites_enabled = false;
           cooperative_vector_config_count = 0u;
           shader_untyped_pointers_enabled = false;
 #if ENABLE_HIDDEN_FEATURES
-        async_copy_enabled = false;
+          async_copy_enabled = false;
 #endif
-        interop_enabled = false;
-        device_address_enabled = false;
-        surface_enabled = false;
+          interop_enabled = false;
+          device_address_enabled = false;
+          surface_enabled = false;
           _enable_device_exts.clear();
       }
       // Record which cooperative-matrix twin was enabled (if any), for
@@ -2815,6 +2828,13 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (cooperative_vector_enabled) {
         cooperative_vector_features_nv.pNext = feature_next;
         feature_next = &cooperative_vector_features_nv;
+    }
+    // The replicated-composite feature is enabled for every reason that needs
+    // it: the standalone splat-composite optimization and the cooperative
+    // vector prerequisite. `enable_replicated_composites` is exactly the
+    // standalone probe result, and cooperative-vector enablement already
+    // requires it, so one chain position covers both.
+    if (enable_replicated_composites) {
         replicated_composites_features.pNext = feature_next;
         replicated_composites_features.shaderReplicatedComposites = VK_TRUE;
         feature_next = &replicated_composites_features;
@@ -4185,6 +4205,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_untyped_pointers);
     enable(owned_logical_device && cooperative_vector_enabled,
            target_feature::cooperative_vector);
+    enable(owned_logical_device && shader_replicated_composites_enabled,
+           target_feature::shader_replicated_composites);
     // Optional shader capability extensions. `optional_extension_enabled` is
     // already false for an imported logical device and for a switch the
     // application turned off, so the artifact requirement bits can never claim a
@@ -4209,6 +4231,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_abort);
     enable(optional_extension_enabled(detail::OptionalExtension::SHADER_MIXED_FLOAT_DOT_PRODUCT),
            target_feature::shader_mixed_float_dot_product_float16_acc_float32);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_EXPECT_ASSUME),
+           target_feature::shader_expect_assume);
     return mask;
 }
 
@@ -4225,10 +4249,13 @@ namespace vk_device_detail_2 {
         hash_env("LUISA_XIR_ENABLE_SCALARIZER"),
         hash_env("LUISA_SPIRV_OPT_LEVEL"),
         hash_env("LUISA_SPIRV_OPT_PASSES"),
+        // Backend-owned loop-control hints change the emitted OpLoopMerge
+        // literals, so a device-wide policy change must invalidate artifacts.
+        hash_env("LUISA_SPIRV_LOOP_HINTS"),
     });
 }
 
-}  // namespace vk_device_detail_2
+}// namespace vk_device_detail_2
 namespace vk_device_detail_2 {
 [[nodiscard]] static vstd::MD5 compute_shader_cache_md5(
     Function kernel, const ShaderOption &option,
@@ -4242,7 +4269,7 @@ namespace vk_device_detail_2 {
         (static_cast<uint64_t>(option.enable_scalarizer) << 3u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v15"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v16"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),
@@ -4256,13 +4283,16 @@ namespace vk_device_detail_2 {
         target_features.enabled_mask(),
         static_cast<uint64_t>(
             target_features.buffer_float32_atomic_rmw_policy),
+        // ROUND lowering is a codegen policy, not a feature bit, so it must be
+        // part of the cache identity as well.
+        static_cast<uint64_t>(target_features.round_policy),
         vk_device_detail_2::xir_spirv_environment_hash(),
         static_cast<uint64_t>(required_subgroup_size.value_or(0u)),
     };
     return vstd::MD5{vstd::span<const uint8_t>{
         reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
 }
-}  // namespace vk_device_detail_2
+}// namespace vk_device_detail_2
 #endif
 
 ShaderCreationInfo Device::_create_shader_hlsl(

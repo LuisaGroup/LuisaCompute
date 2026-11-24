@@ -4,6 +4,7 @@
 #include <luisa/ast/type_registry.h>
 
 #include "spirv_codegen/buffer_layout.h"
+#include "spirv_codegen/memory_access_plan.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -67,5 +68,48 @@ int main() {
         expect(!bool_layout.compatible());
         expect(bool_layout.status ==
                lc::spirv::SpirvTypedBufferLayoutStatus::LOGICAL_BOOL);
+    };
+
+    // ---- exact word-access alignment proof (4B) --------------------------
+    "spirv_aligned_word_access_only_uses_the_exact_proof"_test = [] {
+        using lc::spirv::plan_spirv_aligned_word_access;
+        constexpr auto none = spv::MemoryAccessMask::MaskNone;
+        constexpr auto volatile_bits = spv::MemoryAccessMask::Volatile;
+
+        // A four- or eight-byte proof annotates the word operand with 4.
+        for (auto alignment : {size_t{4u}, size_t{8u}}) {
+            auto plan = plan_spirv_aligned_word_access(none, alignment);
+            expect(plan.aligned());
+            expect(eq(plan.literal, 4u));
+            expect(static_cast<bool>(plan.mask &
+                                     spv::MemoryAccessMask::Aligned));
+        }
+        // One- and two-byte proofs are never rounded up, and neither is a
+        // proof that is not a power of two.
+        for (auto alignment : {size_t{1u}, size_t{2u}, size_t{3u}, size_t{6u}}) {
+            auto plan = plan_spirv_aligned_word_access(none, alignment);
+            expect(!plan.aligned()) << "alignment " << alignment;
+            expect(eq(plan.literal, 0u));
+            expect(!static_cast<bool>(plan.mask &
+                                      spv::MemoryAccessMask::Aligned));
+            expect(eq(static_cast<uint32_t>(plan.mask),
+                      static_cast<uint32_t>(none)));
+        }
+        // Every existing bit is preserved: Aligned is additive only.
+        auto volatile_plan =
+            plan_spirv_aligned_word_access(volatile_bits, 4u);
+        expect(volatile_plan.aligned());
+        expect(static_cast<bool>(volatile_plan.mask &
+                                 spv::MemoryAccessMask::Volatile));
+        expect(static_cast<bool>(volatile_plan.mask &
+                                 spv::MemoryAccessMask::Aligned));
+        auto unproven_volatile =
+            plan_spirv_aligned_word_access(volatile_bits, 1u);
+        expect(!unproven_volatile.aligned());
+        expect(eq(static_cast<uint32_t>(unproven_volatile.mask),
+                  static_cast<uint32_t>(volatile_bits)))
+            << "an unproven access must keep its exact original mask";
+        // A wide scalar never gets a literal smaller than the access.
+        expect(!plan_spirv_aligned_word_access(none, 8u, 8u).aligned());
     };
 }

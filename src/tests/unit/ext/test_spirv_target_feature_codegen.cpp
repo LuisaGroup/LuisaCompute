@@ -39,6 +39,16 @@ using namespace boost::ut::literals;
 
 namespace xir = luisa::compute::xir;
 
+// A logical bool has no StorageBuffer representation, so this record keeps the
+// byte-exact uint32 word ABI while its four-byte size still yields an exact
+// four-byte alignment proof for the first word. LUISA_STRUCT must be declared
+// at global scope.
+struct AlignedWordRecord {
+    bool4 flags;
+};
+LUISA_STRUCT(AlignedWordRecord, flags) {};
+static_assert(sizeof(AlignedWordRecord) == 4u);
+
 namespace {
 
 struct CompiledSpirv {
@@ -50,9 +60,18 @@ struct CompiledSpirv {
     vstd::vector<lc::spirv::SpirvKernelArgumentRoleMask> argument_roles;
 };
 
+// The two purely optional emission optimizations are enabled per test instead
+// of by the catch-all fixture: the backend-owned dispatch-bounds expectation
+// is emitted for *every* kernel and replicated composites are emitted for every
+// exact splat, so a device-wide enable would add their requirement bit to every
+// fixture's expected mask and hide the ordinary-composite/plain-predicate
+// fallback that the other cases pin.
+constexpr auto optional_emission_features =
+    lc::spirv::target_feature::shader_expect_assume |
+    lc::spirv::target_feature::shader_replicated_composites;
 constexpr auto all_target_features =
     lc::spirv::SpirvTargetFeatures::from_enabled_mask(
-        lc::spirv::target_feature::known_mask);
+        lc::spirv::target_feature::known_mask & ~optional_emission_features);
 
 void set_environment_variable(const char *name,
                               const char *value) noexcept {
@@ -129,6 +148,18 @@ template<typename Kernel>
 [[nodiscard]] bool contains(luisa::string_view text,
                             luisa::string_view needle) noexcept {
     return text.find(needle) != luisa::string_view::npos;
+}
+
+[[nodiscard]] size_t count_occurrences(luisa::string_view text,
+                                       luisa::string_view needle) noexcept {
+    auto count = size_t{0u};
+    if (needle.empty()) { return count; }
+    for (auto position = text.find(needle);
+         position != luisa::string_view::npos;
+         position = text.find(needle, position + needle.size())) {
+        count++;
+    }
+    return count;
 }
 
 [[nodiscard]] size_t count_property(
@@ -2369,5 +2400,346 @@ int main(int argc, char *argv[]) {
                 "OpCapability StorageBufferArrayDynamicIndexing"));
             expect(contains(compiled.text, " NonUniform"));
         }
+    };
+
+    // ---- backend-only emission optimizations ------------------------------
+    //
+    // A1: XIR ROUND selects the existing GLSL.std.450 Round instruction.
+    "spirv_round_policy_selects_the_exact_instruction_selection"_test = [] {
+        Kernel1D scalar_kernel = [](BufferFloat in, BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, round(in.read(i)));
+        };
+        Kernel1D vector_kernel = [](BufferFloat4 in, BufferFloat4 out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, round(in.read(i)));
+        };
+        Kernel1D double_kernel = [](BufferVar<double> in,
+                                    BufferVar<double> out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, round(in.read(i)));
+        };
+        // ROUND no longer copies the sign through a portable integer pattern in
+        // the native form, so a float64 ROUND requires Float64 only; the device
+        // may still offer Int64.
+        constexpr auto double_feature_mask =
+            lc::spirv::target_feature::shader_float64;
+        auto double_features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                double_feature_mask |
+                lc::spirv::target_feature::shader_int64);
+        double_features.round_policy =
+            lc::spirv::SpirvRoundPolicy::NATIVE_GLSL_ROUND;
+        auto native_features = all_target_features;
+        native_features.round_policy =
+            lc::spirv::SpirvRoundPolicy::NATIVE_GLSL_ROUND;
+        auto check_native = [](const CompiledSpirv &compiled,
+                               size_t expected_rounds,
+                               lc::spirv::SpirvTargetFeatureMask expected) {
+            expect(eq(count_occurrences(compiled.text, " Round "),
+                      expected_rounds))
+                << "the native policy must select exactly one GLSL.std.450 Round";
+            expect(!contains(compiled.text, " RoundEven "))
+                << "ROUND must not be confused with RINT";
+            expect(!contains(compiled.text, " FAbs "))
+                << "the portable magnitude/floor/fraction sequence must be gone";
+            expect(!contains(compiled.text, "FOrdGreaterThanEqual"))
+                << "the portable halfway comparison must be gone";
+            expect(eq(compiled.required_features, expected))
+                << "GLSL.std.450 Round must not add a target feature";
+        };
+        auto check_portable = [](const CompiledSpirv &compiled) {
+            expect(!contains(compiled.text, " Round "))
+                << "the default policy must not depend on implementation-defined "
+                   "GLSL.std.450 Round tie-breaking";
+            expect(contains(compiled.text, " Floor "));
+            expect(contains(compiled.text, "FAbs"))
+                << "the portable sequence keeps the magnitude step";
+            expect(contains(compiled.text, "FOrdGreaterThanEqual"))
+                << "the portable sequence compares an exactly typed 0.5 fraction";
+            expect(contains(compiled.text, "OpBitwiseOr"))
+                << "the portable sequence copies the original sign bit";
+        };
+        for (auto level : {0, 2}) {
+            ScopedEnvironmentVariable opt_level{
+                "LUISA_SPIRV_OPT_LEVEL", level == 0 ? "0" : "2"};
+            check_portable(compile_spirv_fixture(scalar_kernel));
+            check_portable(compile_spirv_fixture(vector_kernel));
+            check_native(compile_spirv_fixture(scalar_kernel, native_features),
+                         1u, 0u);
+            // A float4 ROUND is one vector-typed extended instruction instead of
+            // one splat and one operation per component.
+            check_native(compile_spirv_fixture(vector_kernel, native_features),
+                         1u, 0u);
+            check_native(compile_spirv_fixture(double_kernel, double_features),
+                         1u, double_feature_mask);
+        }
+    };
+
+    // A2a: WARP_READ_FIRST_ACTIVE_LANE lowers to one broadcast-first per
+    // scalar/vector (one per matrix column) and needs ballot only.
+    "spirv_warp_read_first_active_lane_uses_broadcast_first"_test = [] {
+        constexpr auto expected =
+            lc::spirv::target_feature::subgroup_basic |
+            lc::spirv::target_feature::subgroup_ballot;
+        constexpr auto features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(expected);
+        Kernel1D scalar_kernel = [](BufferUInt out, UInt value) noexcept {
+            out.write(0u, warp_read_first_active_lane(value));
+        };
+        Kernel1D vector_kernel = [](BufferUInt3 out, UInt value) noexcept {
+            out.write(0u, warp_read_first_active_lane(
+                              make_uint3(value, value + 1u, value + 2u)));
+        };
+        Kernel1D matrix_kernel = [](BufferFloat3x3 out, Float value) noexcept {
+            out.write(0u, warp_read_first_active_lane(make_float3x3(
+                              make_float3(value, value, value),
+                              make_float3(value, value, value),
+                              make_float3(value, value, value))));
+        };
+        for (auto compiled : {
+                 compile_spirv_fixture(scalar_kernel, features),
+                 compile_spirv_fixture(vector_kernel, features),
+                 compile_spirv_fixture(matrix_kernel, features)}) {
+            expect(eq(compiled.required_features, expected))
+                << "a first-active-only module must not require shuffle";
+            expect(contains(compiled.text,
+                            "OpCapability GroupNonUniformBallot"));
+            expect(!contains(compiled.text,
+                             "OpCapability GroupNonUniformShuffle"));
+            expect(!contains(compiled.text, "OpGroupNonUniformBallot "))
+                << "the blanket ballot is no longer needed";
+            expect(!contains(compiled.text, "OpGroupNonUniformBallotFindLSB"));
+            expect(!contains(compiled.text, "OpGroupNonUniformShuffle"));
+            expect(contains(compiled.text,
+                            "OpGroupNonUniformBroadcastFirst"));
+        }
+        expect(eq(count_occurrences(
+                      compile_spirv_fixture(scalar_kernel, features).text,
+                      "OpGroupNonUniformBroadcastFirst"),
+                  1u));
+        expect(eq(count_occurrences(
+                      compile_spirv_fixture(vector_kernel, features).text,
+                      "OpGroupNonUniformBroadcastFirst"),
+                  1u))
+            << "a vector value is one broadcast-first, not one per component";
+        expect(eq(count_occurrences(
+                      compile_spirv_fixture(matrix_kernel, features).text,
+                      "OpGroupNonUniformBroadcastFirst"),
+                  3u))
+            << "a float3x3 value is one broadcast-first per column";
+    };
+
+    // A2a/A2b mixed: a module using both operations still requires shuffle.
+    "spirv_warp_read_first_active_and_read_lane_keep_shuffle"_test = [] {
+        constexpr auto expected =
+            lc::spirv::target_feature::subgroup_basic |
+            lc::spirv::target_feature::subgroup_ballot |
+            lc::spirv::target_feature::subgroup_shuffle;
+        constexpr auto features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(expected);
+        Kernel1D kernel = [](BufferUInt4 out, UInt value, UInt lane) noexcept {
+            auto first = warp_read_first_active_lane(
+                make_uint4(value, value, value, value));
+            auto read = warp_read_lane(first, lane);
+            out.write(0u, read);
+        };
+        auto compiled = compile_spirv_fixture(kernel, features);
+        expect(eq(compiled.required_features, expected));
+        expect(contains(compiled.text, "OpGroupNonUniformBroadcastFirst"));
+        expect(eq(count_occurrences(compiled.text,
+                                    "OpGroupNonUniformShuffle"),
+                  1u))
+            << "the vector read-lane must be a single vector shuffle";
+        expect(contains(compiled.text,
+                        "OpCapability GroupNonUniformShuffle"));
+    };
+
+    // A2b: a vector WARP_READ_LANE is one vector shuffle; a matrix is one
+    // vector shuffle per column.
+    "spirv_warp_read_lane_is_not_scalarized"_test = [] {
+        constexpr auto expected =
+            lc::spirv::target_feature::subgroup_basic |
+            lc::spirv::target_feature::subgroup_shuffle;
+        constexpr auto features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(expected);
+        Kernel1D scalar_kernel = [](BufferUInt out, UInt value,
+                                    UInt lane) noexcept {
+            out.write(0u, warp_read_lane(value, lane));
+        };
+        Kernel1D vector_kernel = [](BufferUInt4 out, UInt value,
+                                    UInt lane) noexcept {
+            out.write(0u, warp_read_lane(
+                              make_uint4(value, value + 1u,
+                                         value + 2u, value + 3u),
+                              lane));
+        };
+        Kernel1D matrix_kernel = [](BufferFloat3x3 out, Float value,
+                                    UInt lane) noexcept {
+            out.write(0u, warp_read_lane(make_float3x3(
+                                             make_float3(value, value + 1.0f, value + 2.0f),
+                                             make_float3(value + 3.0f, value + 4.0f, value + 5.0f),
+                                             make_float3(value + 6.0f, value + 7.0f, value + 8.0f)),
+                                         lane));
+        };
+        auto check = [expected](const CompiledSpirv &compiled, size_t shuffles) {
+            expect(eq(compiled.required_features, expected));
+            expect(contains(compiled.text,
+                            "OpCapability GroupNonUniformShuffle"));
+            expect(eq(count_occurrences(compiled.text,
+                                        "OpGroupNonUniformShuffle"),
+                      shuffles));
+            expect(!contains(compiled.text,
+                             "OpGroupNonUniformBroadcastFirst"))
+                << "read-lane must stay a shuffle, not a broadcast";
+        };
+        check(compile_spirv_fixture(scalar_kernel, features), 1u);
+        check(compile_spirv_fixture(vector_kernel, features), 1u);
+        check(compile_spirv_fixture(matrix_kernel, features), 3u);
+    };
+
+    // A3: replicated composites are emitted only for actual splats and only when
+    // the negotiated feature is on.
+    "spirv_replicated_composites_are_gated_and_exact"_test = [] {
+        constexpr auto enabled =
+            lc::spirv::target_feature::shader_replicated_composites;
+        constexpr auto features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(enabled);
+        Kernel1D splat_kernel = [](BufferFloat4 in, BufferFloat4 out,
+                                   Float scalar) noexcept {
+            auto i = dispatch_x();
+            auto constant_splat = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
+            auto runtime_splat = make_float4(scalar, scalar, scalar, scalar);
+            out.write(i, in.read(i) + constant_splat + runtime_splat);
+        };
+        Kernel1D distinct_kernel = [](BufferFloat4 in, BufferFloat4 out,
+                                      Float scalar) noexcept {
+            auto i = dispatch_x();
+            auto distinct = make_float4(scalar, 1.0f, 2.0f, 3.0f);
+            out.write(i, in.read(i) + distinct);
+        };
+        auto on = compile_spirv_fixture(splat_kernel, features);
+        expect(eq(on.required_features, enabled));
+        expect(contains(on.text, "OpCapability ReplicatedCompositesEXT"));
+        expect(contains(on.text,
+                        "OpExtension \"SPV_EXT_replicated_composites\""));
+        expect(contains(on.text, "OpConstantCompositeReplicateEXT"));
+        expect(contains(on.text, "OpCompositeConstructReplicateEXT"));
+        auto on_distinct = compile_spirv_fixture(distinct_kernel, features);
+        expect(!contains(on_distinct.text, "CompositeReplicate"))
+            << "a non-splat composite must keep its full constituent list";
+        auto off = compile_spirv_fixture(splat_kernel);
+        expect(eq(off.required_features, 0u));
+        expect(!contains(off.text, "CompositeReplicate"));
+        expect(!contains(off.text, "ReplicatedCompositesEXT"));
+        expect(contains(off.text, "OpConstantComposite "))
+            << "the fallback keeps ordinary composite constants";
+        expect(contains(off.text, "OpCompositeConstruct "))
+            << "the fallback keeps ordinary composite constructs";
+        // Every optimizer level must accept the module and keep it valid.
+        for (auto level : {0, 1, 2, 3}) {
+            auto words = on.words;
+            lc::spirv::SpirvOptimizerOptions options;
+            options.level = level;
+            auto report = lc::spirv::optimize_spirv(words, options);
+            expect(report.succeeded)
+                << "optimizer level " << level
+                << " must not fail on a replicated-composite module: "
+                << report.diagnostics;
+            expect(lc::spirv::validate_spirv(words.data(), words.size()).valid)
+                << "optimizer level " << level
+                << " must keep the module valid";
+            expect(eq(lc::spirv::reconcile_spirv_target_features(
+                          words.data(), words.size(), enabled),
+                      enabled))
+                << "the replicated-composite capability must stay a live "
+                   "requirement at optimizer level "
+                << level;
+        }
+    };
+
+    // 4A.1: the backend-owned dispatch-bounds predicate carries
+    // OpExpectKHR(false) only when the negotiated feature is on.
+    "spirv_dispatch_bounds_expect_assume_is_gated"_test = [] {
+        constexpr auto enabled =
+            lc::spirv::target_feature::shader_expect_assume;
+        constexpr auto features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(enabled);
+        Kernel1D kernel = [](BufferUInt out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, i);
+        };
+        auto on = compile_spirv_fixture(kernel, features);
+        expect(eq(on.required_features, enabled));
+        expect(contains(on.text, "OpCapability ExpectAssumeKHR"));
+        expect(contains(on.text,
+                        "OpExtension \"SPV_KHR_expect_assume\""));
+        expect(eq(count_occurrences(on.text, "OpExpectKHR"), 1u))
+            << "exactly the dispatch-bounds predicate is annotated";
+        expect(!contains(on.text, "OpAssumeTrueKHR"))
+            << "no assumption may be invented";
+        expect(contains(on.text, "OpUGreaterThanEqual"))
+            << "the original predicate stays in the module";
+        auto off = compile_spirv_fixture(kernel);
+        expect(eq(off.required_features, 0u));
+        expect(!contains(off.text, "OpExpectKHR"));
+        expect(!contains(off.text, "ExpectAssumeKHR"));
+        expect(!contains(off.text, "SPV_KHR_expect_assume"));
+        for (auto level : {0, 2}) {
+            auto words = on.words;
+            lc::spirv::SpirvOptimizerOptions options;
+            options.level = level;
+            auto report = lc::spirv::optimize_spirv(words, options);
+            expect(report.succeeded)
+                << "optimizer level " << level
+                << " must accept the expected module: " << report.diagnostics;
+            expect(lc::spirv::validate_spirv(words.data(), words.size()).valid);
+        }
+    };
+
+    // 4B: an exact four-byte proof annotates the word operand; a weaker
+    // offset inside the same record and the masked compare-exchange window
+    // stay unannotated.
+    "spirv_word_abi_accesses_carry_aligned_only_from_the_exact_proof"_test = [] {
+        Kernel1D kernel = [](BufferVar<AlignedWordRecord> in,
+                             BufferVar<AlignedWordRecord> out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, in.read(i));
+        };
+        ScopedEnvironmentVariable opt_level{"LUISA_SPIRV_OPT_LEVEL", "0"};
+        auto compiled = compile_spirv_fixture(kernel);
+        expect(eq(count_occurrences(compiled.text, "Aligned 4"), 1u))
+            << "only the four-byte-aligned word load may carry Aligned 4";
+        expect(!contains(compiled.text, "Aligned 1"))
+            << "a one-byte proof must never be rounded up";
+        expect(!contains(compiled.text, "Aligned 2"))
+            << "a two-byte proof must never be rounded up";
+        expect(contains(compiled.text, "OpAtomicCompareExchange"))
+            << "the masked write window must keep its compare-exchange path";
+        expect(!contains(compiled.text, "Aligned") ||
+               count_occurrences(compiled.text, "Aligned") == 1u);
+    };
+
+    // 4B: a volatile word-ABI access must keep `Volatile` and gain `Aligned 4`
+    // from the same exact proof. The plan is additive: it never replaces the
+    // caller's mask with `Aligned` alone.
+    "spirv_volatile_word_abi_access_keeps_volatile_and_alignment"_test = [] {
+        Kernel1D kernel = [](BufferVar<AlignedWordRecord> in,
+                             BufferVar<AlignedWordRecord> out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, in.volatile_read(i));
+        };
+        ScopedEnvironmentVariable opt_level{"LUISA_SPIRV_OPT_LEVEL", "0"};
+        auto compiled = compile_spirv_fixture(kernel);
+        expect(contains(compiled.text, "Volatile|Aligned 4"))
+            << "a volatile word access must keep both memory operands";
+        expect(eq(count_occurrences(compiled.text, "Volatile|Aligned 4"), 1u))
+            << "only the four-byte-aligned volatile word may be annotated";
+        expect(count_occurrences(compiled.text, "Volatile") >
+               count_occurrences(compiled.text, "Volatile|Aligned 4"))
+            << "sub-word members keep Volatile without an Aligned operand";
+        expect(!contains(compiled.text, "Volatile|Aligned 1") &&
+               !contains(compiled.text, "Volatile|Aligned 2"))
+            << "a volatile access must never carry a sub-word alignment";
     };
 }

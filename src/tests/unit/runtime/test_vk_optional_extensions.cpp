@@ -59,6 +59,7 @@ public:
     LC_TEST_DISABLE(enable_shader_ocp_microscaling_types)
     LC_TEST_DISABLE(enable_shader_constant_data)
     LC_TEST_DISABLE(enable_shader_abort)
+    LC_TEST_DISABLE(enable_shader_expect_assume)
     LC_TEST_DISABLE(enable_ray_tracing_invocation_reorder)
     LC_TEST_DISABLE(enable_opacity_micromap)
     LC_TEST_DISABLE(enable_custom_resolve)

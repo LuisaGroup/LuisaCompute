@@ -1030,6 +1030,10 @@ void SpirvCodegenEntry::_prepare_control_flow_plan(const xir::FunctionDefinition
     LUISA_ASSERT(_block_map.size() == 1u && _block_map.contains(def->body_block()),
                  "SPIR-V function planning requires exactly one pre-bound function entry.");
     _control_flow_plan = luisa::make_unique<ControlFlowPlan>(ControlFlowPlan::create(def));
+    // Freeze the loop-control literals beside the physical plan, before any
+    // physical block ID exists. Emission only consumes the decisions.
+    _control_flow_optimization = luisa::make_unique<ControlFlowOptimizationPlan>(
+        ControlFlowOptimizationPlan::create(def));
     auto *function = &_block_map.at(def->body_block())->getParent();
     for (auto &block_plan : _control_flow_plan->blocks()) {
         auto *block = block_plan.block;
@@ -1274,6 +1278,21 @@ void SpirvCodegenEntry::_emit_kernel(
         auto cmp_z = _builder.createBinOp(spv::Op::OpUGreaterThanEqual, bool_type, id_z, dsp_z);
         auto cmp = _builder.createBinOp(spv::Op::OpLogicalOr, bool_type, cmp_x, cmp_y);
         cmp = _builder.createBinOp(spv::Op::OpLogicalOr, bool_type, cmp, cmp_z);
+
+        // VK_KHR_shader_expect_assume. The backend owns this predicate: an
+        // in-bounds invocation compares false, so the expectation is metadata
+        // only. The compare, the branch targets, and which invocations return
+        // are unchanged, and without the negotiated feature nothing is emitted.
+        if (_target_features.shader_expect_assume) {
+            _require_target_feature(
+                target_feature::shader_expect_assume,
+                _target_features.shader_expect_assume);
+            _builder.addExtension("SPV_KHR_expect_assume");
+            _builder.addCapability(spv::Capability::ExpectAssumeKHR);
+            cmp = _builder.createBinOp(
+                spv::Op::OpExpectKHR, bool_type, cmp,
+                _builder.makeBoolConstant(false));
+        }
 
         // Create return block and body block
         auto return_block = _create_physical_block(&function);

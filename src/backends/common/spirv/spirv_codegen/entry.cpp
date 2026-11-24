@@ -175,6 +175,11 @@ void SpirvCodegenEntry::_require_storage_buffer_array_indexing(
     }
 }
 
+void SpirvCodegenEntry::_set_use_replicated_composites(bool enabled) noexcept {
+    _use_replicated_composites = enabled;
+    _builder.setUseReplicatedComposites(enabled);
+}
+
 void SpirvCodegenEntry::_require_subgroup_type(
     const Type *type, luisa::string_view operation) noexcept {
     LUISA_ASSERT(type != nullptr,
@@ -381,6 +386,14 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     codegen._enable_fast_math = opt.enable_fast_math;
     codegen._enable_debug_info = opt.enable_debug_info;
     codegen._target_features = target_features;
+    // VK_EXT_shader_replicated_composites is a pure instruction-size policy for
+    // the shader builder: with the negotiated feature it lowers an exact splat
+    // composite to a single replicated instruction, and glslang declares the
+    // capability/extension itself only when it really emits one. Without the
+    // feature every composite keeps its ordinary N-constituent form, so this is
+    // never set unconditionally in the constructor.
+    codegen._set_use_replicated_composites(
+        target_features.shader_replicated_composites);
     auto analysis = codegen._analyze_module_usage(xir_module);
     auto atomic_buffers = plan_spirv_atomic_buffers(
         luisa::span<const xir::Function *const>{

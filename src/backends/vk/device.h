@@ -527,6 +527,13 @@ public:
     bool cooperative_vector_physical_support : 1 {false};
     bool cooperative_vector_memory_model : 1 {false};
     bool cooperative_vector_replicated_composites : 1 {false};
+  // VK_EXT_shader_replicated_composites, negotiated independently of
+  // VK_NV_cooperative_vector. "Enabled" means the extension name and the
+  // shaderReplicatedComposites feature bit were actually requested on the
+  // logical device, so the native codegen may lower exact splat composites to
+  // replicated instructions. Imported logical devices cannot attest their
+  // enabled feature chain and therefore keep this false.
+  bool shader_replicated_composites_enabled : 1 {false};
     // Number of VkCooperativeVectorPropertiesNV entries the driver enumerated,
     // including the packed/quantized ones the Info log's sanity guard hides.
     uint32_t cooperative_vector_config_count{0u};

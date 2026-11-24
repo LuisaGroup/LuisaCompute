@@ -167,9 +167,13 @@ void SpirvCodegenEntry::_emit_loop_merge(
     LUISA_ASSERT(continue_target != nullptr && merge_target != nullptr &&
                      continue_target != merge_target,
                  "SPIR-V Loop prepare has invalid merge/continue targets.");
-    _builder.createLoopMerge(
-        merge_target, continue_target,
-        spv::LoopControlMask::MaskNone, {});
+    // Consume the frozen literal decision; never re-derive the proof here. Every
+    // loop the planner did not accept keeps MaskNone.
+    auto mask = spv::LoopControlMask::MaskNone;
+    if (_control_flow_optimization != nullptr) {
+        mask = _control_flow_optimization->loop_control(region.instruction).mask;
+    }
+    _builder.createLoopMerge(merge_target, continue_target, mask, {});
 }
 
 void SpirvCodegenEntry::_emit_branch_inst(const xir::BranchInst *inst) noexcept {

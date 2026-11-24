@@ -31,6 +31,8 @@
 
 #include "spirv_codegen/argument_usage.h"
 #include "spirv_codegen/call_graph_validation.h"
+#include "spirv_codegen/control_flow_optimization.h"
+#include "spirv_codegen/optimizer.h"
 #include "spirv_codegen/control_flow_plan.h"
 #include "spirv_codegen/dialect.h"
 #include "spirv_codegen/entry.h"
@@ -428,6 +430,77 @@ void expect_single_trampoline_to(
     expect(synthetic.kind ==
            lc::spirv::ControlFlowPlan::SyntheticBlockKind::EDGE_TRAMPOLINE);
     expect(synthetic.continuation == continuation);
+}
+
+// One canonical counted loop: `for (phi = 0; phi < trip_count; ++phi)`. The
+// body only uses pure arithmetic, so the backend proof may duplicate it.
+struct CountedLoopFixture {
+    Module module;
+    KernelFunction *kernel{nullptr};
+    LoopInst *loop{nullptr};
+    PhiInst *induction{nullptr};
+};
+
+[[nodiscard]] luisa::unique_ptr<CountedLoopFixture>
+create_counted_loop(uint32_t trip_count) {
+    auto fixture = luisa::make_unique<CountedLoopFixture>();
+    auto *kernel = fixture->module.create_kernel();
+    auto *value_argument =
+        kernel->create_value_argument(Type::of<uint32_t>());
+    auto *initial =
+        fixture->module.create_constant_zero(Type::of<uint32_t>());
+    auto bound_value = uint32_t{trip_count};
+    auto *bound =
+        fixture->module.create_constant(Type::of<uint32_t>(), &bound_value);
+    auto *one = fixture->module.create_constant_one(Type::of<uint32_t>());
+    auto *entry = kernel->create_body_block();
+    XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *loop = builder.loop();
+    auto *prepare = loop->create_prepare_block();
+    auto *body = loop->create_body_block();
+    auto *update = loop->create_update_block();
+    auto *loop_merge = loop->create_merge_block();
+    builder.set_insertion_point(prepare);
+    auto *induction = builder.phi(Type::of<uint32_t>(), {});
+    auto *condition = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+        {induction, bound});
+    builder.cond_br(condition, body, loop_merge);
+    builder.set_insertion_point(body);
+    static_cast<void>(builder.call(
+        Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+        {induction, value_argument}));
+    builder.br(update);
+    builder.set_insertion_point(update);
+    auto *next = builder.call(
+        Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD, {induction, one});
+    induction->add_incoming(initial, entry);
+    induction->add_incoming(next, update);
+    builder.br(prepare);
+    builder.set_insertion_point(loop_merge);
+    builder.return_void();
+    fixture->kernel = kernel;
+    fixture->loop = loop;
+    fixture->induction = induction;
+    return fixture;
+}
+
+[[nodiscard]] luisa::vector<uint32_t> loop_merge_controls(
+    luisa::span<const uint32_t> words) noexcept {
+    luisa::vector<uint32_t> controls;
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            return controls;
+        }
+        if (static_cast<spv::Op>(words[offset] & 0xffffu) ==
+            spv::Op::OpLoopMerge) {
+            controls.emplace_back(words[offset + 3u]);
+        }
+        offset += word_count;
+    }
+    return controls;
 }
 
 }// namespace
@@ -2606,5 +2679,132 @@ int main(int argc, char *argv[]) {
         expect(count_opcode(luisa::span{compiled.spv_bin},
                             spv::Op::OpPhi) >= 3u)
             << "the outer header and nested case-exit forwarding Phis must stay native";
+    };
+
+    // ---- backend-provable loop-control literals (4A.2) -------------------
+    "spirv_loop_control_accepts_an_exact_counted_loop"_test = [] {
+        auto fixture = create_counted_loop(4u);
+        expect(xir_verify_module(
+                   &fixture->module,
+                   {.require_unique_merge_blocks = true})
+                   .succeeded());
+        auto options = lc::spirv::ControlFlowOptimizationPlan::Options{};
+        auto decision =
+            lc::spirv::plan_spirv_loop_control(fixture->loop, options);
+        expect(decision.unroll()) << decision.reason;
+        expect(eq(decision.trip_count, 4u)) << decision.reason;
+        expect(decision.expanded_instruction_budget <=
+               options.max_expanded_instructions);
+        // The frozen decision reaches the physical OpLoopMerge.
+        Kernel1D ast_kernel = [](UInt) noexcept {};
+        fixture->kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        auto compiled = compile_exact_xir(
+            ast_kernel.function()->function(), &fixture->module);
+        expect(validates(luisa::span{compiled.spv_bin}));
+        auto controls = loop_merge_controls(luisa::span{compiled.spv_bin});
+        expect(eq(controls.size(), 1u));
+        if (!controls.empty()) {
+            expect(eq(controls.front(),
+                      static_cast<uint32_t>(spv::LoopControlMask::Unroll)));
+        }
+        // The compute preset registers its explicit-Unroll pass only for a
+        // module that carries the bit, and the result stays valid.
+        {
+            auto words = compiled.spv_bin;
+            lc::spirv::SpirvOptimizerOptions optimizer_options;
+            optimizer_options.level = 2;
+            auto report = lc::spirv::optimize_spirv(
+                words, optimizer_options);
+            expect(report.succeeded) << report.diagnostics;
+            expect(report.loop_unroll_registered)
+                << "an accepted loop must make the unroll pass reachable";
+            expect(validates(luisa::span{words}));
+        }
+        // The same module with the policy switch off keeps MaskNone.
+        auto disabled = lc::spirv::plan_spirv_loop_control(
+            fixture->loop,
+            lc::spirv::ControlFlowOptimizationPlan::Options{
+                .enable_loop_unroll = false});
+        expect(!disabled.unroll());
+    };
+
+    "spirv_loop_control_rejects_every_unproved_shape"_test = [] {
+        using Options = lc::spirv::ControlFlowOptimizationPlan::Options;
+        auto options = Options{};
+        // Over the checked trip-count threshold.
+        auto small_budget = create_counted_loop(4u);
+        expect(!lc::spirv::plan_spirv_loop_control(
+                    small_budget->loop,
+                    Options{.max_trip_count = 2u})
+                    .unroll());
+        // Over the checked expanded-instruction budget.
+        expect(!lc::spirv::plan_spirv_loop_control(
+                    small_budget->loop,
+                    Options{.max_expanded_instructions = 4u})
+                    .unroll());
+        // A zero-trip loop is never worth unrolling.
+        auto empty_loop = create_counted_loop(0u);
+        expect(!lc::spirv::plan_spirv_loop_control(empty_loop->loop, options)
+                    .unroll());
+        // A non-constant bound has no exact trip count.
+        {
+            auto fixture = create_counted_loop(4u);
+            auto *prepare = fixture->loop->prepare_block();
+            auto *terminator = prepare->terminator();
+            auto *compare = static_cast<ConditionalBranchInst *>(terminator);
+            auto *condition =
+                static_cast<ArithmeticInst *>(compare->condition());
+            condition->set_operand(
+                1u, fixture->kernel->arguments().front());
+            expect(xir_verify_module(&fixture->module).succeeded());
+            auto decision = lc::spirv::plan_spirv_loop_control(
+                fixture->loop, options);
+            expect(!decision.unroll()) << decision.reason;
+            // A rejected loop must never reach the unroll pass.
+            Kernel1D ast_kernel = [](UInt) noexcept {};
+            fixture->kernel->set_block_size(
+                ast_kernel.function()->function().block_size());
+            auto compiled = compile_exact_xir(
+                ast_kernel.function()->function(), &fixture->module);
+            expect(validates(luisa::span{compiled.spv_bin}));
+            auto controls =
+                loop_merge_controls(luisa::span{compiled.spv_bin});
+            expect(eq(controls.size(), 1u));
+            if (!controls.empty()) {
+                expect(eq(controls.front(),
+                          static_cast<uint32_t>(
+                              spv::LoopControlMask::MaskNone)));
+            }
+            auto words = compiled.spv_bin;
+            lc::spirv::SpirvOptimizerOptions optimizer_options;
+            optimizer_options.level = 2;
+            auto report = lc::spirv::optimize_spirv(
+                words, optimizer_options);
+            expect(report.succeeded) << report.diagnostics;
+            expect(!report.loop_unroll_registered)
+                << "a MaskNone loop must keep the unroll pass unregistered";
+        }
+        // An early exit keeps the loop at MaskNone and keeps the CFG intact.
+        {
+            auto fixture = create_counted_loop(4u);
+            auto *body = fixture->loop->body_block();
+            auto *update = fixture->loop->update_block();
+            auto *loop_merge = fixture->loop->merge_block();
+            body->terminator()->remove_self();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            builder.cond_br(
+                builder.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                             {fixture->induction,
+                              fixture->module.create_constant_one(
+                                  Type::of<uint32_t>())}),
+                loop_merge, update);
+            expect(xir_verify_module(&fixture->module).succeeded());
+            auto decision = lc::spirv::plan_spirv_loop_control(
+                fixture->loop, options);
+            expect(!decision.unroll()) << decision.reason;
+            expect(!decision.reason.empty());
+        }
     };
 }

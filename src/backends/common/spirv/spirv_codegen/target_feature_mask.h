@@ -106,6 +106,16 @@ inline constexpr SpirvTargetFeatureMask ray_tracing_opacity_micromap = 0x0010000
 // negotiates only the shaderMixedFloatDotProductFloat16AccFloat32 bit, so the
 // requirement is exactly the FP16-input/FP32-accumulator form.
 inline constexpr SpirvTargetFeatureMask shader_mixed_float_dot_product_float16_acc_float32 = 0x0020000000000000ull;
+// VK_EXT_shader_replicated_composites: ReplicatedCompositesEXT with
+// OpConstantCompositeReplicateEXT / OpCompositeConstructReplicateEXT
+// (SPV_EXT_replicated_composites). The bit describes a pure instruction-size
+// optimization: an artifact that does not contain a replicated instruction must
+// not record it.
+inline constexpr SpirvTargetFeatureMask shader_replicated_composites = 0x0040000000000000ull;
+// VK_KHR_shader_expect_assume: ExpectAssumeKHR with OpExpectKHR
+// (SPV_KHR_expect_assume). Only the backend-owned dispatch-bounds predicate may
+// require it; XIR carries no likelihood hint.
+inline constexpr SpirvTargetFeatureMask shader_expect_assume = 0x0080000000000000ull;
 
 inline constexpr SpirvTargetFeatureMask known_mask =
     0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector |
@@ -114,7 +124,8 @@ inline constexpr SpirvTargetFeatureMask known_mask =
     shader_subgroup_partitioned | shader_split_barrier |
     shader_ocp_microscaling_types | shader_constant_data | shader_abort |
     ray_tracing_opacity_micromap |
-    shader_mixed_float_dot_product_float16_acc_float32;
+    shader_mixed_float_dot_product_float16_acc_float32 |
+    shader_replicated_composites | shader_expect_assume;
 
 }// namespace target_feature
 
@@ -177,7 +188,9 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::shader_constant_data, "shaderConstantData"},
     SpirvTargetFeatureDescription{target_feature::shader_abort, "shaderAbort"},
     SpirvTargetFeatureDescription{target_feature::ray_tracing_opacity_micromap, "rayTracingOpacityMicromapExecutionMode"},
-    SpirvTargetFeatureDescription{target_feature::shader_mixed_float_dot_product_float16_acc_float32, "shaderMixedFloatDotProductFloat16AccFloat32"}};
+    SpirvTargetFeatureDescription{target_feature::shader_mixed_float_dot_product_float16_acc_float32, "shaderMixedFloatDotProductFloat16AccFloat32"},
+    SpirvTargetFeatureDescription{target_feature::shader_replicated_composites, "shaderReplicatedComposites"},
+    SpirvTargetFeatureDescription{target_feature::shader_expect_assume, "shaderExpectAssume"}};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

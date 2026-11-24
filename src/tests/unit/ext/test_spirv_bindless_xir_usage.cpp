@@ -505,7 +505,12 @@ int main(int argc, char *argv[]) {
             "LUISA_SPIRV_OPT_PASSES", nullptr};
         constexpr auto all_target_features =
             lc::spirv::SpirvTargetFeatures::from_enabled_mask(
-                lc::spirv::target_feature::known_mask);
+                // The two purely optional emission optimizations are exercised by
+                // their own fixtures; enabling them here would add their
+                // requirement bit to the exact descriptor-ABI mask asserted below.
+                lc::spirv::target_feature::known_mask &
+                    ~(lc::spirv::target_feature::shader_expect_assume |
+                      lc::spirv::target_feature::shader_replicated_composites));
         auto result = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
             ast_function, &module,
             ShaderOption{.enable_cache = false},

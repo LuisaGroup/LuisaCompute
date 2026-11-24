@@ -694,7 +694,12 @@ int main(int argc, char *argv[]) {
              .required_subgroup_size = 32u,
              .codegen_dialect = ShaderCodegenDialect::HLSL_SPIRV,
              .required_spirv_features =
-                 lc::spirv::target_feature::sampler_anisotropy});
+             // Includes the two newest append-only bits, so the writer and
+             // reader are pinned for shaderReplicatedComposites and
+             // shaderExpectAssume as well.
+                 lc::spirv::target_feature::sampler_anisotropy |
+                 lc::spirv::target_feature::shader_replicated_composites |
+                 lc::spirv::target_feature::shader_expect_assume});
 
         MemoryBinaryIO io;
         static_cast<void>(io.write_shader_bytecode(
@@ -738,7 +743,9 @@ int main(int argc, char *argv[]) {
         expect(eq(decoded.artifact.header.required_subgroup_size, 32u));
         expect(eq(
             decoded.artifact.header.required_spirv_features,
-            lc::spirv::target_feature::sampler_anisotropy));
+            lc::spirv::target_feature::sampler_anisotropy |
+            lc::spirv::target_feature::shader_replicated_composites |
+            lc::spirv::target_feature::shader_expect_assume));
     };
 
     "vk_native_accel_role_word_round_trips_through_artifact_codec"_test = [] {

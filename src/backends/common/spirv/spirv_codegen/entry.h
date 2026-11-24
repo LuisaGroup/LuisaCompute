@@ -18,6 +18,7 @@
 #include "atomic_buffer_plan.h"
 #include "argument_usage.h"
 #include "bindless_usage.h"
+#include "control_flow_optimization.h"
 #include "control_flow_plan.h"
 #include "kernel_argument_role.h"
 #include "runtime_target_plan.h"
@@ -88,6 +89,9 @@ private:
     luisa::unordered_set<spv::Block *> _registered_physical_blocks;
     luisa::vector<spv::Block *> _synthetic_blocks;
     luisa::unique_ptr<ControlFlowPlan> _control_flow_plan;
+    // Backend-owned loop-control literals, frozen beside the physical
+    // control-flow plan. Never consulted to invent or redirect an edge.
+    luisa::unique_ptr<ControlFlowOptimizationPlan> _control_flow_optimization;
     const xir::BasicBlock *_current_xir_block{nullptr};
 
     static constexpr size_t invalid_phi_node_index = ~size_t{0u};
@@ -172,6 +176,10 @@ private:
     bool _use_buffer_bindless_metadata{false};
     bool _enable_fast_math{false};
     bool _enable_debug_info{false};
+    // Whether the shader builder may lower an exact splat composite to
+    // SPV_EXT_replicated_composites. Kept here so emission sites that must keep
+    // an ordinary composite can temporarily turn it off.
+    bool _use_replicated_composites{false};
     SpirvTargetFeatures _target_features{};
     SpirvRuntimeTargetPlan _runtime_target_plan{};
     bool _runtime_target_plan_installed{false};
@@ -283,6 +291,11 @@ private:
     void _register_entry_point_interface(spv::Id id) noexcept;
     void _require_target_feature(SpirvTargetFeatureMask feature,
                                  bool supported) noexcept;
+    // Mirrors the shader builder's replicated-composite policy. `false` forces
+    // ordinary Op*Composite/Op*CompositeConstruct emission, which is required
+    // for any composite shape that SPV_EXT_replicated_composites does not admit
+    // and is the fallback when the device did not negotiate the feature.
+    void _set_use_replicated_composites(bool enabled) noexcept;
     // VK_KHR_opacity_micromap (KHR spelling): declares the capability and the
     // OpacityMicromapIdKHR execution mode of a ray-query entry point. A no-op
     // unless the device enabled `target_feature::ray_tracing_opacity_micromap`.

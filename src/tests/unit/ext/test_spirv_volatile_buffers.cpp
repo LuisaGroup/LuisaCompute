@@ -170,6 +170,11 @@ struct SpirvVolatileFacts {
     return facts;
 }
 
+[[nodiscard]] bool contains_token(std::string_view text,
+                                  std::string_view needle) noexcept {
+    return text.find(needle) != std::string_view::npos;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -274,6 +279,30 @@ int main(int argc, char *argv[]) {
         expect(eq(facts.volatile_loads, 1u));
         expect(eq(facts.volatile_stores, 1u));
         expect(eq(facts.memory_barriers, 2u));
+
+
+        // A typed direct-buffer access is not a uint32 word-ABI access, so the
+        // exact-alignment plan never annotates it: the volatile operand stays
+        // `Volatile` alone.
+        auto count_tokens = [](std::string_view text,
+                               std::string_view needle) noexcept {
+            auto count = size_t{0u};
+            for (auto position = text.find(needle);
+                 position != std::string_view::npos;
+                 position = text.find(needle, position + needle.size())) {
+                count++;
+            }
+            return count;
+        };
+        std::string disassembly;
+        spvtools::SpirvTools disassembler{SPV_ENV_VULKAN_1_2};
+        expect(disassembler.Disassemble(result.spv_bin.data(),
+                                       result.spv_bin.size(), &disassembly));
+        expect(eq(count_tokens(disassembly, "Volatile"), 2u));
+        expect(eq(count_tokens(disassembly, "Volatile|Aligned 4"), 0u))
+            << "a typed direct-buffer access is not a word-ABI access";
+        expect(!contains_token(disassembly, "Aligned"))
+            << "typed accesses keep their plain memory operand";
         expect(facts.coherent_member_types.empty())
             << "ordinary internal descriptor blocks must not inherit Coherent";
         expect(!facts.global_argument_is_coherent);
@@ -300,6 +329,5 @@ int main(int argc, char *argv[]) {
             }
         }
     };
-
     return 0;
 }

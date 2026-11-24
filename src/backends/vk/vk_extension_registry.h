@@ -93,6 +93,11 @@ enum class OptionalExtension : uint32_t {
     // stays on classic descriptor sets, which is the intended fail-closed
     // behaviour (no item of this backend may require an API version above 1.2).
     PUSH_DESCRIPTOR,
+    // ---- appended (plan P4.1) -------------------------------------------
+    // VK_KHR_shader_expect_assume: OpExpectKHR on the backend-owned
+    // dispatch-bounds predicate. Appended so every existing enumerator keeps its
+    // numeric identity.
+    SHADER_EXPECT_ASSUME,
     COUNT
 };
 

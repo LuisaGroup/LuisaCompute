@@ -16,6 +16,22 @@ enum class SpirvBufferFloat32AtomicRmwPolicy : uint8_t {
     PREFER_WORD_CAS,
 };
 
+// How `xir::ArithmeticOp::ROUND` is lowered.
+//
+// GLSL.std.450 `Round` is the single-instruction form, but its tie-breaking
+// direction is implementation-defined by that specification and at least one
+// shipping driver rounds halves to even. XIR ROUND has the C `round()` contract
+// (halves away from zero, signed zero preserved), so the portable sequence stays
+// the default and the native form is an explicit, per-device codegen policy that
+// only a qualified device may select.
+//
+// Like the float-atomic policy above this is a code-generation preference, not a
+// Vulkan feature bit: it must be part of the shader cache identity.
+enum class SpirvRoundPolicy : uint8_t {
+    PORTABLE_SEQUENCE,
+    NATIVE_GLSL_ROUND,
+};
+
 // These bits describe features enabled on the target logical device, not just
 // features supported by its physical device. For features represented here,
 // codegen may emit optional SPIR-V instructions and capabilities only when the
@@ -81,8 +97,16 @@ struct SpirvTargetFeatures {
     bool shader_constant_data{false};
     bool shader_abort{false};
     bool shader_mixed_float_dot_product_float16_acc_float32{false};
+    // VK_EXT_shader_replicated_composites: the shader builder may lower an exact
+    // splat constant/construct to a single replicated-composite instruction.
+    bool shader_replicated_composites{false};
+    // VK_KHR_shader_expect_assume: the backend-owned dispatch-bounds predicate
+    // may be wrapped in OpExpectKHR(false).
+    bool shader_expect_assume{false};
     SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
         SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
+    // Default to the contract-preserving portable sequence; see SpirvRoundPolicy.
+    SpirvRoundPolicy round_policy{SpirvRoundPolicy::PORTABLE_SEQUENCE};
 
     [[nodiscard]] constexpr SpirvTargetFeatureMask enabled_mask() const noexcept {
         SpirvTargetFeatureMask mask{};
@@ -182,6 +206,10 @@ struct SpirvTargetFeatures {
                target_feature::shader_abort);
         enable(shader_mixed_float_dot_product_float16_acc_float32,
                target_feature::shader_mixed_float_dot_product_float16_acc_float32);
+        enable(shader_replicated_composites,
+               target_feature::shader_replicated_composites);
+        enable(shader_expect_assume,
+               target_feature::shader_expect_assume);
         return mask;
     }
 
@@ -283,7 +311,11 @@ struct SpirvTargetFeatures {
             .shader_abort =
                 has(target_feature::shader_abort),
             .shader_mixed_float_dot_product_float16_acc_float32 =
-                has(target_feature::shader_mixed_float_dot_product_float16_acc_float32)};
+                has(target_feature::shader_mixed_float_dot_product_float16_acc_float32),
+            .shader_replicated_composites =
+                has(target_feature::shader_replicated_composites),
+            .shader_expect_assume =
+                has(target_feature::shader_expect_assume)};
     }
 };
 
