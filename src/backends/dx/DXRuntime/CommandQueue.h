@@ -57,6 +57,7 @@ public:
     void add_event(LCEvent const *evt, uint64_t fenceIdx);
     void signal();
     void execute(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks, luisa::span<std::pair<IDXGISwapChain *, bool>> swapChains, bool cmdlist_is_empty);
+    [[nodiscard]] D3D12_COMMAND_LIST_TYPE Type() const noexcept { return _type; }
     void complete(uint64 fence);
     void complete();
     void force_sync(

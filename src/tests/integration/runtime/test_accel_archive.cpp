@@ -237,7 +237,10 @@ struct TraceOutput {
         Var<SurfaceHit> hit = accel_var.intersect(ray, trace_opts);
         Var<bool> occ = accel_var.intersect_any(ray, trace_opts);
         Bool is_hit = !hit->miss();
-        UInt uid = select(0u, accel_var.instance_user_id(hit.inst), is_hit);
+        UInt uid = 0u;
+        if_(is_hit, [&] {
+            uid = accel_var.instance_user_id(hit.inst);
+        });
         out_ids.write(ray_offset + idx,
                       make_uint4(select(0u, 1u, is_hit), hit.inst, hit.prim, uid));
         out_geom.write(ray_offset + idx,
