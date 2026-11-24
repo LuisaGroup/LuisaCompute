@@ -1749,6 +1749,8 @@ endforeach ()
 luisa_compute_add_test(test_coro_multisplit     unit/coro/test_coro_multisplit.cpp     LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_compaction    unit/coro/test_coro_compaction.cpp    LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_wavefront_integration unit/coro/test_coro_wavefront_integration.cpp)
+target_compile_options(test_coro_wavefront_integration PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 luisa_compute_add_test(test_coro_pipeline_1suspend unit/coro/test_coro_pipeline_1suspend.cpp)
 luisa_compute_add_test(test_coro_pipeline_3suspend unit/coro/test_coro_pipeline_3suspend.cpp)
 luisa_compute_add_test(test_xir_pass_destructure_cfg unit/xir/test_xir_pass_destructure_cfg.cpp LABELS "unit;unit_xir")
