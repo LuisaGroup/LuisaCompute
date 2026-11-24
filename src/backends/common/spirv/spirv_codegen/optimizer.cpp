@@ -2,6 +2,7 @@
 
 #include "../../env_flag.h"
 #include "../../spirv_fma_rewrite.h"
+#include "spirv_opt_ext_rewrite.h"
 
 #include <cerrno>
 #include <cstdlib>
@@ -723,13 +724,21 @@ SpirvOptimizerReport optimize_spirv(
     // exact bytes that would replace the artifact. Intermediate iterations are
     // not validated, matching DXC.
     auto original = words;
-    // SPIRV-Tools omits "SPV_KHR_fma" from the extension allowlists of
-    // AggressiveDCEPass, LocalAccessChainConvertPass,
-    // LocalSingleBlockLoadStoreElimPass, and LocalSingleStoreElimPass.
-    // Temporarily demote OpFmaKHR -> GLSL.std.450 Fma across spirv-opt so all
-    // optimization passes run, then promote float32 Fma back to OpFmaKHR.
+    // SPIRV-Tools omits "SPV_KHR_fma", "SPV_EXT_replicated_composites", and
+    // "SPV_KHR_expect_assume" from the extension allowlists of AggressiveDCEPass,
+    // LocalAccessChainConvertPass, LocalSingleBlockLoadStoreElimPass, and
+    // LocalSingleStoreElimPass. Temporarily lower them across spirv-opt (and
+    // post-convergence FMA contraction) so all passes run cleanly, then restore
+    // them before commit validation.
     const bool demoted_fma_khr =
         luisa::compute::detail::demote_op_fma_khr_for_spirv_opt(words);
+    const bool demoted_replicated_composites =
+        luisa::compute::detail::demote_replicated_composites_for_spirv_opt(words);
+    std::vector<luisa::compute::detail::DemotedExpectAssumeGuard>
+        demoted_expect_assume_guards;
+    const bool demoted_expect_assume =
+        luisa::compute::detail::demote_expect_assume_for_spirv_opt(
+            words, demoted_expect_assume_guards);
     const auto profile =
         luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     luisa::Clock optimizer_clock;
@@ -828,6 +837,17 @@ SpirvOptimizerReport optimize_spirv(
                 optimized.size(),
                 report.fma_contraction_applied ? " (changed)" : " (no-op)");
         }
+    }
+
+    if (demoted_replicated_composites) {
+        static_cast<void>(
+            luisa::compute::detail::promote_replicated_composites_after_spirv_opt(
+                optimized));
+    }
+    if (demoted_expect_assume) {
+        static_cast<void>(
+            luisa::compute::detail::promote_expect_assume_after_spirv_opt(
+                optimized, demoted_expect_assume_guards));
     }
 
     optimizer_clock.tic();

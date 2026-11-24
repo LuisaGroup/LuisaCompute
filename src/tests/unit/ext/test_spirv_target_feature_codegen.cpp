@@ -2742,4 +2742,85 @@ int main(int argc, char *argv[]) {
                !contains(compiled.text, "Volatile|Aligned 2"))
             << "a volatile access must never carry a sub-word alignment";
     };
+
+    // 4C: SPV_KHR_expect_assume and SPV_EXT_replicated_composites must not make
+    // SPIRV-Tools' ADCE / LocalAccessChain / LocalSingleStore /
+    // LocalSingleBlockLoadStore passes silently no-op, and sub-vector
+    // composites must never be mis-promoted to OpCompositeConstructReplicateEXT.
+    "spirv_expect_assume_and_replicated_composites_do_not_disable_spirv_opt"_test = [] {
+        constexpr auto enabled =
+            lc::spirv::target_feature::shader_expect_assume |
+            lc::spirv::target_feature::shader_replicated_composites;
+        constexpr auto features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(enabled);
+        Kernel1D kernel = [](BufferFloat4 out, Float scalar) noexcept {
+            auto i = dispatch_x();
+            ArrayFloat4<4> scratch;
+            scratch[0u] = make_float4(scalar, scalar, scalar, scalar);
+            auto v2 = make_float2(scalar, scalar + 1.0f);
+            auto subvec_composed = make_float4(v2, v2);
+            auto c_splat = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
+            out.write(i, scratch[0u] + subvec_composed + c_splat);
+        };
+        auto unopt = [&] {
+            ScopedEnvironmentVariable opt_level{"LUISA_SPIRV_OPT_LEVEL", "0"};
+            return compile_spirv_fixture(kernel, features);
+        }();
+        auto unopt_off = [&] {
+            ScopedEnvironmentVariable opt_level{"LUISA_SPIRV_OPT_LEVEL", "0"};
+            return compile_spirv_fixture(
+                kernel, lc::spirv::SpirvTargetFeatures{});
+        }();
+        auto opt_on = compile_spirv_fixture(kernel, features);
+        auto opt_off = compile_spirv_fixture(
+            kernel, lc::spirv::SpirvTargetFeatures{});
+        expect(eq(opt_on.required_features, enabled));
+        expect(contains(opt_on.text, "OpExpectKHR"));
+        expect(contains(opt_on.text, "OpConstantCompositeReplicateEXT"));
+        expect(contains(opt_on.text, "OpCompositeConstructReplicateEXT"));
+        auto count_function_variables = [](luisa::span<const uint32_t> words) noexcept {
+            size_t count = 0u;
+            for (size_t off = 5u; off < words.size();) {
+                auto wc = static_cast<size_t>(words[off] >> 16u);
+                if (wc == 0u || wc > words.size() - off) { break; }
+                auto op = static_cast<spv::Op>(words[off] & 0xffffu);
+                if (op == spv::Op::OpVariable && wc >= 4u &&
+                    words[off + 3u] ==
+                        static_cast<uint32_t>(spv::StorageClass::Function)) {
+                    ++count;
+                }
+                off += wc;
+            }
+            return count;
+        };
+        expect(eq(count_function_variables(opt_on.words), 0u))
+            << "Function-scope local scratch variable must be eliminated by "
+               "spirv-opt even with ExpectAssumeKHR and ReplicatedCompositesEXT:\n"
+            << opt_on.text;
+        expect(opt_on.words.size() < unopt.words.size())
+            << "optimized module with extensions (" << opt_on.words.size()
+            << ") must shrink vs unoptimized (" << unopt.words.size() << ")";
+        expect(opt_off.words.size() < unopt_off.words.size())
+            << "baseline optimized module (" << opt_off.words.size()
+            << ") must shrink vs baseline unoptimized ("
+            << unopt_off.words.size() << ")";
+        const auto saved_on =
+            static_cast<ptrdiff_t>(unopt.words.size()) -
+            static_cast<ptrdiff_t>(opt_on.words.size());
+        const auto saved_off =
+            static_cast<ptrdiff_t>(unopt_off.words.size()) -
+            static_cast<ptrdiff_t>(opt_off.words.size());
+        const auto ext_overhead =
+            static_cast<ptrdiff_t>(unopt.words.size()) -
+            static_cast<ptrdiff_t>(unopt_off.words.size());
+        expect(saved_on >= saved_off)
+            << "extension opt savings (" << saved_on
+            << ") must match or exceed baseline opt savings (" << saved_off
+            << ")";
+        expect(static_cast<ptrdiff_t>(opt_on.words.size()) <=
+               static_cast<ptrdiff_t>(opt_off.words.size()) + ext_overhead)
+            << "extension opt size (" << opt_on.words.size()
+            << ") exceeds baseline opt (" << opt_off.words.size()
+            << ") + static extension overhead (" << ext_overhead << ")";
+    };
 }

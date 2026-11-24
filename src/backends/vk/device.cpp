@@ -4283,7 +4283,7 @@ namespace vk_device_detail_2 {
         (static_cast<uint64_t>(option.enable_scalarizer) << 3u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v16"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v17"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),
