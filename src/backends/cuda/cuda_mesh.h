@@ -27,6 +27,7 @@ private:
 
 private:
     [[nodiscard]] OptixBuildInput _make_build_input() const noexcept override;
+    [[nodiscard]] uint64_t _primitive_count() const noexcept override;
 
 public:
     explicit CUDAMesh(const AccelOption &option) noexcept;

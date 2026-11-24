@@ -21,6 +21,7 @@ class CUDAOldDenoiserExt;
 class CUDADenoiserExt;
 class CUDADStorageExt;
 class CUDAPinnedMemoryExt;
+class CUDAAccelArchiveExt;
 class CudaGraphExtImpl;
 class CUDAPdlStreamExtImpl;
 class CUDANativeShaderExt;
@@ -167,6 +168,7 @@ private:
     luisa::unique_ptr<DeviceConfigExt> _device_config_ext;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
     luisa::unique_ptr<CUDAPinnedMemoryExt> _pinned_memory_ext;
+    luisa::unique_ptr<CUDAAccelArchiveExt> _accel_archive_ext;
     luisa::unique_ptr<CudaGraphExtImpl> _cuda_graph_ext;
     luisa::unique_ptr<CUDAPdlStreamExtImpl> _pdl_stream_ext;
     luisa::unique_ptr<CUDAExternalExt> _external_ext;

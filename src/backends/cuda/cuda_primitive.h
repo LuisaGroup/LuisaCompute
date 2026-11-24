@@ -48,21 +48,42 @@ private:
 private:
     CUdeviceptr _bvh_buffer_handle{};
     size_t _bvh_buffer_size{};
+    size_t _bvh_active_size{};
     size_t _update_buffer_size{};
+    uint64_t _last_primitive_count{};
+    bool _built{false};
+    bool _is_compacted{false};
 
 protected:
     [[nodiscard]] virtual OptixBuildInput _make_build_input() const noexcept = 0;
+    [[nodiscard]] virtual uint64_t _primitive_count() const noexcept { return 0u; }
     void _build(CUDACommandEncoder &encoder) noexcept;
     void _update(CUDACommandEncoder &encoder) noexcept;
 
     [[nodiscard]] const CUdeviceptr *_motion_buffer_pointers(CUdeviceptr base, size_t total_size) const noexcept;
 
 public:
+    struct ArchiveSnapshot {
+        OptixTraversableHandle handle{};
+        CUdeviceptr bvh_buffer_handle{};
+        size_t bvh_active_size{};
+        uint64_t last_primitive_count{};
+        bool built{false};
+        bool is_compacted{false};
+    };
+
     CUDAPrimitive(Tag tag, const AccelOption &option) noexcept;
     ~CUDAPrimitive() noexcept override;
     [[nodiscard]] auto option() const noexcept { return _option; }
     [[nodiscard]] auto is_motion_blur() const noexcept { return static_cast<bool>(_option.motion); }
     [[nodiscard]] auto motion_keyframe_count() const noexcept { return std::max<uint>(1u, _option.motion.keyframe_count); }
+    [[nodiscard]] ArchiveSnapshot archive_snapshot() const noexcept;
+    void replace_from_archive(CUstream cuda_stream,
+                              CUdeviceptr bvh_buffer,
+                              size_t bvh_size,
+                              OptixTraversableHandle handle,
+                              uint64_t primitive_count,
+                              bool is_compacted) noexcept;
 };
 
 [[nodiscard]] inline auto make_optix_build_options(const AccelOption &option, OptixBuildOperation op) noexcept {
