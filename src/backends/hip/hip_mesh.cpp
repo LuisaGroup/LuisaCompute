@@ -406,6 +406,7 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
             LUISA_CHECK_HIPRT(hiprtCompactGeometry(
                 _hiprt_ctx, hip_stream, _geometry, _geometry));
         }
+        _is_compacted = _option.allow_compaction;
     } else {
         hiprtBuildOptions build_options{};
         build_options.buildFlags = _build_flags;
@@ -413,6 +414,33 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
                                              build_input, build_options,
                                              nullptr, hip_stream, _geometry));
     }
+    _built = true;
+    _last_triangle_count = triangle_count;
+}
+
+void HIPMesh::replace_geometry_from_archive(
+    hiprtContext ctx,
+    hipStream_t stream,
+    hiprtGeometry new_geometry,
+    uint64_t triangle_count,
+    bool is_compacted) noexcept {
+    std::scoped_lock lock{_mutex};
+    if (stream != nullptr) {
+        LUISA_CHECK_HIP(hipStreamSynchronize(stream));
+    }
+    if (_geometry != nullptr) {
+        LUISA_CHECK_HIPRT(hiprtDestroyGeometry(ctx != nullptr ? ctx : _hiprt_ctx, _geometry));
+    }
+    _geometry = new_geometry;
+    _build_flags = make_hiprt_build_flags(_option);
+    _vertex_buffer = {};
+    _vertex_buffer_size = 0u;
+    _vertex_stride = 0u;
+    _triangle_buffer = {};
+    _triangle_buffer_size = 0u;
+    _built = (new_geometry != nullptr);
+    _is_compacted = is_compacted;
+    _last_triangle_count = triangle_count;
 }
 
 }// namespace luisa::compute::hip

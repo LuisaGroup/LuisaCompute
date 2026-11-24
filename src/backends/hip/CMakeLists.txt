@@ -17,6 +17,7 @@ if (hip_FOUND)
             hip_geometry_build_policy.cpp hip_geometry_build_policy.h
             hip_geometry_memory_policy.h
             hip_mesh.cpp hip_mesh.h
+            hip_accel_archive_ext.cpp hip_accel_archive_ext.h
             hip_motion_mesh_builtin.cpp hip_motion_mesh_builtin.h
             hip_motion_instance.cpp hip_motion_instance.h
             hip_pinned_memory.cpp hip_pinned_memory.h
