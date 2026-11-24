@@ -11,6 +11,12 @@
 #include <thread>
 #include <vector>
 
+#if defined(_M_X64) || defined(__x86_64__)
+#define LUISA_EMBREE_OOT_X64 1
+#else
+#define LUISA_EMBREE_OOT_X64 0
+#endif
+
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX 1
@@ -18,14 +24,17 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN 1
 #endif
+#if LUISA_EMBREE_OOT_X64
 #include <intrin.h>
+#endif
 #include <malloc.h>
 #include <windows.h>
-#else
+#elif LUISA_EMBREE_OOT_X64
 #include <cpuid.h>
 #endif
 
-#if !defined(LUISA_EMBREE_DISABLE_OOT_ARCHIVE) && \
+// The private BVH layout and the serialized ISA mask currently describe x86-64 only.
+#if LUISA_EMBREE_OOT_X64 && !defined(LUISA_EMBREE_DISABLE_OOT_ARCHIVE) && \
     !(defined(LUISA_COMPUTE_FALLBACK_EMBREE_VERSION) && LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3) && \
     !(defined(LUISA_COMPUTE_SIMD_EMBREE_VERSION) && LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3) && \
     __has_include(<embree4/rtcore.h>)
@@ -426,7 +435,7 @@ void parallel_for_range(size_t total, size_t parallel_threshold, Fn &&fn) noexce
 
 [[nodiscard]] uint32_t detect_cpu_isa_mask() noexcept {
     uint32_t mask = 0u;
-#if defined(_M_X64) || defined(__x86_64__)
+#if LUISA_EMBREE_OOT_X64
 #if defined(_WIN32)
     int info0[4]{};
     __cpuid(info0, 0);
@@ -2005,6 +2014,8 @@ EmbreeAccelArchiveExt::EmbreeAccelArchiveExt(EmbreeAccelArchiveOps ops) noexcept
         _abi.supports_bvh4 ? 1u : 0u,
         _abi.supports_bvh8 ? 1u : 0u);
     _supported = true;
+#elif !LUISA_EMBREE_OOT_X64
+    _driver_fingerprint = "embree4_oot_architecture_unsupported";
 #else
     _driver_fingerprint = "embree4_oot_headers_unavailable";
 #endif

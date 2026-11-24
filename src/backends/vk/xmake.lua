@@ -186,12 +186,14 @@ before_build(function(target)
     local sources = {
         path.join(builtin_dir, "indirect_prepare.comp.hlsl"),
         path.join(builtin_dir, "accel_process.comp.hlsl"),
-        path.join(builtin_dir, "bindless_upload.comp.hlsl")
+        path.join(builtin_dir, "bindless_upload.comp.hlsl"),
+        path.join(builtin_dir, "accel_archive_checksum.comp.hlsl")
     }
     local outputs = {
         path.join(generated_dir, "indirect_prepare.spv"),
         path.join(generated_dir, "accel_process.spv"),
-        path.join(generated_dir, "bindless_upload.spv")
+        path.join(generated_dir, "bindless_upload.spv"),
+        path.join(generated_dir, "accel_archive_checksum.spv")
     }
     local dependencies = {
         path.join(common_dir, "indirect_dispatch_layout.def"),
