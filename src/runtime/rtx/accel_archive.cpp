@@ -1,6 +1,22 @@
 #include <algorithm>
+#include <array>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <limits>
+#include <thread>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <malloc.h>
+#include <windows.h>
+#endif
 
 #include <luisa/core/magic_enum.h>
 #include <luisa/backends/ext/accel_archive_ext_interface.h>
@@ -259,31 +275,36 @@ AccelArchiveResult encode_envelope(
     return ok;
 }
 
-AccelArchiveResult decode_and_validate_envelope(
-    luisa::span<const std::byte> archive_bytes,
+AccelArchiveResult decode_envelope_prefix(
+    luisa::span<const std::byte> file_prefix_bytes,
+    uint64_t total_file_size,
     AccelArchiveBackendKind expected_backend,
     const AccelArchiveMeshDesc &expected_desc,
-    AccelArchiveEnvelopeView &out_view) noexcept {
-    if (archive_bytes.size() < sizeof(kEnvelopeMagic)) {
+    AccelArchiveMetadata &out_meta,
+    uint64_t &out_payload_offset,
+    luisa::span<const std::byte> &out_compat_blob,
+    uint8_t (&out_expected_payload_checksum)[16]) noexcept {
+    if (file_prefix_bytes.size() < sizeof(kEnvelopeMagic) || total_file_size < sizeof(kEnvelopeMagic)) {
         return make_archive_error(AccelArchiveStatus::TRUNCATED, "Archive truncated before envelope magic.");
     }
-    if (std::memcmp(archive_bytes.data(), kEnvelopeMagic, sizeof(kEnvelopeMagic)) != 0) {
+    if (std::memcmp(file_prefix_bytes.data(), kEnvelopeMagic, sizeof(kEnvelopeMagic)) != 0) {
         return make_archive_error(AccelArchiveStatus::INVALID_MAGIC, "Invalid acceleration-structure archive magic.");
     }
-    if (archive_bytes.size() < 12u) {
+    if (file_prefix_bytes.size() < 12u || total_file_size < 12u) {
         return make_archive_error(AccelArchiveStatus::TRUNCATED, "Archive truncated before envelope version.");
     }
     uint32_t version = 0u;
-    std::memcpy(&version, archive_bytes.data() + 8u, sizeof(version));
+    std::memcpy(&version, file_prefix_bytes.data() + 8u, sizeof(version));
     if (version != kEnvelopeVersion) {
         return make_archive_error(AccelArchiveStatus::UNSUPPORTED_VERSION, "Unsupported acceleration-structure archive envelope version.");
     }
-    if (archive_bytes.size() < sizeof(AccelArchiveEnvelopeHeader)) {
+    if (file_prefix_bytes.size() < sizeof(AccelArchiveEnvelopeHeader) ||
+        total_file_size < sizeof(AccelArchiveEnvelopeHeader)) {
         return make_archive_error(AccelArchiveStatus::TRUNCATED, "Archive truncated inside envelope header.");
     }
 
     AccelArchiveEnvelopeHeader hdr{};
-    std::memcpy(&hdr, archive_bytes.data(), sizeof(AccelArchiveEnvelopeHeader));
+    std::memcpy(&hdr, file_prefix_bytes.data(), sizeof(AccelArchiveEnvelopeHeader));
     if (hdr.header_size != sizeof(AccelArchiveEnvelopeHeader)) {
         return make_archive_error(AccelArchiveStatus::CORRUPT_HEADER, "Unexpected envelope header size.");
     }
@@ -301,20 +322,19 @@ AccelArchiveResult decode_and_validate_envelope(
         return make_archive_error(AccelArchiveStatus::CORRUPT_HEADER, "Archive payload size overflow.");
     }
     const uint64_t total_expected = compat_end + hdr.payload_size;
-    if (archive_bytes.size() < total_expected) {
+    if (total_file_size < total_expected) {
         return make_archive_error(AccelArchiveStatus::TRUNCATED, "Archive truncated before end of compatibility/payload data.");
     }
-    if (archive_bytes.size() > total_expected) {
+    if (total_file_size > total_expected) {
         return make_archive_error(AccelArchiveStatus::CORRUPT_HEADER, "Archive contains unexpected trailing bytes.");
     }
+    if (file_prefix_bytes.size() < compat_end) {
+        return make_archive_error(AccelArchiveStatus::TRUNCATED, "Archive prefix truncated inside compatibility blob.");
+    }
 
-    const auto compat_span = archive_bytes.subspan(hdr.header_size, hdr.compat_blob_size);
-    const auto payload_span = archive_bytes.subspan(static_cast<size_t>(compat_end), static_cast<size_t>(hdr.payload_size));
+    const auto compat_span = file_prefix_bytes.subspan(hdr.header_size, hdr.compat_blob_size);
     if (!hash_equals(hdr.compat_checksum, hash_span_128(compat_span, kCompatChecksumSeed))) {
         return make_archive_error(AccelArchiveStatus::CORRUPT_PAYLOAD, "Compatibility blob checksum mismatch.");
-    }
-    if (!hash_equals(hdr.payload_checksum, hash_span_128(payload_span, kPayloadChecksumSeed))) {
-        return make_archive_error(AccelArchiveStatus::CORRUPT_PAYLOAD, "Native payload checksum mismatch.");
     }
 
     if (hdr.blas_kind != kStaticTriangleBlasKind || (hdr.option_flags & kOptionAllowUpdate) != 0u) {
@@ -349,33 +369,403 @@ AccelArchiveResult decode_and_validate_envelope(
         return make_archive_error(AccelArchiveStatus::KEY_MISMATCH, "Archive geometry content or dimensions do not match mesh.");
     }
 
-    out_view.meta.envelope_version = hdr.version;
-    out_view.meta.backend_kind = static_cast<AccelArchiveBackendKind>(hdr.backend_kind);
-    out_view.meta.vertex_count = hdr.vertex_count;
-    out_view.meta.triangle_count = hdr.triangle_count;
-    out_view.meta.vertex_stride = hdr.vertex_stride;
-    out_view.meta.option = {};
-    out_view.meta.option.hint = static_cast<AccelOption::UsageHint>(hdr.option_hint);
-    out_view.meta.option.allow_compaction = archive_allow_compaction;
-    out_view.meta.option.allow_update = false;
-    out_view.meta.is_compacted = (hdr.option_flags & kOptionIsCompacted) != 0u;
-    out_view.meta.geometry_content_hash = to_hash128(hdr.geometry_content_hash);
-    out_view.meta.archive_key = to_hash128(hdr.archive_key);
-    out_view.meta.compat_blob_size = hdr.compat_blob_size;
-    out_view.meta.payload_size = hdr.payload_size;
-    out_view.meta.unpacked_as_size = hdr.unpacked_as_size;
-    out_view.compat_blob = compat_span;
-    out_view.payload = payload_span;
+    out_meta.envelope_version = hdr.version;
+    out_meta.backend_kind = static_cast<AccelArchiveBackendKind>(hdr.backend_kind);
+    out_meta.vertex_count = hdr.vertex_count;
+    out_meta.triangle_count = hdr.triangle_count;
+    out_meta.vertex_stride = hdr.vertex_stride;
+    out_meta.option = {};
+    out_meta.option.hint = static_cast<AccelOption::UsageHint>(hdr.option_hint);
+    out_meta.option.allow_compaction = archive_allow_compaction;
+    out_meta.option.allow_update = false;
+    out_meta.is_compacted = (hdr.option_flags & kOptionIsCompacted) != 0u;
+    out_meta.geometry_content_hash = to_hash128(hdr.geometry_content_hash);
+    out_meta.archive_key = to_hash128(hdr.archive_key);
+    out_meta.compat_blob_size = hdr.compat_blob_size;
+    out_meta.payload_size = hdr.payload_size;
+    out_meta.unpacked_as_size = hdr.unpacked_as_size;
+    out_payload_offset = compat_end;
+    out_compat_blob = compat_span;
+    std::memcpy(out_expected_payload_checksum, hdr.payload_checksum, 16u);
 
     AccelArchiveResult ok{};
     ok.status = AccelArchiveStatus::OK;
     ok.readiness = AccelArchiveReadiness::NONE;
     ok.unpacked_as_size = hdr.unpacked_as_size;
     ok.serialized_payload_size = hdr.payload_size;
-    ok.is_compacted = out_view.meta.is_compacted;
+    ok.is_compacted = out_meta.is_compacted;
     return ok;
 }
 
+AccelArchiveResult decode_envelope_header_and_compat(
+    luisa::span<const std::byte> archive_bytes,
+    AccelArchiveBackendKind expected_backend,
+    const AccelArchiveMeshDesc &expected_desc,
+    AccelArchiveEnvelopeView &out_view,
+    uint8_t (&out_expected_payload_checksum)[16]) noexcept {
+    uint64_t payload_offset = 0u;
+    auto res = decode_envelope_prefix(
+        archive_bytes,
+        static_cast<uint64_t>(archive_bytes.size()),
+        expected_backend,
+        expected_desc,
+        out_view.meta,
+        payload_offset,
+        out_view.compat_blob,
+        out_expected_payload_checksum);
+    if (!res) {
+        return res;
+    }
+    out_view.payload = archive_bytes.subspan(
+        static_cast<size_t>(payload_offset),
+        static_cast<size_t>(out_view.meta.payload_size));
+    return res;
+}
+
+AccelArchiveResult verify_payload_checksum(
+    luisa::span<const std::byte> payload,
+    const uint8_t (&expected_checksum)[16]) noexcept {
+    if (!hash_equals(expected_checksum, hash_span_128(payload, kPayloadChecksumSeed))) {
+        return make_archive_error(AccelArchiveStatus::CORRUPT_PAYLOAD, "Native payload checksum mismatch.");
+    }
+    return {};
+}
+
+bool copy_payload_optimized(
+    void *dst,
+    luisa::span<const std::byte> payload,
+    bool verify_checksum,
+    const uint8_t (&expected_checksum)[16]) noexcept {
+    if (payload.empty()) {
+        return !verify_checksum;
+    }
+    if (dst == nullptr) {
+        return false;
+    }
+    const size_t total = payload.size();
+    const std::byte *src = payload.data();
+    auto *out = static_cast<std::byte *>(dst);
+
+    constexpr size_t kParallelThreshold = 2ull * 1024ull * 1024ull;
+    if (total < kParallelThreshold) {
+        if (!verify_checksum) {
+            std::memcpy(out, src, total);
+            return true;
+        }
+        const auto actual = luisa::hash128_and_copy(out, src, total, kPayloadChecksumSeed);
+        return hash_equals(expected_checksum, actual);
+    }
+
+#ifdef _WIN32
+    const unsigned hw = std::max(2u, std::thread::hardware_concurrency());
+    const size_t num_workers = std::min<size_t>({static_cast<size_t>(hw), size_t{8u}, total / (512ull * 1024ull)});
+    if (num_workers >= 2u) {
+        struct SliceTask {
+            const std::byte *src{nullptr};
+            std::byte *dst{nullptr};
+            size_t len{0u};
+            PTP_WORK work{nullptr};
+        };
+        std::array<SliceTask, 8u> tasks{};
+        auto work_cb = [](PTP_CALLBACK_INSTANCE, PVOID ctx, PTP_WORK) noexcept {
+            auto *t = static_cast<SliceTask *>(ctx);
+            std::memcpy(t->dst, t->src, t->len);
+        };
+        const size_t chunk = (total + num_workers - 1u) / num_workers;
+        size_t created = 0u;
+        for (size_t i = 0u; i < num_workers; ++i) {
+            const size_t begin = i * chunk;
+            if (begin >= total) {
+                break;
+            }
+            const size_t len = std::min(chunk, total - begin);
+            tasks[i].src = src + begin;
+            tasks[i].dst = out + begin;
+            tasks[i].len = len;
+            tasks[i].work = CreateThreadpoolWork(work_cb, &tasks[i], nullptr);
+            if (tasks[i].work == nullptr) {
+                break;
+            }
+            ++created;
+            SubmitThreadpoolWork(tasks[i].work);
+        }
+        if (created == num_workers) {
+            bool hash_ok = true;
+            if (verify_checksum) {
+                const auto actual = hash_span_128(payload, kPayloadChecksumSeed);
+                hash_ok = hash_equals(expected_checksum, actual);
+            }
+            for (size_t i = 0u; i < created; ++i) {
+                WaitForThreadpoolWorkCallbacks(tasks[i].work, FALSE);
+                CloseThreadpoolWork(tasks[i].work);
+            }
+            return hash_ok;
+        }
+        for (size_t i = 0u; i < created; ++i) {
+            WaitForThreadpoolWorkCallbacks(tasks[i].work, FALSE);
+            CloseThreadpoolWork(tasks[i].work);
+        }
+    }
+#endif
+
+    if (!verify_checksum) {
+        std::memcpy(out, src, total);
+        return true;
+    }
+    const auto actual = luisa::hash128_and_copy(out, src, total, kPayloadChecksumSeed);
+    return hash_equals(expected_checksum, actual);
+}
+
+AccelArchiveResult decode_and_validate_envelope(
+    luisa::span<const std::byte> archive_bytes,
+    AccelArchiveBackendKind expected_backend,
+    const AccelArchiveMeshDesc &expected_desc,
+    AccelArchiveEnvelopeView &out_view) noexcept {
+    uint8_t expected_payload_checksum[16]{};
+    auto res = decode_envelope_header_and_compat(
+        archive_bytes,
+        expected_backend,
+        expected_desc,
+        out_view,
+        expected_payload_checksum);
+    if (!res) {
+        return res;
+    }
+    if (auto p = verify_payload_checksum(out_view.payload, expected_payload_checksum); !p) {
+        return p;
+    }
+    return res;
+}
+
 }// namespace accel_archive
+
+AccelArchiveStagingBuffer AccelArchiveExt::acquire_staging_buffer(size_t min_bytes) noexcept {
+    constexpr size_t kAlign = 65536u;
+    const size_t cap = std::max<size_t>(kAlign, ((min_bytes + kAlign - 1u) / kAlign) * kAlign);
+#ifdef _WIN32
+    auto *ptr = static_cast<std::byte *>(_aligned_malloc(cap, kAlign));
+#else
+    auto *ptr = static_cast<std::byte *>(std::aligned_alloc(kAlign, cap));
+#endif
+    if (ptr == nullptr) {
+        return {};
+    }
+    AccelArchiveStagingBuffer buf{};
+    buf.handle = reinterpret_cast<uint64_t>(ptr);
+    buf.mapped_data = ptr;
+    buf.capacity = cap;
+    buf.alignment = kAlign;
+    buf.is_device_local = false;
+    buf.is_pinned_host = false;
+    return buf;
+}
+
+void AccelArchiveExt::release_staging_buffer(AccelArchiveStagingBuffer &&buffer) noexcept {
+    if (buffer.handle != invalid_resource_handle && buffer.handle != 0u) {
+#ifdef _WIN32
+        _aligned_free(reinterpret_cast<void *>(buffer.handle));
+#else
+        std::free(reinterpret_cast<void *>(buffer.handle));
+#endif
+    }
+    buffer = {};
+}
+
+AccelArchiveResult AccelArchiveExt::import_mesh_archive_with_options(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &geometry_binding,
+    luisa::span<const std::byte> archive_bytes,
+    const AccelArchiveImportOptions &) noexcept {
+    return import_mesh_archive(
+        stream_handle, mesh_handle, expected_desc, geometry_binding, archive_bytes);
+}
+
+AccelArchiveResult AccelArchiveExt::import_mesh_archive_file(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &geometry_binding,
+    luisa::string_view file_path,
+    const AccelArchiveImportOptions &options) noexcept {
+    if (file_path.empty()) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::INVALID_ARGUMENT,
+            "Archive file path must not be empty.");
+    }
+
+#ifdef _WIN32
+    const std::string path_str(file_path);
+    const int wlen = MultiByteToWideChar(
+        CP_UTF8, 0u, path_str.c_str(), static_cast<int>(path_str.size()), nullptr, 0);
+    std::vector<wchar_t> wpath(static_cast<size_t>(wlen) + 1u, L'\0');
+    if (wlen > 0) {
+        MultiByteToWideChar(
+            CP_UTF8, 0u, path_str.c_str(), static_cast<int>(path_str.size()), wpath.data(), wlen);
+    }
+
+    bool unbuffered = options.bypass_os_file_cache;
+    HANDLE h = INVALID_HANDLE_VALUE;
+    if (unbuffered) {
+        h = CreateFileW(
+            wpath.data(),
+            GENERIC_READ,
+            FILE_SHARE_READ,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN,
+            nullptr);
+        if (h == INVALID_HANDLE_VALUE) {
+            unbuffered = false;
+        }
+    }
+    if (h == INVALID_HANDLE_VALUE) {
+        h = CreateFileW(
+            wpath.data(),
+            GENERIC_READ,
+            FILE_SHARE_READ,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_SEQUENTIAL_SCAN,
+            nullptr);
+    }
+    if (h == INVALID_HANDLE_VALUE) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed to open acceleration-structure archive file for reading.");
+    }
+    LARGE_INTEGER li{};
+    if (!GetFileSizeEx(h, &li) || li.QuadPart < 0) {
+        CloseHandle(h);
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed to query acceleration-structure archive file size.");
+    }
+    const size_t file_size = static_cast<size_t>(li.QuadPart);
+    constexpr size_t kSector = 65536u;
+    const size_t padded_size = std::max<size_t>(kSector, ((file_size + kSector - 1u) / kSector) * kSector);
+    auto staging = acquire_staging_buffer(padded_size);
+    if (staging.mapped_data == nullptr || staging.capacity < padded_size) {
+        release_staging_buffer(std::move(staging));
+        CloseHandle(h);
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed to allocate staging buffer for archive file read.");
+    }
+    if (unbuffered && (reinterpret_cast<uintptr_t>(staging.mapped_data) & 4095ull) != 0ull) {
+        CloseHandle(h);
+        h = CreateFileW(
+            wpath.data(),
+            GENERIC_READ,
+            FILE_SHARE_READ,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_SEQUENTIAL_SCAN,
+            nullptr);
+        if (h == INVALID_HANDLE_VALUE) {
+            release_staging_buffer(std::move(staging));
+            return accel_archive::make_archive_error(
+                AccelArchiveStatus::BACKEND_ERROR,
+                "Failed to reopen archive file for buffered read.");
+        }
+        unbuffered = false;
+    }
+
+    size_t total = 0u;
+    bool read_ok = true;
+    while (total < file_size) {
+        const size_t rem = file_size - total;
+        const size_t max_chunk = 32ull * 1024ull * 1024ull;
+        const DWORD req = unbuffered ?
+                              static_cast<DWORD>(std::min<size_t>(max_chunk, ((rem + kSector - 1u) / kSector) * kSector)) :
+                              static_cast<DWORD>(std::min<size_t>(max_chunk, rem));
+        DWORD got = 0u;
+        if (!ReadFile(h, staging.mapped_data + total, req, &got, nullptr)) {
+            if (unbuffered) {
+                // Retry sequentially without NO_BUFFERING if FS does not support unbuffered IO.
+                CloseHandle(h);
+                h = CreateFileW(
+                    wpath.data(),
+                    GENERIC_READ,
+                    FILE_SHARE_READ,
+                    nullptr,
+                    OPEN_EXISTING,
+                    FILE_FLAG_SEQUENTIAL_SCAN,
+                    nullptr);
+                if (h == INVALID_HANDLE_VALUE) {
+                    read_ok = false;
+                    break;
+                }
+                LARGE_INTEGER zero{};
+                SetFilePointerEx(h, zero, nullptr, FILE_BEGIN);
+                total = 0u;
+                unbuffered = false;
+                continue;
+            }
+            read_ok = false;
+            break;
+        }
+        if (got == 0u) {
+            break;
+        }
+        total += got;
+    }
+    CloseHandle(h);
+    if (!read_ok || total != file_size) {
+        release_staging_buffer(std::move(staging));
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed reading acceleration-structure archive file.");
+    }
+    auto res = import_mesh_archive_with_options(
+        stream_handle,
+        mesh_handle,
+        expected_desc,
+        geometry_binding,
+        luisa::span<const std::byte>{staging.mapped_data, file_size},
+        options);
+    release_staging_buffer(std::move(staging));
+    return res;
+#else
+    const std::string path_str(file_path);
+    std::ifstream ifs(path_str, std::ios::binary | std::ios::ate);
+    if (!ifs.is_open()) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed to open acceleration-structure archive file for reading.");
+    }
+    const auto sz = ifs.tellg();
+    if (sz < 0) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed querying archive file size.");
+    }
+    const size_t file_size = static_cast<size_t>(sz);
+    auto staging = acquire_staging_buffer(std::max<size_t>(file_size, 64u));
+    if (staging.mapped_data == nullptr || staging.capacity < file_size) {
+        release_staging_buffer(std::move(staging));
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed allocating staging buffer for archive file read.");
+    }
+    ifs.seekg(0, std::ios::beg);
+    if (file_size > 0u && !ifs.read(reinterpret_cast<char *>(staging.mapped_data), static_cast<std::streamsize>(file_size))) {
+        release_staging_buffer(std::move(staging));
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed reading archive file.");
+    }
+    auto res = import_mesh_archive_with_options(
+        stream_handle,
+        mesh_handle,
+        expected_desc,
+        geometry_binding,
+        luisa::span<const std::byte>{staging.mapped_data, file_size},
+        options);
+    release_staging_buffer(std::move(staging));
+    return res;
+#endif
+}
 
 }// namespace luisa::compute

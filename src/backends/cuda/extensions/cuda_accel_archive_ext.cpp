@@ -1,10 +1,13 @@
 #include "cuda_accel_archive_ext.h"
 
+#include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <string_view>
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/vstl/functional.h>
 
 #include "../cuda_device.h"
 #include "../cuda_mesh.h"
@@ -17,6 +20,21 @@ namespace {
 
 constexpr luisa::string_view kCudaOptixLayoutTag = "optix_relocatable_gas_v1";
 constexpr uint64_t kMaxOptixGasArchiveBytes = 4ull << 30u;
+constexpr size_t kCudaMaxPoolSlots = 16u;
+constexpr size_t kCudaMaxPoolBytes = 2ull << 30u;
+
+[[nodiscard]] size_t round_up_cuda_pool_size(size_t needed) noexcept {
+    const size_t min_sz = std::max<size_t>(needed, 65536u);
+    if (min_sz <= (4ull << 20u)) {
+        return ((min_sz + 65535u) / 65536u) * 65536u;
+    }
+    if (min_sz <= (64ull << 20u)) {
+        constexpr size_t k1M = 1ull << 20u;
+        return ((min_sz + k1M - 1u) / k1M) * k1M;
+    }
+    constexpr size_t k4M = 4ull << 20u;
+    return ((min_sz + k4M - 1u) / k4M) * k4M;
+}
 
 [[nodiscard]] luisa::string format_cuda_uuid(const CUuuid &uuid) noexcept {
     luisa::string out;
@@ -111,6 +129,224 @@ constexpr uint64_t kMaxOptixGasArchiveBytes = 4ull << 30u;
 
 }// namespace
 
+struct CUDAAccelArchiveExt::Impl {
+    struct PinnedSlot {
+        std::byte *ptr{nullptr};
+        size_t capacity{0u};
+        CUevent event{nullptr};
+        CUstream last_stream{nullptr};
+        bool in_flight{false};
+        bool caller_owned{false};
+        uint64_t lru_tick{0u};
+        uint64_t token{0u};
+    };
+
+    CUDADevice *device{nullptr};
+    std::mutex mtx;
+    luisa::vector<PinnedSlot> slots;
+    size_t total_bytes{0u};
+    uint64_t tick{0u};
+    uint64_t next_token{0u};
+
+    explicit Impl(CUDADevice *dev) noexcept : device{dev} {}
+
+    ~Impl() noexcept {
+        destroy_all();
+    }
+
+    void destroy_all() noexcept {
+        std::lock_guard lck{mtx};
+        if (device == nullptr || slots.empty()) {
+            slots.clear();
+            total_bytes = 0u;
+            return;
+        }
+        device->with_handle([&] {
+            for (auto &s : slots) {
+                if (s.in_flight && s.event != nullptr) {
+                    (void)cuEventSynchronize(s.event);
+                    s.in_flight = false;
+                }
+                if (s.event != nullptr) {
+                    (void)cuEventDestroy(s.event);
+                    s.event = nullptr;
+                }
+                if (s.ptr != nullptr) {
+                    (void)cuMemFreeHost(s.ptr);
+                    s.ptr = nullptr;
+                }
+            }
+        });
+        slots.clear();
+        total_bytes = 0u;
+    }
+
+    void poll_events_locked() noexcept {
+        for (auto &s : slots) {
+            if (s.in_flight && s.event != nullptr) {
+                if (cuEventQuery(s.event) == CUDA_SUCCESS) {
+                    s.in_flight = false;
+                }
+            }
+        }
+    }
+
+    [[nodiscard]] bool acquire_slot(
+        size_t min_bytes,
+        bool for_caller,
+        std::byte *&out_ptr,
+        size_t &out_cap,
+        uint64_t &out_tok) noexcept {
+        std::lock_guard lck{mtx};
+        if (device == nullptr) return false;
+        poll_events_locked();
+
+        size_t best_idx = slots.size();
+        for (size_t i = 0u; i < slots.size(); ++i) {
+            const auto &s = slots[i];
+            if (!s.caller_owned && !s.in_flight && s.capacity >= min_bytes) {
+                if (best_idx == slots.size() || s.capacity < slots[best_idx].capacity) {
+                    best_idx = i;
+                }
+            }
+        }
+        if (best_idx < slots.size()) {
+            auto &s = slots[best_idx];
+            s.lru_tick = ++tick;
+            if (for_caller) s.caller_owned = true;
+            else s.in_flight = true;
+            out_ptr = s.ptr;
+            out_cap = s.capacity;
+            out_tok = s.token;
+            return true;
+        }
+
+        const size_t alloc_bytes = round_up_cuda_pool_size(min_bytes);
+        bool ok = false;
+        device->with_handle([&] {
+            auto evict_oldest_idle = [&]() noexcept -> bool {
+                size_t victim = slots.size();
+                for (size_t i = 0u; i < slots.size(); ++i) {
+                    if (!slots[i].caller_owned && !slots[i].in_flight) {
+                        if (victim == slots.size() || slots[i].lru_tick < slots[victim].lru_tick) {
+                            victim = i;
+                        }
+                    }
+                }
+                if (victim == slots.size()) return false;
+                auto &v = slots[victim];
+                if (v.event != nullptr) (void)cuEventDestroy(v.event);
+                if (v.ptr != nullptr) (void)cuMemFreeHost(v.ptr);
+                total_bytes -= v.capacity;
+                if (victim + 1u < slots.size()) {
+                    slots[victim] = std::move(slots.back());
+                }
+                slots.pop_back();
+                return true;
+            };
+
+            while (slots.size() >= kCudaMaxPoolSlots ||
+                   (total_bytes + alloc_bytes > kCudaMaxPoolBytes && !slots.empty())) {
+                if (!evict_oldest_idle()) break;
+            }
+
+            void *raw_ptr = nullptr;
+            if (cuMemHostAlloc(&raw_ptr, alloc_bytes, CU_MEMHOSTALLOC_PORTABLE) != CUDA_SUCCESS ||
+                raw_ptr == nullptr) {
+                return;
+            }
+            CUevent evt = nullptr;
+            if (cuEventCreate(&evt, CU_EVENT_DISABLE_TIMING) != CUDA_SUCCESS || evt == nullptr) {
+                (void)cuMemFreeHost(raw_ptr);
+                return;
+            }
+
+            PinnedSlot s{};
+            s.ptr = static_cast<std::byte *>(raw_ptr);
+            s.capacity = alloc_bytes;
+            s.event = evt;
+            s.lru_tick = ++tick;
+            s.token = (++next_token) | (1ull << 56u);
+            s.caller_owned = for_caller;
+            s.in_flight = !for_caller;
+            total_bytes += alloc_bytes;
+            out_ptr = s.ptr;
+            out_cap = s.capacity;
+            out_tok = s.token;
+            slots.push_back(s);
+            ok = true;
+        });
+        return ok;
+    }
+
+    [[nodiscard]] bool match_caller_buffer(
+        const std::byte *ptr,
+        size_t bytes,
+        CUstream current_stream,
+        uint64_t &out_tok) noexcept {
+        if (ptr == nullptr) return false;
+        std::lock_guard lck{mtx};
+        poll_events_locked();
+        for (auto &s : slots) {
+            if (!s.caller_owned || s.ptr == nullptr) continue;
+            if (ptr >= s.ptr && ptr <= s.ptr + s.capacity) {
+                const size_t off = static_cast<size_t>(ptr - s.ptr);
+                if (off <= s.capacity && bytes <= s.capacity - off) {
+                    if (s.in_flight && s.event != nullptr && s.last_stream != current_stream) {
+                        device->with_handle([&] {
+                            (void)cuEventSynchronize(s.event);
+                        });
+                        s.in_flight = false;
+                    }
+                    s.in_flight = true;
+                    s.last_stream = current_stream;
+                    s.lru_tick = ++tick;
+                    out_tok = s.token;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void record_stream_event_locked_ctx(uint64_t tok, CUstream stream) noexcept {
+        std::lock_guard lck{mtx};
+        for (auto &s : slots) {
+            if (s.token == tok) {
+                s.last_stream = stream;
+                s.in_flight = true;
+                if (s.event != nullptr) {
+                    (void)cuEventRecord(s.event, stream);
+                }
+                return;
+            }
+        }
+    }
+
+    void release_idle(uint64_t tok) noexcept {
+        std::lock_guard lck{mtx};
+        for (auto &s : slots) {
+            if (s.token == tok) {
+                s.in_flight = false;
+                s.lru_tick = ++tick;
+                return;
+            }
+        }
+    }
+
+    void release_caller(uint64_t tok, const std::byte *mapped) noexcept {
+        std::lock_guard lck{mtx};
+        poll_events_locked();
+        for (auto &s : slots) {
+            if ((tok != 0u && s.token == tok) || (mapped != nullptr && s.ptr == mapped)) {
+                s.caller_owned = false;
+                s.lru_tick = ++tick;
+                return;
+            }
+        }
+    }
+};
+
 CUDAAccelArchiveExt::CUDAAccelArchiveExt(CUDADevice *device) noexcept
     : _device{device} {
     if (_device == nullptr) {
@@ -145,7 +381,12 @@ CUDAAccelArchiveExt::CUDAAccelArchiveExt(CUDADevice *device) noexcept
         "cuda_drv={};optix_abi={}",
         _driver_version,
         _optix_abi_version);
+    _impl = std::make_unique<Impl>(_device);
     _supported = true;
+}
+
+CUDAAccelArchiveExt::~CUDAAccelArchiveExt() noexcept {
+    _impl.reset();
 }
 
 AccelArchiveCapabilities CUDAAccelArchiveExt::capabilities() const noexcept {
@@ -159,10 +400,41 @@ AccelArchiveCapabilities CUDAAccelArchiveExt::capabilities() const noexcept {
     caps.supports_compacted_export = _supported;
     caps.requires_geometry_rebind = false;
     caps.import_is_async_on_stream = _supported;
+    caps.supports_pinned_staging = _supported;
+    caps.supports_direct_file_import = _supported;
     caps.layout_info = _supported ?
                            luisa::string{kCudaOptixLayoutTag} :
                            "optix_unavailable_or_fallback_rtx";
     return caps;
+}
+
+AccelArchiveStagingBuffer CUDAAccelArchiveExt::acquire_staging_buffer(size_t min_bytes) noexcept {
+    if (!_supported || !_impl || min_bytes == 0u) {
+        return AccelArchiveExt::acquire_staging_buffer(min_bytes);
+    }
+    std::byte *ptr = nullptr;
+    size_t cap = 0u;
+    uint64_t tok = 0u;
+    if (!_impl->acquire_slot(min_bytes, true, ptr, cap, tok)) {
+        return AccelArchiveExt::acquire_staging_buffer(min_bytes);
+    }
+    AccelArchiveStagingBuffer out{};
+    out.handle = tok;
+    out.mapped_data = ptr;
+    out.capacity = cap;
+    out.alignment = 4096u;
+    out.is_device_local = false;
+    out.is_pinned_host = true;
+    return out;
+}
+
+void CUDAAccelArchiveExt::release_staging_buffer(AccelArchiveStagingBuffer &&buffer) noexcept {
+    if (_impl && buffer.handle != invalid_resource_handle && (buffer.handle >> 56u) != 0u) {
+        _impl->release_caller(buffer.handle, buffer.mapped_data);
+        buffer = {};
+        return;
+    }
+    AccelArchiveExt::release_staging_buffer(std::move(buffer));
 }
 
 AccelArchiveResult CUDAAccelArchiveExt::_validate_compat_and_relocation(
@@ -322,7 +594,25 @@ AccelArchiveResult CUDAAccelArchiveExt::export_mesh_archive(
     }
 
     OptixRelocationInfo reloc_info{};
-    luisa::vector<std::byte> payload(snapshot.bvh_active_size);
+    std::byte *rb_ptr = nullptr;
+    size_t rb_cap = 0u;
+    uint64_t rb_tok = 0u;
+    luisa::vector<std::byte> pageable_fallback;
+    luisa::span<const std::byte> payload;
+    const bool use_pooled = _impl && _impl->acquire_slot(snapshot.bvh_active_size, false, rb_ptr, rb_cap, rb_tok);
+    auto release_rb = vstd::scope_exit([&]() noexcept {
+        if (use_pooled && _impl) {
+            _impl->release_idle(rb_tok);
+        }
+    });
+    std::byte *dst_host = nullptr;
+    if (use_pooled) {
+        dst_host = rb_ptr;
+    } else {
+        pageable_fallback.resize(snapshot.bvh_active_size);
+        dst_host = pageable_fallback.data();
+    }
+
     const auto cuda_or_optix_res = _device->with_handle([&]() -> AccelArchiveResult {
         const OptixResult info_err = optix::api().optixAccelGetRelocationInfo(
             _device->handle().optix_context(),
@@ -335,7 +625,7 @@ AccelArchiveResult CUDAAccelArchiveExt::export_mesh_archive(
                 "optixAccelGetRelocationInfo failed");
         }
         const CUresult copy_err = cuMemcpyDtoH(
-            payload.data(),
+            dst_host,
             snapshot.bvh_buffer_handle,
             snapshot.bvh_active_size);
         if (copy_err != CUDA_SUCCESS) {
@@ -346,6 +636,7 @@ AccelArchiveResult CUDAAccelArchiveExt::export_mesh_archive(
     if (!cuda_or_optix_res) {
         return cuda_or_optix_res;
     }
+    payload = luisa::span<const std::byte>{dst_host, snapshot.bvh_active_size};
 
     CudaOptixAccelArchiveCompatBlob compat_blob{};
     compat_blob.magic = kCudaOptixAccelArchiveCompatMagic;
@@ -383,8 +674,25 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive(
     uint64_t stream_handle,
     uint64_t mesh_handle,
     const AccelArchiveMeshDesc &expected_desc,
-    const AccelArchiveGeometryBinding &,
+    const AccelArchiveGeometryBinding &geometry_binding,
     luisa::span<const std::byte> archive_bytes) noexcept {
+    AccelArchiveImportOptions default_opts{};
+    return import_mesh_archive_with_options(
+        stream_handle,
+        mesh_handle,
+        expected_desc,
+        geometry_binding,
+        archive_bytes,
+        default_opts);
+}
+
+AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive_with_options(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &,
+    luisa::span<const std::byte> archive_bytes,
+    const AccelArchiveImportOptions &options) noexcept {
     if (!_supported) {
         return accel_archive::make_archive_error(
             AccelArchiveStatus::UNSUPPORTED_BACKEND,
@@ -404,11 +712,13 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive(
     }
 
     accel_archive::AccelArchiveEnvelopeView view{};
-    auto env_res = accel_archive::decode_and_validate_envelope(
+    uint8_t expected_payload_checksum[16]{};
+    auto env_res = accel_archive::decode_envelope_header_and_compat(
         archive_bytes,
         AccelArchiveBackendKind::CUDA,
         expected_desc,
-        view);
+        view,
+        expected_payload_checksum);
     if (!env_res) {
         return env_res;
     }
@@ -425,10 +735,44 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive(
         return check_res;
     }
 
-    CUdeviceptr target_bvh = 0ull;
-    OptixTraversableHandle relocated_handle = 0ull;
     const auto cuda_stream = stream->handle();
     const size_t gas_bytes = static_cast<size_t>(active_bvh_bytes);
+
+    uint64_t pinned_tok = 0u;
+    const bool is_pinned_zero_copy =
+        _impl && _impl->match_caller_buffer(view.payload.data(), view.payload.size(), cuda_stream, pinned_tok);
+
+    const std::byte *htod_src = view.payload.data();
+    std::byte *pooled_ptr = nullptr;
+    size_t pooled_cap = 0u;
+
+    if (is_pinned_zero_copy) {
+        if (options.verify_payload_checksum) {
+            if (auto p = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum); !p) {
+                _impl->release_idle(pinned_tok);
+                return p;
+            }
+        }
+    } else if (_impl && _impl->acquire_slot(gas_bytes, false, pooled_ptr, pooled_cap, pinned_tok)) {
+        if (!accel_archive::copy_payload_optimized(
+                pooled_ptr,
+                view.payload,
+                options.verify_payload_checksum,
+                expected_payload_checksum)) {
+            _impl->release_idle(pinned_tok);
+            return accel_archive::make_archive_error(
+                AccelArchiveStatus::CORRUPT_PAYLOAD,
+                "Native payload checksum mismatch.");
+        }
+        htod_src = pooled_ptr;
+    } else if (options.verify_payload_checksum) {
+        if (auto p = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum); !p) {
+            return p;
+        }
+    }
+
+    CUdeviceptr target_bvh = 0ull;
+    OptixTraversableHandle relocated_handle = 0ull;
 
     const auto reloc_res = _device->with_handle([&]() -> AccelArchiveResult {
         CUresult alloc_err = cuMemAllocAsync(&target_bvh, gas_bytes, cuda_stream);
@@ -452,12 +796,16 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive(
 
         const CUresult htod_err = cuMemcpyHtoDAsync(
             target_bvh,
-            view.payload.data(),
+            htod_src,
             gas_bytes,
             cuda_stream);
         if (htod_err != CUDA_SUCCESS) {
             free_on_failure();
             return make_cuda_error(htod_err, "cuMemcpyHtoDAsync failed uploading OptiX GAS payload");
+        }
+
+        if (pinned_tok != 0u && _impl) {
+            _impl->record_stream_event_locked_ctx(pinned_tok, cuda_stream);
         }
 
         // Static triangle BLAS in Luisa always uses a single SBT record and
@@ -501,6 +849,9 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive(
         return {};
     });
     if (!reloc_res) {
+        if (pinned_tok != 0u && _impl) {
+            _impl->release_idle(pinned_tok);
+        }
         return reloc_res;
     }
 
@@ -510,7 +861,7 @@ AccelArchiveResult CUDAAccelArchiveExt::import_mesh_archive(
     res.unpacked_as_size = active_bvh_bytes;
     res.serialized_payload_size = view.payload.size();
     res.is_compacted = view.meta.is_compacted;
-    res.message = "relocated_on_stream";
+    res.message = is_pinned_zero_copy ? "relocated_pinned_on_stream" : "relocated_on_stream";
     return res;
 }
 

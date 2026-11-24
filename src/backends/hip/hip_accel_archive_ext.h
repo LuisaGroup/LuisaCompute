@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 #include <luisa/backends/ext/accel_archive_ext_interface.h>
 
@@ -11,7 +12,7 @@ class HIPDevice;
 class HIPAccelArchiveExt final : public AccelArchiveExt {
 public:
     explicit HIPAccelArchiveExt(HIPDevice *device) noexcept;
-    ~HIPAccelArchiveExt() noexcept = default;
+    ~HIPAccelArchiveExt() noexcept;
 
     [[nodiscard]] AccelArchiveCapabilities capabilities() const noexcept override;
 
@@ -33,7 +34,22 @@ public:
         const AccelArchiveGeometryBinding &geometry_binding,
         luisa::span<const std::byte> archive_bytes) noexcept override;
 
+    [[nodiscard]] AccelArchiveStagingBuffer acquire_staging_buffer(
+        size_t min_bytes) noexcept override;
+
+    void release_staging_buffer(
+        AccelArchiveStagingBuffer &&buffer) noexcept override;
+
+    [[nodiscard]] AccelArchiveResult import_mesh_archive_with_options(
+        uint64_t stream_handle,
+        uint64_t mesh_handle,
+        const AccelArchiveMeshDesc &expected_desc,
+        const AccelArchiveGeometryBinding &geometry_binding,
+        luisa::span<const std::byte> archive_bytes,
+        const AccelArchiveImportOptions &options) noexcept override;
+
 private:
+    struct Impl;
     struct CompatInfo {
         uint32_t magic;
         uint32_t struct_size;
@@ -58,6 +74,7 @@ private:
     luisa::string _driver_fingerprint;
     CompatInfo _compat{};
     bool _supported{false};
+    std::unique_ptr<Impl> _impl;
 };
 
 }// namespace luisa::compute::hip

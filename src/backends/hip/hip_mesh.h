@@ -66,8 +66,11 @@ private:
     hipDeviceptr_t _motion_device_data{};
     bool _built{false};
     bool _is_compacted{false};
+    bool _owns_direct_device_geom{false};
     uint64_t _last_triangle_count{0u};
     mutable spin_mutex _mutex;
+
+    void _destroy_geometry_no_lock(hiprtContext ctx) noexcept;
 
 public:
     explicit HIPMesh(hiprtContext ctx, const AccelOption &option) noexcept;
@@ -78,7 +81,8 @@ public:
         hipStream_t stream,
         hiprtGeometry new_geometry,
         uint64_t triangle_count,
-        bool is_compacted) noexcept;
+        bool is_compacted,
+        bool owns_direct_device_geom = false) noexcept;
     [[nodiscard]] bool is_static_triangle_mesh() const noexcept override {
         return !_option.motion.is_enabled();
     }

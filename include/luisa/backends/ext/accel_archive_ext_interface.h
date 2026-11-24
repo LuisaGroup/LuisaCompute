@@ -56,11 +56,27 @@ struct AccelArchiveCapabilities {
     bool supports_compacted_export{false};
     bool requires_geometry_rebind{false};
     bool import_is_async_on_stream{false};
+    bool supports_pinned_staging{false};
+    bool supports_direct_file_import{false};
     AccelArchiveBackendKind backend_kind{AccelArchiveBackendKind::UNKNOWN};
     uint32_t envelope_version{1u};
     luisa::string device_fingerprint;
     luisa::string driver_fingerprint;
     luisa::string layout_info;
+};
+
+struct AccelArchiveImportOptions {
+    bool verify_payload_checksum{true};
+    bool bypass_os_file_cache{false};
+};
+
+struct AccelArchiveStagingBuffer {
+    uint64_t handle{invalid_resource_handle};
+    std::byte *mapped_data{nullptr};
+    size_t capacity{0u};
+    size_t alignment{64u};
+    bool is_device_local{false};
+    bool is_pinned_host{false};
 };
 
 struct AccelArchiveMeshDesc {
@@ -120,7 +136,7 @@ struct AccelArchiveResult {
 // micromap, or cluster BLAS). Archives are non-portable backend caches keyed
 // by canonical geometry content and build flags; TLAS must be rebuilt fresh
 // from restored BLAS handles and caller-owned instance descriptors.
-class AccelArchiveExt : public DeviceExtension {
+class LUISA_RUNTIME_API AccelArchiveExt : public DeviceExtension {
 
 protected:
     ~AccelArchiveExt() noexcept = default;
@@ -147,6 +163,28 @@ public:
         const AccelArchiveMeshDesc &expected_desc,
         const AccelArchiveGeometryBinding &geometry_binding,
         luisa::span<const std::byte> archive_bytes) noexcept = 0;
+
+    [[nodiscard]] virtual AccelArchiveStagingBuffer acquire_staging_buffer(
+        size_t min_bytes) noexcept;
+
+    virtual void release_staging_buffer(
+        AccelArchiveStagingBuffer &&buffer) noexcept;
+
+    [[nodiscard]] virtual AccelArchiveResult import_mesh_archive_with_options(
+        uint64_t stream_handle,
+        uint64_t mesh_handle,
+        const AccelArchiveMeshDesc &expected_desc,
+        const AccelArchiveGeometryBinding &geometry_binding,
+        luisa::span<const std::byte> archive_bytes,
+        const AccelArchiveImportOptions &options) noexcept;
+
+    [[nodiscard]] virtual AccelArchiveResult import_mesh_archive_file(
+        uint64_t stream_handle,
+        uint64_t mesh_handle,
+        const AccelArchiveMeshDesc &expected_desc,
+        const AccelArchiveGeometryBinding &geometry_binding,
+        luisa::string_view file_path,
+        const AccelArchiveImportOptions &options = {}) noexcept;
 };
 
 namespace accel_archive {
@@ -223,6 +261,33 @@ struct AccelArchiveEnvelopeView {
     AccelArchiveBackendKind expected_backend,
     const AccelArchiveMeshDesc &expected_desc,
     AccelArchiveEnvelopeView &out_view) noexcept;
+
+[[nodiscard]] LUISA_RUNTIME_API AccelArchiveResult decode_envelope_prefix(
+    luisa::span<const std::byte> file_prefix_bytes,
+    uint64_t total_file_size,
+    AccelArchiveBackendKind expected_backend,
+    const AccelArchiveMeshDesc &expected_desc,
+    AccelArchiveMetadata &out_meta,
+    uint64_t &out_payload_offset,
+    luisa::span<const std::byte> &out_compat_blob,
+    uint8_t (&out_expected_payload_checksum)[16]) noexcept;
+
+[[nodiscard]] LUISA_RUNTIME_API AccelArchiveResult decode_envelope_header_and_compat(
+    luisa::span<const std::byte> archive_bytes,
+    AccelArchiveBackendKind expected_backend,
+    const AccelArchiveMeshDesc &expected_desc,
+    AccelArchiveEnvelopeView &out_view,
+    uint8_t (&out_expected_payload_checksum)[16]) noexcept;
+
+[[nodiscard]] LUISA_RUNTIME_API AccelArchiveResult verify_payload_checksum(
+    luisa::span<const std::byte> payload,
+    const uint8_t (&expected_checksum)[16]) noexcept;
+
+[[nodiscard]] LUISA_RUNTIME_API bool copy_payload_optimized(
+    void *dst,
+    luisa::span<const std::byte> payload,
+    bool verify_checksum,
+    const uint8_t (&expected_checksum)[16]) noexcept;
 
 }// namespace accel_archive
 

@@ -97,6 +97,18 @@ HIPMesh::HIPMesh(hiprtContext ctx, const AccelOption &option) noexcept
     }
 }
 
+void HIPMesh::_destroy_geometry_no_lock(hiprtContext ctx) noexcept {
+    if (_geometry != nullptr) {
+        if (_owns_direct_device_geom) {
+            LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_geometry)));
+        } else {
+            LUISA_CHECK_HIPRT(hiprtDestroyGeometry(ctx != nullptr ? ctx : _hiprt_ctx, _geometry));
+        }
+        _geometry = nullptr;
+        _owns_direct_device_geom = false;
+    }
+}
+
 HIPMesh::~HIPMesh() noexcept {
     if (_geometry || _motion_vertex_buffer || _motion_triangle_buffer ||
         _motion_aabb_buffer || _motion_device_data) {
@@ -104,9 +116,7 @@ HIPMesh::~HIPMesh() noexcept {
         // and the backing-allocation frees have no stream on which to order.
         LUISA_CHECK_HIP(hipDeviceSynchronize());
     }
-    if (_geometry) {
-        LUISA_CHECK_HIPRT(hiprtDestroyGeometry(_hiprt_ctx, _geometry));
-    }
+    _destroy_geometry_no_lock(_hiprt_ctx);
     if (_motion_vertex_buffer) {
         LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_motion_vertex_buffer)));
     }
@@ -386,11 +396,11 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
         if (recreate_geometry) {
             if (_geometry) {
                 LUISA_CHECK_HIP(hipStreamSynchronize(hip_stream));
-                LUISA_CHECK_HIPRT(hiprtDestroyGeometry(_hiprt_ctx, _geometry));
-                _geometry = nullptr;
+                _destroy_geometry_no_lock(_hiprt_ctx);
             }
             LUISA_CHECK_HIPRT(hiprtCreateGeometry(_hiprt_ctx, build_input,
                                                   policy.options, _geometry));
+            _owns_direct_device_geom = false;
             _build_flags = policy.options.buildFlags;
         }
 
@@ -423,15 +433,17 @@ void HIPMesh::replace_geometry_from_archive(
     hipStream_t stream,
     hiprtGeometry new_geometry,
     uint64_t triangle_count,
-    bool is_compacted) noexcept {
+    bool is_compacted,
+    bool owns_direct_device_geom) noexcept {
     std::scoped_lock lock{_mutex};
-    if (stream != nullptr) {
-        LUISA_CHECK_HIP(hipStreamSynchronize(stream));
-    }
     if (_geometry != nullptr) {
-        LUISA_CHECK_HIPRT(hiprtDestroyGeometry(ctx != nullptr ? ctx : _hiprt_ctx, _geometry));
+        if (stream != nullptr) {
+            LUISA_CHECK_HIP(hipStreamSynchronize(stream));
+        }
+        _destroy_geometry_no_lock(ctx);
     }
     _geometry = new_geometry;
+    _owns_direct_device_geom = owns_direct_device_geom && (new_geometry != nullptr);
     _build_flags = make_hiprt_build_flags(_option);
     _vertex_buffer = {};
     _vertex_buffer_size = 0u;

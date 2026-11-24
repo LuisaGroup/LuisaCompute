@@ -3503,6 +3503,7 @@ Device::~Device() {
         // handle, so a shader destroyed later cannot touch it.
         _pipeline_cache.release(this);
     }
+    _exts.clear();
     _default_file_io = nullptr;
 #ifndef LC_NO_HLSL_BUILTIN
     {

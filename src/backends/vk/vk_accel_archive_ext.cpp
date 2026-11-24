@@ -12,9 +12,7 @@
 #include "device.h"
 #include "log.h"
 #include "primitive_base.h"
-#include "readback_buffer.h"
 #include "stream.h"
-#include "upload_buffer.h"
 
 namespace lc::vk {
 
@@ -49,6 +47,22 @@ struct VkSerializedASHeader {
 static_assert(sizeof(VkSerializedASHeader) == kVkSerializedHeaderBytes);
 static_assert(sizeof(VkSerializedASHeader) == 56u);
 
+// Non-trivially-destructible lease object for CommandBufferState::dispose_after_flush.
+struct VkSlotLease {
+    std::shared_ptr<VkAccelArchiveExt::StagingSlot> slot;
+    VkSlotLease() noexcept = default;
+    explicit VkSlotLease(std::shared_ptr<VkAccelArchiveExt::StagingSlot> s) noexcept
+        : slot{std::move(s)} {}
+    VkSlotLease(VkSlotLease &&) noexcept = default;
+    VkSlotLease &operator=(VkSlotLease &&) noexcept = default;
+    ~VkSlotLease() noexcept {
+        if (slot) {
+            slot->gpu_refs.fetch_sub(1u, std::memory_order_release);
+            slot.reset();
+        }
+    }
+};
+
 [[nodiscard]] luisa::string format_uuid_hex(const uint8_t *bytes, size_t count) noexcept {
     static constexpr char kHex[] = "0123456789abcdef";
     luisa::string out;
@@ -59,6 +73,30 @@ static_assert(sizeof(VkSerializedASHeader) == 56u);
         out.push_back(kHex[v & 0xfu]);
     }
     return out;
+}
+
+[[nodiscard]] uint32_t find_best_memory_type(
+    const VkPhysicalDeviceMemoryProperties &props,
+    uint32_t type_bits,
+    VkMemoryPropertyFlags required_flags,
+    VkMemoryPropertyFlags preferred_flags) noexcept {
+    uint32_t fallback = UINT32_MAX;
+    for (uint32_t i = 0u; i < props.memoryTypeCount; ++i) {
+        if ((type_bits & (1u << i)) == 0u) {
+            continue;
+        }
+        const auto flags = props.memoryTypes[i].propertyFlags;
+        if ((flags & required_flags) != required_flags) {
+            continue;
+        }
+        if ((flags & preferred_flags) == preferred_flags) {
+            return i;
+        }
+        if (fallback == UINT32_MAX) {
+            fallback = i;
+        }
+    }
+    return fallback;
 }
 
 [[nodiscard]] AccelArchiveResult check_stream_and_blas(
@@ -132,10 +170,289 @@ static_assert(sizeof(VkSerializedASHeader) == 56u);
     return blob;
 }
 
+[[nodiscard]] AccelArchiveResult check_vk_compat_and_header(
+    Device const *device,
+    luisa::span<const std::byte> compat_blob,
+    luisa::span<const std::byte> payload,
+    uint64_t expected_unpacked_size,
+    uint64_t &out_deserialized_size) noexcept {
+    if (compat_blob.size() != sizeof(VkAccelArchiveCompatBlob)) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::CORRUPT_HEADER,
+            "Vulkan AS archive compat blob has unexpected byte size.");
+    }
+    VkAccelArchiveCompatBlob compat{};
+    std::memcpy(&compat, compat_blob.data(), sizeof(compat));
+    if (compat.magic != kVkCompatMagic || compat.struct_size != sizeof(VkAccelArchiveCompatBlob)) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::CORRUPT_HEADER,
+            "Vulkan AS archive compat blob magic or size mismatch.");
+    }
+
+    const auto &props = device->properties();
+    if (compat.vendor_id != props.vendorID || compat.device_id != props.deviceID) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::DEVICE_INCOMPATIBLE,
+            luisa::format(
+                "Vulkan AS archive targets vendor=0x{:04x} device=0x{:04x}, current is 0x{:04x}:0x{:04x}.",
+                compat.vendor_id, compat.device_id, props.vendorID, props.deviceID));
+    }
+    if (compat.driver_version != props.driverVersion ||
+        compat.api_version != props.apiVersion ||
+        std::memcmp(compat.pipeline_cache_uuid, props.pipelineCacheUUID, VK_UUID_SIZE) != 0) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::DRIVER_INCOMPATIBLE,
+            "Vulkan AS archive driverVersion/apiVersion/pipelineCacheUUID does not match active device.");
+    }
+
+    if (payload.size() < sizeof(VkSerializedASHeader)) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::CORRUPT_PAYLOAD,
+            "Vulkan serialized BLAS payload is smaller than 56-byte header.");
+    }
+    VkSerializedASHeader hdr{};
+    std::memcpy(&hdr, payload.data(), sizeof(hdr));
+    if (hdr.serialized_size != payload.size() ||
+        hdr.bottom_level_count != 0u ||
+        hdr.deserialized_size == 0u ||
+        hdr.deserialized_size != expected_unpacked_size ||
+        hdr.deserialized_size != compat.deserialized_size) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::CORRUPT_PAYLOAD,
+            "Vulkan serialized BLAS header sizes or bottomLevelCount are invalid for static BLAS.");
+    }
+    if (std::memcmp(hdr.version_data, compat.vk_version_data, sizeof(hdr.version_data)) != 0) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::CORRUPT_PAYLOAD,
+            "Vulkan serialized BLAS version header disagrees with archive compat metadata.");
+    }
+
+    VkAccelerationStructureVersionInfoKHR ver_info{};
+    ver_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_VERSION_INFO_KHR;
+    ver_info.pVersionData = hdr.version_data;
+    VkAccelerationStructureCompatibilityKHR vk_compat =
+        VK_ACCELERATION_STRUCTURE_COMPATIBILITY_INCOMPATIBLE_KHR;
+    vkGetDeviceAccelerationStructureCompatibilityKHR(
+        device->logic_device(), &ver_info, &vk_compat);
+    if (vk_compat != VK_ACCELERATION_STRUCTURE_COMPATIBILITY_COMPATIBLE_KHR) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::DRIVER_INCOMPATIBLE,
+            "vkGetDeviceAccelerationStructureCompatibilityKHR reported INCOMPATIBLE_KHR.");
+    }
+
+    out_deserialized_size = hdr.deserialized_size;
+    return {};
+}
+
 }// namespace
 
 VkAccelArchiveExt::VkAccelArchiveExt(Device *device) noexcept
     : _device{device} {}
+
+VkAccelArchiveExt::~VkAccelArchiveExt() noexcept {
+    _destroy_all_pools();
+}
+
+void VkAccelArchiveExt::_destroy_all_pools() noexcept {
+    if (_device == nullptr || _device->logic_device() == VK_NULL_HANDLE) {
+        return;
+    }
+    const auto vk_dev = _device->logic_device();
+    vkDeviceWaitIdle(vk_dev);
+
+    auto free_pool = [&](luisa::vector<std::shared_ptr<StagingSlot>> &pool) noexcept {
+        for (auto &slot : pool) {
+            if (!slot) {
+                continue;
+            }
+            if (slot->mapped != nullptr && slot->memory != VK_NULL_HANDLE) {
+                vkUnmapMemory(vk_dev, slot->memory);
+                slot->mapped = nullptr;
+            }
+            if (slot->buffer != VK_NULL_HANDLE) {
+                vkDestroyBuffer(vk_dev, slot->buffer, Device::alloc_callbacks());
+                slot->buffer = VK_NULL_HANDLE;
+            }
+            if (slot->memory != VK_NULL_HANDLE) {
+                vkFreeMemory(vk_dev, slot->memory, Device::alloc_callbacks());
+                slot->memory = VK_NULL_HANDLE;
+            }
+        }
+        pool.clear();
+    };
+
+    std::lock_guard lock{_pool_mtx};
+    free_pool(_rebar_pool);
+    free_pool(_pinned_pool);
+    free_pool(_vram_pool);
+    if (_size_query_pool != VK_NULL_HANDLE) {
+        vkDestroyQueryPool(vk_dev, _size_query_pool, Device::alloc_callbacks());
+        _size_query_pool = VK_NULL_HANDLE;
+    }
+}
+
+std::shared_ptr<VkAccelArchiveExt::StagingSlot> VkAccelArchiveExt::_acquire_pool_slot(
+    luisa::vector<std::shared_ptr<StagingSlot>> &pool,
+    size_t min_bytes,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags required_flags,
+    VkMemoryPropertyFlags preferred_flags,
+    bool map_host,
+    bool need_device_address,
+    bool mark_caller_held,
+    bool mark_gpu_ref) noexcept {
+    if (_device == nullptr || _device->logic_device() == VK_NULL_HANDLE) {
+        return nullptr;
+    }
+    const size_t wanted = std::max<size_t>((min_bytes + 65535u) & (~size_t{65535u}), 65536u);
+    std::lock_guard lock{_pool_mtx};
+
+    std::shared_ptr<StagingSlot> best_slot;
+    for (auto &slot : pool) {
+        if (slot && !slot->caller_held &&
+            slot->gpu_refs.load(std::memory_order_acquire) == 0u &&
+            slot->capacity >= wanted) {
+            if (!best_slot || slot->capacity < best_slot->capacity) {
+                best_slot = slot;
+            }
+        }
+    }
+    if (best_slot) {
+        if (mark_caller_held) {
+            best_slot->caller_held = true;
+        }
+        if (mark_gpu_ref) {
+            best_slot->gpu_refs.fetch_add(1u, std::memory_order_relaxed);
+        }
+        return best_slot;
+    }
+
+    // Evict an idle undersized slot before creating a larger one to bound resident pool size.
+    for (size_t i = 0u; i < pool.size(); ++i) {
+        auto &slot = pool[i];
+        if (slot && !slot->caller_held &&
+            slot->gpu_refs.load(std::memory_order_acquire) == 0u &&
+            slot->capacity < wanted) {
+            const auto vk_dev = _device->logic_device();
+            if (slot->mapped != nullptr && slot->memory != VK_NULL_HANDLE) {
+                vkUnmapMemory(vk_dev, slot->memory);
+                slot->mapped = nullptr;
+            }
+            if (slot->buffer != VK_NULL_HANDLE) {
+                vkDestroyBuffer(vk_dev, slot->buffer, Device::alloc_callbacks());
+                slot->buffer = VK_NULL_HANDLE;
+            }
+            if (slot->memory != VK_NULL_HANDLE) {
+                vkFreeMemory(vk_dev, slot->memory, Device::alloc_callbacks());
+                slot->memory = VK_NULL_HANDLE;
+            }
+            pool.erase(pool.begin() + static_cast<ptrdiff_t>(i));
+            break;
+        }
+    }
+
+    const size_t alloc_cap = wanted;
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size = alloc_cap;
+    bci.usage = usage;
+    _device->allocator().apply_queue_sharing(bci);
+
+    VkBuffer buf = VK_NULL_HANDLE;
+    if (vkCreateBuffer(_device->logic_device(), &bci, Device::alloc_callbacks(), &buf) != VK_SUCCESS) {
+        return nullptr;
+    }
+
+    VkMemoryRequirements mem_req{};
+    vkGetBufferMemoryRequirements(_device->logic_device(), buf, &mem_req);
+    const uint32_t mem_idx = find_best_memory_type(
+        _device->allocator().memory_properties(),
+        mem_req.memoryTypeBits,
+        required_flags,
+        preferred_flags);
+    if (mem_idx == UINT32_MAX) {
+        vkDestroyBuffer(_device->logic_device(), buf, Device::alloc_callbacks());
+        return nullptr;
+    }
+
+    VkMemoryAllocateFlagsInfo flags_info{};
+    flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    flags_info.flags = need_device_address ? VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT : 0u;
+
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.pNext = need_device_address ? &flags_info : nullptr;
+    mai.allocationSize = std::max<VkDeviceSize>(mem_req.size, alloc_cap);
+    mai.memoryTypeIndex = mem_idx;
+
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    if (vkAllocateMemory(_device->logic_device(), &mai, Device::alloc_callbacks(), &mem) != VK_SUCCESS) {
+        vkDestroyBuffer(_device->logic_device(), buf, Device::alloc_callbacks());
+        return nullptr;
+    }
+    if (vkBindBufferMemory(_device->logic_device(), buf, mem, 0u) != VK_SUCCESS) {
+        vkDestroyBuffer(_device->logic_device(), buf, Device::alloc_callbacks());
+        vkFreeMemory(_device->logic_device(), mem, Device::alloc_callbacks());
+        return nullptr;
+    }
+
+    void *mapped = nullptr;
+    if (map_host) {
+        if (vkMapMemory(_device->logic_device(), mem, 0u, alloc_cap, 0u, &mapped) != VK_SUCCESS) {
+            vkDestroyBuffer(_device->logic_device(), buf, Device::alloc_callbacks());
+            vkFreeMemory(_device->logic_device(), mem, Device::alloc_callbacks());
+            return nullptr;
+        }
+    }
+
+    VkDeviceAddress dev_addr = 0u;
+    if (need_device_address) {
+        VkBufferDeviceAddressInfoKHR dai{};
+        dai.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+        dai.buffer = buf;
+        dev_addr = vkGetBufferDeviceAddress(_device->logic_device(), &dai);
+    }
+
+    auto slot = std::make_shared<StagingSlot>();
+    slot->buffer = buf;
+    slot->memory = mem;
+    slot->mapped = mapped;
+    slot->device_address = dev_addr;
+    slot->capacity = alloc_cap;
+    slot->mem_type_index = mem_idx;
+    slot->host_coherent = (_device->allocator().memory_properties().memoryTypes[mem_idx].propertyFlags &
+                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
+    slot->caller_held = mark_caller_held;
+    if (mark_gpu_ref) {
+        slot->gpu_refs.store(1u, std::memory_order_relaxed);
+    }
+    pool.emplace_back(slot);
+    return slot;
+}
+
+std::shared_ptr<VkAccelArchiveExt::StagingSlot> VkAccelArchiveExt::_find_caller_pinned_slot(
+    const void *ptr,
+    size_t bytes,
+    size_t &out_offset) const noexcept {
+    if (ptr == nullptr) {
+        return nullptr;
+    }
+    const auto target = reinterpret_cast<uintptr_t>(ptr);
+    std::lock_guard lock{_pool_mtx};
+    for (const auto &slot : _pinned_pool) {
+        if (!slot || slot->mapped == nullptr || !slot->caller_held) {
+            continue;
+        }
+        const auto base = reinterpret_cast<uintptr_t>(slot->mapped);
+        if (target >= base && target - base <= slot->capacity &&
+            bytes <= slot->capacity - (target - base)) {
+            out_offset = static_cast<size_t>(target - base);
+            slot->gpu_refs.fetch_add(1u, std::memory_order_relaxed);
+            return slot;
+        }
+    }
+    return nullptr;
+}
 
 AccelArchiveCapabilities VkAccelArchiveExt::capabilities() const noexcept {
     AccelArchiveCapabilities caps{};
@@ -168,12 +485,63 @@ AccelArchiveCapabilities VkAccelArchiveExt::capabilities() const noexcept {
     caps.supports_compacted_export = supported;
     caps.requires_geometry_rebind = false;
     caps.import_is_async_on_stream = supported;
+    caps.supports_pinned_staging = supported;
+    caps.supports_direct_file_import = supported;
     caps.layout_info = supported ?
                            "vk_khr_acceleration_structure_serialize_v1" :
                            (_device->use_fallback_rtx() ?
                                 "vk_fallback_rtx_disabled" :
                                 "vk_khr_raytracing_unavailable");
     return caps;
+}
+
+AccelArchiveStagingBuffer VkAccelArchiveExt::acquire_staging_buffer(size_t min_bytes) noexcept {
+    if (!capabilities().supported) {
+        return AccelArchiveExt::acquire_staging_buffer(min_bytes);
+    }
+    auto slot = _acquire_pool_slot(
+        _pinned_pool,
+        min_bytes,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+        /*map_host=*/true,
+        /*need_device_address=*/false,
+        /*mark_caller_held=*/true);
+    if (!slot || slot->mapped == nullptr) {
+        return AccelArchiveExt::acquire_staging_buffer(min_bytes);
+    }
+    AccelArchiveStagingBuffer out{};
+    out.handle = reinterpret_cast<uint64_t>(slot.get());
+    out.mapped_data = static_cast<std::byte *>(slot->mapped);
+    out.capacity = slot->capacity;
+    out.alignment = 65536u;
+    out.is_device_local = false;
+    out.is_pinned_host = true;
+    return out;
+}
+
+void VkAccelArchiveExt::release_staging_buffer(AccelArchiveStagingBuffer &&buffer) noexcept {
+    if (buffer.handle == invalid_resource_handle || buffer.handle == 0u) {
+        buffer = {};
+        return;
+    }
+    bool found = false;
+    {
+        std::lock_guard lock{_pool_mtx};
+        for (auto &slot : _pinned_pool) {
+            if (slot && reinterpret_cast<uint64_t>(slot.get()) == buffer.handle) {
+                slot->caller_held = false;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        AccelArchiveExt::release_staging_buffer(std::move(buffer));
+    } else {
+        buffer = {};
+    }
 }
 
 AccelArchiveResult VkAccelArchiveExt::validate_mesh_archive(
@@ -197,68 +565,11 @@ AccelArchiveResult VkAccelArchiveExt::validate_mesh_archive(
         return env_res;
     }
 
-    if (view.compat_blob.size() != sizeof(VkAccelArchiveCompatBlob)) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::CORRUPT_HEADER,
-            "Vulkan AS archive compat blob has unexpected byte size.");
-    }
-    VkAccelArchiveCompatBlob compat{};
-    std::memcpy(&compat, view.compat_blob.data(), sizeof(compat));
-    if (compat.magic != kVkCompatMagic || compat.struct_size != sizeof(VkAccelArchiveCompatBlob)) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::CORRUPT_HEADER,
-            "Vulkan AS archive compat blob magic or size mismatch.");
-    }
-
-    const auto &props = _device->properties();
-    if (compat.vendor_id != props.vendorID || compat.device_id != props.deviceID) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::DEVICE_INCOMPATIBLE,
-            luisa::format(
-                "Vulkan AS archive targets vendor=0x{:04x} device=0x{:04x}, current is 0x{:04x}:0x{:04x}.",
-                compat.vendor_id, compat.device_id, props.vendorID, props.deviceID));
-    }
-    if (compat.driver_version != props.driverVersion ||
-        compat.api_version != props.apiVersion ||
-        std::memcmp(compat.pipeline_cache_uuid, props.pipelineCacheUUID, VK_UUID_SIZE) != 0) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::DRIVER_INCOMPATIBLE,
-            "Vulkan AS archive driverVersion/apiVersion/pipelineCacheUUID does not match active device.");
-    }
-
-    if (view.payload.size() < sizeof(VkSerializedASHeader)) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::CORRUPT_PAYLOAD,
-            "Vulkan serialized BLAS payload is smaller than 56-byte header.");
-    }
-    VkSerializedASHeader hdr{};
-    std::memcpy(&hdr, view.payload.data(), sizeof(hdr));
-    if (hdr.serialized_size != view.payload.size() ||
-        hdr.bottom_level_count != 0u ||
-        hdr.deserialized_size == 0u ||
-        hdr.deserialized_size != view.meta.unpacked_as_size ||
-        hdr.deserialized_size != compat.deserialized_size) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::CORRUPT_PAYLOAD,
-            "Vulkan serialized BLAS header sizes or bottomLevelCount are invalid for static BLAS.");
-    }
-    if (std::memcmp(hdr.version_data, compat.vk_version_data, sizeof(hdr.version_data)) != 0) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::CORRUPT_PAYLOAD,
-            "Vulkan serialized BLAS version header disagrees with archive compat metadata.");
-    }
-
-    VkAccelerationStructureVersionInfoKHR ver_info{};
-    ver_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_VERSION_INFO_KHR;
-    ver_info.pVersionData = hdr.version_data;
-    VkAccelerationStructureCompatibilityKHR vk_compat =
-        VK_ACCELERATION_STRUCTURE_COMPATIBILITY_INCOMPATIBLE_KHR;
-    vkGetDeviceAccelerationStructureCompatibilityKHR(
-        _device->logic_device(), &ver_info, &vk_compat);
-    if (vk_compat != VK_ACCELERATION_STRUCTURE_COMPATIBILITY_COMPATIBLE_KHR) {
-        return accel_archive::make_archive_error(
-            AccelArchiveStatus::DRIVER_INCOMPATIBLE,
-            "vkGetDeviceAccelerationStructureCompatibilityKHR reported INCOMPATIBLE_KHR.");
+    uint64_t deserialized_size = 0u;
+    auto chk = check_vk_compat_and_header(
+        _device, view.compat_blob, view.payload, view.meta.unpacked_as_size, deserialized_size);
+    if (!chk) {
+        return chk;
     }
 
     if (out_meta != nullptr) {
@@ -267,7 +578,7 @@ AccelArchiveResult VkAccelArchiveExt::validate_mesh_archive(
     AccelArchiveResult res{};
     res.status = AccelArchiveStatus::OK;
     res.readiness = AccelArchiveReadiness::NONE;
-    res.unpacked_as_size = hdr.deserialized_size;
+    res.unpacked_as_size = deserialized_size;
     res.serialized_payload_size = view.payload.size();
     res.is_compacted = view.meta.is_compacted;
     res.message = "validated";
@@ -307,7 +618,6 @@ AccelArchiveResult VkAccelArchiveExt::export_mesh_archive(
             "Vulkan BLAS AccelOption does not match AccelArchiveMeshDesc::option.");
     }
 
-    // Drain any in-flight build and trigger pending in-place compaction when safe.
     stream->sync();
 
     if (blas->accel() == VK_NULL_HANDLE || blas->accel_size() == 0u || blas->last_primitive_count() == 0u) {
@@ -391,45 +701,41 @@ AccelArchiveResult VkAccelArchiveExt::export_mesh_archive(
         }
     }
 
-    VkQueryPool size_query_pool = VK_NULL_HANDLE;
-    auto cleanup_query_pool = vstd::scope_exit([&] {
-        if (size_query_pool != VK_NULL_HANDLE) {
-            vkDestroyQueryPool(_device->logic_device(), size_query_pool, Device::alloc_callbacks());
-            size_query_pool = VK_NULL_HANDLE;
-        }
-    });
-    {
-        VkQueryPoolCreateInfo qci{};
-        qci.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-        qci.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
-        qci.queryCount = 1u;
-        VK_CHECK_RESULT(vkCreateQueryPool(
-            _device->logic_device(), &qci, Device::alloc_callbacks(), &size_query_pool));
-    }
-
-    stream->execute_immediate([&](CommandBuffer &cb) {
-        cb.resource_barrier->record(src_buffer, ResourceBarrier::Usage::kCopyAccelSrc);
-        cb.resource_barrier->update_states(cb.cmdbuffer());
-        vkCmdResetQueryPool(cb.cmdbuffer(), size_query_pool, 0u, 1u);
-        vkCmdWriteAccelerationStructuresPropertiesKHR(
-            cb.cmdbuffer(),
-            1u,
-            &src_accel,
-            VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR,
-            size_query_pool,
-            0u);
-    }, true);
-
     uint64_t serialized_size = 0u;
-    VK_CHECK_RESULT(vkGetQueryPoolResults(
-        _device->logic_device(),
-        size_query_pool,
-        0u,
-        1u,
-        sizeof(uint64_t),
-        &serialized_size,
-        sizeof(uint64_t),
-        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+    {
+        std::lock_guard qlock{_query_mtx};
+        if (_size_query_pool == VK_NULL_HANDLE) {
+            VkQueryPoolCreateInfo qci{};
+            qci.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+            qci.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
+            qci.queryCount = 1u;
+            VK_CHECK_RESULT(vkCreateQueryPool(
+                _device->logic_device(), &qci, Device::alloc_callbacks(), &_size_query_pool));
+        }
+
+        stream->execute_immediate([&](CommandBuffer &cb) {
+            cb.resource_barrier->record(src_buffer, ResourceBarrier::Usage::kCopyAccelSrc);
+            cb.resource_barrier->update_states(cb.cmdbuffer());
+            vkCmdResetQueryPool(cb.cmdbuffer(), _size_query_pool, 0u, 1u);
+            vkCmdWriteAccelerationStructuresPropertiesKHR(
+                cb.cmdbuffer(),
+                1u,
+                &src_accel,
+                VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR,
+                _size_query_pool,
+                0u);
+        }, true);
+
+        VK_CHECK_RESULT(vkGetQueryPoolResults(
+            _device->logic_device(),
+            _size_query_pool,
+            0u,
+            1u,
+            sizeof(uint64_t),
+            &serialized_size,
+            sizeof(uint64_t),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+    }
 
     if (serialized_size < kVkSerializedHeaderBytes) {
         return accel_archive::make_archive_error(
@@ -439,33 +745,63 @@ AccelArchiveResult VkAccelArchiveExt::export_mesh_archive(
                 serialized_size));
     }
 
-    auto serialize_buffer = vstd::make_unique<DefaultBuffer>(
-        _device,
-        static_cast<size_t>(serialized_size + 256u));
-    auto readback_buffer = vstd::make_unique<ReadbackBuffer>(
-        _device,
-        static_cast<size_t>(serialized_size));
-    auto cleanup_io_buffers = vstd::scope_exit([&] {
-        if (serialize_buffer) {
-            stream->remove_resource_state(serialize_buffer.get());
-            serialize_buffer.reset();
-        }
-        if (readback_buffer) {
-            stream->remove_resource_state(readback_buffer.get());
-            readback_buffer.reset();
-        }
-    });
+    auto vram_ser_slot = _acquire_pool_slot(
+        _vram_pool,
+        static_cast<size_t>(serialized_size + 256u),
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        /*map_host=*/false,
+        /*need_device_address=*/true,
+        /*mark_caller_held=*/false,
+        /*mark_gpu_ref=*/true);
+    VkSlotLease vram_lease{vram_ser_slot};
 
-    const uint64_t base_addr = serialize_buffer->get_device_address();
+    auto pinned_rb_slot = _acquire_pool_slot(
+        _pinned_pool,
+        static_cast<size_t>(serialized_size),
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+        /*map_host=*/true,
+        /*need_device_address=*/false,
+        /*mark_caller_held=*/false,
+        /*mark_gpu_ref=*/true);
+    VkSlotLease rb_lease{pinned_rb_slot};
+
+    if (!vram_ser_slot || !pinned_rb_slot || pinned_rb_slot->mapped == nullptr) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed to allocate Vulkan export staging pool buffers.");
+    }
+
+    const uint64_t base_addr = vram_ser_slot->device_address;
     const uint64_t aligned_offset = (256u - (base_addr & 255u)) & 255u;
     const uint64_t aligned_addr = base_addr + aligned_offset;
 
     stream->execute_immediate([&](CommandBuffer &cb) {
         cb.resource_barrier->record(src_buffer, ResourceBarrier::Usage::kCopyAccelSrc);
-        cb.resource_barrier->record(
-            BufferView{serialize_buffer.get(), aligned_offset, serialized_size},
-            ResourceBarrier::Usage::kComputeUAV);
         cb.resource_barrier->update_states(cb.cmdbuffer());
+
+        VkBufferMemoryBarrier2 ser_prep{};
+        ser_prep.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        ser_prep.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+        ser_prep.srcAccessMask = 0u;
+        ser_prep.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+        ser_prep.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        ser_prep.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ser_prep.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ser_prep.buffer = vram_ser_slot->buffer;
+        ser_prep.offset = aligned_offset;
+        ser_prep.size = serialized_size;
+        VkDependencyInfo dep1{};
+        dep1.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep1.bufferMemoryBarrierCount = 1u;
+        dep1.pBufferMemoryBarriers = &ser_prep;
+        detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep1);
 
         VkCopyAccelerationStructureToMemoryInfoKHR copy_info{};
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_TO_MEMORY_INFO_KHR;
@@ -474,13 +810,22 @@ AccelArchiveResult VkAccelArchiveExt::export_mesh_archive(
         copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_SERIALIZE_KHR;
         vkCmdCopyAccelerationStructureToMemoryKHR(cb.cmdbuffer(), &copy_info);
 
-        cb.resource_barrier->record(
-            BufferView{serialize_buffer.get(), aligned_offset, serialized_size},
-            ResourceBarrier::Usage::kCopySource);
-        cb.resource_barrier->record(
-            BufferView{readback_buffer.get(), 0u, serialized_size},
-            ResourceBarrier::Usage::kCopyDest);
-        cb.resource_barrier->update_states(cb.cmdbuffer());
+        VkBufferMemoryBarrier2 ser_to_dma{};
+        ser_to_dma.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        ser_to_dma.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+        ser_to_dma.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        ser_to_dma.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        ser_to_dma.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+        ser_to_dma.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ser_to_dma.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ser_to_dma.buffer = vram_ser_slot->buffer;
+        ser_to_dma.offset = aligned_offset;
+        ser_to_dma.size = serialized_size;
+        VkDependencyInfo dep2{};
+        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep2.bufferMemoryBarrierCount = 1u;
+        dep2.pBufferMemoryBarriers = &ser_to_dma;
+        detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep2);
 
         VkBufferCopy2 region{};
         region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2;
@@ -489,15 +834,29 @@ AccelArchiveResult VkAccelArchiveExt::export_mesh_archive(
         region.size = serialized_size;
         VkCopyBufferInfo2 copy_buf{};
         copy_buf.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2;
-        copy_buf.srcBuffer = serialize_buffer->vk_buffer();
-        copy_buf.dstBuffer = readback_buffer->vk_buffer();
+        copy_buf.srcBuffer = vram_ser_slot->buffer;
+        copy_buf.dstBuffer = pinned_rb_slot->buffer;
         copy_buf.regionCount = 1u;
         copy_buf.pRegions = &region;
         detail::cmd_copy_buffer(cb.cmdbuffer(), _device, &copy_buf);
+
+        // wait_after=true frees dispose_after_flush before execute_immediate returns;
+        // keep rb_lease on the stack across encode_envelope below.
+        cb.states()->dispose_after_flush(std::move(vram_lease));
     }, true);
 
-    luisa::vector<std::byte> payload(static_cast<size_t>(serialized_size));
-    readback_buffer->copy_to(payload.data(), 0u, static_cast<size_t>(serialized_size));
+    if (!pinned_rb_slot->host_coherent) {
+        VkMappedMemoryRange range{};
+        range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        range.memory = pinned_rb_slot->memory;
+        range.offset = 0u;
+        range.size = VK_WHOLE_SIZE;
+        vkInvalidateMappedMemoryRanges(_device->logic_device(), 1u, &range);
+    }
+
+    const luisa::span<const std::byte> payload{
+        static_cast<const std::byte *>(pinned_rb_slot->mapped),
+        static_cast<size_t>(serialized_size)};
 
     VkSerializedASHeader hdr{};
     std::memcpy(&hdr, payload.data(), sizeof(hdr));
@@ -537,12 +896,24 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive(
     uint64_t stream_handle,
     uint64_t mesh_handle,
     const AccelArchiveMeshDesc &expected_desc,
-    const AccelArchiveGeometryBinding &,
+    const AccelArchiveGeometryBinding &geometry_binding,
     luisa::span<const std::byte> archive_bytes) noexcept {
-    AccelArchiveMetadata meta{};
-    auto val_res = validate_mesh_archive(archive_bytes, expected_desc, &meta);
-    if (!val_res) {
-        return val_res;
+    AccelArchiveImportOptions opts{};
+    return import_mesh_archive_with_options(
+        stream_handle, mesh_handle, expected_desc, geometry_binding, archive_bytes, opts);
+}
+
+AccelArchiveResult VkAccelArchiveExt::import_mesh_archive_with_options(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &,
+    luisa::span<const std::byte> archive_bytes,
+    const AccelArchiveImportOptions &options) noexcept {
+    if (!capabilities().supported) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::UNSUPPORTED_BACKEND,
+            "Vulkan KHR AS archive extension is not supported on this device.");
     }
 
     Stream *stream = nullptr;
@@ -563,26 +934,157 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive(
     }
 
     accel_archive::AccelArchiveEnvelopeView view{};
-    auto env_res = accel_archive::decode_and_validate_envelope(
+    uint8_t expected_payload_checksum[16]{};
+    auto env_res = accel_archive::decode_envelope_header_and_compat(
         archive_bytes,
         AccelArchiveBackendKind::VULKAN,
         expected_desc,
-        view);
+        view,
+        expected_payload_checksum);
     if (!env_res) {
         return env_res;
     }
 
-    const size_t payload_size = view.payload.size();
-    auto upload_buffer = vstd::make_unique<UploadBuffer>(
-        _device,
-        payload_size + 256u);
-    const uint64_t base_addr = upload_buffer->get_device_address();
-    const uint64_t aligned_offset = (256u - (base_addr & 255u)) & 255u;
-    const uint64_t aligned_addr = base_addr + aligned_offset;
-    upload_buffer->copy_from(view.payload.data(), static_cast<size_t>(aligned_offset), payload_size);
-    upload_buffer->flush_host();
+    uint64_t deserialized_size = 0u;
+    auto chk = check_vk_compat_and_header(
+        _device, view.compat_blob, view.payload, view.meta.unpacked_as_size, deserialized_size);
+    if (!chk) {
+        return chk;
+    }
 
-    const VkDeviceSize dst_size = meta.unpacked_as_size;
+    const size_t payload_size = view.payload.size();
+    size_t pinned_slot_offset = 0u;
+    auto pinned_src_slot = _find_caller_pinned_slot(view.payload.data(), payload_size, pinned_slot_offset);
+    VkSlotLease pinned_lease{pinned_src_slot};
+    VkSlotLease dma_lease{};
+    VkSlotLease direct_lease{};
+
+    std::shared_ptr<StagingSlot> direct_upload_slot;
+    std::shared_ptr<StagingSlot> dma_stage_slot;
+    uint64_t aligned_addr = 0u;
+    uint64_t aligned_offset = 0u;
+    bool used_dma_copy = false;
+
+    if (pinned_src_slot) {
+        if (options.verify_payload_checksum) {
+            if (auto p = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum); !p) {
+                return p;
+            }
+        }
+        dma_stage_slot = _acquire_pool_slot(
+            _vram_pool,
+            payload_size + 256u,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            /*map_host=*/false,
+            /*need_device_address=*/true,
+            /*mark_caller_held=*/false,
+            /*mark_gpu_ref=*/true);
+        dma_lease = VkSlotLease{dma_stage_slot};
+        if (!dma_stage_slot) {
+            return accel_archive::make_archive_error(
+                AccelArchiveStatus::BACKEND_ERROR,
+                "Failed to acquire Vulkan VRAM DMA target slot.");
+        }
+        const uint64_t base_addr = dma_stage_slot->device_address;
+        aligned_offset = (256u - (base_addr & 255u)) & 255u;
+        aligned_addr = base_addr + aligned_offset;
+        used_dma_copy = true;
+    } else {
+        // Prefer ReBAR (DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT) for direct CPU parallel write + GPU VRAM deserialize.
+        direct_upload_slot = _acquire_pool_slot(
+            _rebar_pool,
+            payload_size + 256u,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            /*map_host=*/true,
+            /*need_device_address=*/true,
+            /*mark_caller_held=*/false,
+            /*mark_gpu_ref=*/true);
+        direct_lease = VkSlotLease{direct_upload_slot};
+
+        if (direct_upload_slot && direct_upload_slot->mapped != nullptr) {
+            const uint64_t base_addr = direct_upload_slot->device_address;
+            aligned_offset = (256u - (base_addr & 255u)) & 255u;
+            aligned_addr = base_addr + aligned_offset;
+            if (!accel_archive::copy_payload_optimized(
+                    static_cast<std::byte *>(direct_upload_slot->mapped) + aligned_offset,
+                    view.payload,
+                    options.verify_payload_checksum,
+                    expected_payload_checksum)) {
+                return accel_archive::make_archive_error(
+                    AccelArchiveStatus::CORRUPT_PAYLOAD,
+                    "Native payload checksum mismatch.");
+            }
+            if (!direct_upload_slot->host_coherent) {
+                VkMappedMemoryRange range{};
+                range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+                range.memory = direct_upload_slot->memory;
+                range.offset = 0u;
+                range.size = VK_WHOLE_SIZE;
+                vkFlushMappedMemoryRanges(_device->logic_device(), 1u, &range);
+            }
+        } else {
+            direct_lease = VkSlotLease{};
+            direct_upload_slot.reset();
+            // Non-ReBAR fallback: parallel copy+hash into pinned host -> SDMA copy into VRAM -> VRAM deserialize.
+            pinned_src_slot = _acquire_pool_slot(
+                _pinned_pool,
+                payload_size,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+                /*map_host=*/true,
+                /*need_device_address=*/false,
+                /*mark_caller_held=*/false,
+                /*mark_gpu_ref=*/true);
+            pinned_lease = VkSlotLease{pinned_src_slot};
+            dma_stage_slot = _acquire_pool_slot(
+                _vram_pool,
+                payload_size + 256u,
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                /*map_host=*/false,
+                /*need_device_address=*/true,
+                /*mark_caller_held=*/false,
+                /*mark_gpu_ref=*/true);
+            dma_lease = VkSlotLease{dma_stage_slot};
+            if (!pinned_src_slot || pinned_src_slot->mapped == nullptr || !dma_stage_slot) {
+                return accel_archive::make_archive_error(
+                    AccelArchiveStatus::BACKEND_ERROR,
+                    "Failed to allocate Vulkan fallback staging pool slots.");
+            }
+            if (!accel_archive::copy_payload_optimized(
+                    pinned_src_slot->mapped,
+                    view.payload,
+                    options.verify_payload_checksum,
+                    expected_payload_checksum)) {
+                return accel_archive::make_archive_error(
+                    AccelArchiveStatus::CORRUPT_PAYLOAD,
+                    "Native payload checksum mismatch.");
+            }
+            pinned_slot_offset = 0u;
+            const uint64_t base_addr = dma_stage_slot->device_address;
+            aligned_offset = (256u - (base_addr & 255u)) & 255u;
+            aligned_addr = base_addr + aligned_offset;
+            used_dma_copy = true;
+        }
+    }
+
+    const VkDeviceSize dst_size = deserialized_size;
     const size_t dst_buf_bytes = std::max<size_t>((dst_size + 255u) & (~255ull), 256u);
     auto new_accel_buffer = vstd::make_unique<DefaultBuffer>(
         _device,
@@ -605,18 +1107,68 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive(
             ResourceBarrier::Usage::kCopyAccelDst);
         cb.resource_barrier->update_states(cb.cmdbuffer());
 
-        VkMemoryBarrier2 host_to_copy{};
-        host_to_copy.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        host_to_copy.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-        host_to_copy.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
-        host_to_copy.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
-        host_to_copy.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
-                                     VK_ACCESS_2_TRANSFER_READ_BIT;
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1u;
-        dep.pMemoryBarriers = &host_to_copy;
-        detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep);
+        if (used_dma_copy) {
+            VkMemoryBarrier2 host_to_transfer{};
+            host_to_transfer.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            host_to_transfer.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+            host_to_transfer.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
+            host_to_transfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+            host_to_transfer.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+            VkDependencyInfo dep_h2t{};
+            dep_h2t.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_h2t.memoryBarrierCount = 1u;
+            dep_h2t.pMemoryBarriers = &host_to_transfer;
+            detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep_h2t);
+
+            VkBufferCopy2 region{};
+            region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2;
+            region.srcOffset = pinned_slot_offset;
+            region.dstOffset = aligned_offset;
+            region.size = payload_size;
+            VkCopyBufferInfo2 copy_buf{};
+            copy_buf.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2;
+            copy_buf.srcBuffer = pinned_src_slot->buffer;
+            copy_buf.dstBuffer = dma_stage_slot->buffer;
+            copy_buf.regionCount = 1u;
+            copy_buf.pRegions = &region;
+            detail::cmd_copy_buffer(cb.cmdbuffer(), _device, &copy_buf);
+
+            VkBufferMemoryBarrier2 xfer_to_as{};
+            xfer_to_as.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            xfer_to_as.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+            xfer_to_as.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            xfer_to_as.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+            xfer_to_as.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+                                       VK_ACCESS_2_TRANSFER_READ_BIT;
+            xfer_to_as.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            xfer_to_as.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            xfer_to_as.buffer = dma_stage_slot->buffer;
+            xfer_to_as.offset = aligned_offset;
+            xfer_to_as.size = payload_size;
+            VkDependencyInfo dep_x2a{};
+            dep_x2a.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_x2a.bufferMemoryBarrierCount = 1u;
+            dep_x2a.pBufferMemoryBarriers = &xfer_to_as;
+            detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep_x2a);
+
+            cb.states()->dispose_after_flush(std::move(pinned_lease));
+            cb.states()->dispose_after_flush(std::move(dma_lease));
+        } else {
+            VkMemoryBarrier2 host_to_copy{};
+            host_to_copy.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            host_to_copy.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+            host_to_copy.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
+            host_to_copy.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+            host_to_copy.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+                                         VK_ACCESS_2_TRANSFER_READ_BIT;
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.memoryBarrierCount = 1u;
+            dep.pMemoryBarriers = &host_to_copy;
+            detail::cmd_pipeline_barrier(cb.cmdbuffer(), _device, &dep);
+
+            cb.states()->dispose_after_flush(std::move(direct_lease));
+        }
 
         VkCopyMemoryToAccelerationStructureInfoKHR copy_info{};
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_ACCELERATION_STRUCTURE_INFO_KHR;
@@ -625,13 +1177,12 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive(
         copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_DESERIALIZE_KHR;
         vkCmdCopyMemoryToAccelerationStructureKHR(cb.cmdbuffer(), &copy_info);
 
-        cb.states()->dispose_after_flush(std::move(upload_buffer));
         blas->replace_from_archive(
             cb,
             new_accel,
             std::move(new_accel_buffer),
             dst_size,
-            meta.is_compacted,
+            view.meta.is_compacted,
             static_cast<uint32_t>(expected_desc.triangle_count));
     }, /*wait_after=*/false);
 
@@ -640,7 +1191,7 @@ AccelArchiveResult VkAccelArchiveExt::import_mesh_archive(
     res.readiness = AccelArchiveReadiness::READY_ON_STREAM;
     res.unpacked_as_size = dst_size;
     res.serialized_payload_size = payload_size;
-    res.is_compacted = meta.is_compacted;
+    res.is_compacted = view.meta.is_compacted;
     res.message = "imported_on_stream";
     return res;
 }

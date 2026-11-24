@@ -67,12 +67,15 @@ AccelArchiveResult AccelArchiveExtImpl::export_mesh_archive(
     return result;
 }
 
-AccelArchiveResult AccelArchiveExtImpl::import_mesh_archive(
+namespace {
+
+template<typename Fn>
+[[nodiscard]] AccelArchiveResult validated_import_impl(
+    AccelArchiveExt *native,
     uint64_t stream_handle,
     uint64_t mesh_handle,
-    const AccelArchiveMeshDesc &expected_desc,
     const AccelArchiveGeometryBinding &geometry_binding,
-    luisa::span<const std::byte> archive_bytes) noexcept {
+    Fn &&invoke_native) noexcept {
     auto *stream = try_get_compute_or_graphics_stream(stream_handle);
     if (stream == nullptr) {
         return accel_archive::make_archive_error(
@@ -85,7 +88,7 @@ AccelArchiveResult AccelArchiveExtImpl::import_mesh_archive(
             AccelArchiveStatus::INVALID_ARGUMENT,
             "import_mesh_archive requires a valid Mesh handle.");
     }
-    const auto caps = _native->capabilities();
+    const auto caps = native->capabilities();
     Buffer *rebound_vert = nullptr;
     Buffer *rebound_tri = nullptr;
     if (caps.requires_geometry_rebind) {
@@ -97,8 +100,7 @@ AccelArchiveResult AccelArchiveExtImpl::import_mesh_archive(
                 "import_mesh_archive requires valid vertex and triangle buffers for geometry rebind.");
         }
     }
-    auto result = _native->import_mesh_archive(
-        stream_handle, mesh_handle, expected_desc, geometry_binding, archive_bytes);
+    auto result = invoke_native();
     if (!result) {
         return result;
     }
@@ -130,6 +132,46 @@ AccelArchiveResult AccelArchiveExtImpl::import_mesh_archive(
         stream->sync();
     }
     return result;
+}
+
+}// namespace
+
+AccelArchiveResult AccelArchiveExtImpl::import_mesh_archive(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &geometry_binding,
+    luisa::span<const std::byte> archive_bytes) noexcept {
+    return validated_import_impl(_native, stream_handle, mesh_handle, geometry_binding, [&]() noexcept {
+        return _native->import_mesh_archive(
+            stream_handle, mesh_handle, expected_desc, geometry_binding, archive_bytes);
+    });
+}
+
+AccelArchiveResult AccelArchiveExtImpl::import_mesh_archive_with_options(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &geometry_binding,
+    luisa::span<const std::byte> archive_bytes,
+    const AccelArchiveImportOptions &options) noexcept {
+    return validated_import_impl(_native, stream_handle, mesh_handle, geometry_binding, [&]() noexcept {
+        return _native->import_mesh_archive_with_options(
+            stream_handle, mesh_handle, expected_desc, geometry_binding, archive_bytes, options);
+    });
+}
+
+AccelArchiveResult AccelArchiveExtImpl::import_mesh_archive_file(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &geometry_binding,
+    luisa::string_view file_path,
+    const AccelArchiveImportOptions &options) noexcept {
+    return validated_import_impl(_native, stream_handle, mesh_handle, geometry_binding, [&]() noexcept {
+        return _native->import_mesh_archive_file(
+            stream_handle, mesh_handle, expected_desc, geometry_binding, file_path, options);
+    });
 }
 
 }// namespace lc::validation

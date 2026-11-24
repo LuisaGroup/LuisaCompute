@@ -1,10 +1,12 @@
 #include "embree_accel_archive.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
 
 #if defined(_WIN32)
+#include <malloc.h>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN 1
 #endif
@@ -16,6 +18,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/runtime/rtx/triangle.h>
+#include <luisa/vstl/functional.h>
 
 namespace luisa::compute {
 
@@ -153,10 +156,118 @@ AccelArchiveCapabilities EmbreeAccelArchiveExt::capabilities() const noexcept {
     caps.supports_compacted_export = _supported;
     caps.requires_geometry_rebind = true;
     caps.import_is_async_on_stream = false;
+    caps.supports_pinned_staging = false;
+    caps.supports_direct_file_import = _supported;
     caps.layout_info = _supported ?
                            "embree_4_4_1_optin_bvh4_bvh8_static_tri_v1" :
                            "embree4_optin_static_triangle_bvh_unavailable";
     return caps;
+}
+
+EmbreeAccelArchiveExt::~EmbreeAccelArchiveExt() noexcept {
+    std::lock_guard lck{_staging_mtx};
+    for (auto &slot : _staging_slots) {
+        if (slot.ptr != nullptr) {
+#if defined(_WIN32)
+            _aligned_free(slot.ptr);
+#else
+            std::free(slot.ptr);
+#endif
+            slot.ptr = nullptr;
+        }
+    }
+    _staging_slots.clear();
+}
+
+AccelArchiveStagingBuffer EmbreeAccelArchiveExt::acquire_staging_buffer(size_t min_bytes) noexcept {
+    constexpr size_t kAlign = 65536u;
+    const size_t wanted = std::max<size_t>(kAlign, ((min_bytes + kAlign - 1u) / kAlign) * kAlign);
+    std::lock_guard lck{_staging_mtx};
+    size_t best = _staging_slots.size();
+    for (size_t i = 0u; i < _staging_slots.size(); ++i) {
+        auto const &s = _staging_slots[i];
+        if (!s.in_use && s.capacity >= wanted) {
+            if (best == _staging_slots.size() || s.capacity < _staging_slots[best].capacity) {
+                best = i;
+            }
+        }
+    }
+    if (best < _staging_slots.size()) {
+        auto &s = _staging_slots[best];
+        s.in_use = true;
+        s.lru_tick = ++_staging_tick;
+        AccelArchiveStagingBuffer out{};
+        out.handle = reinterpret_cast<uint64_t>(s.ptr);
+        out.mapped_data = s.ptr;
+        out.capacity = s.capacity;
+        out.alignment = kAlign;
+        out.is_device_local = false;
+        out.is_pinned_host = false;
+        return out;
+    }
+
+    constexpr size_t kMaxSlots = 8u;
+    if (_staging_slots.size() >= kMaxSlots) {
+        size_t victim = _staging_slots.size();
+        for (size_t i = 0u; i < _staging_slots.size(); ++i) {
+            if (!_staging_slots[i].in_use) {
+                if (victim == _staging_slots.size() || _staging_slots[i].lru_tick < _staging_slots[victim].lru_tick) {
+                    victim = i;
+                }
+            }
+        }
+        if (victim < _staging_slots.size()) {
+#if defined(_WIN32)
+            _aligned_free(_staging_slots[victim].ptr);
+#else
+            std::free(_staging_slots[victim].ptr);
+#endif
+            if (victim + 1u < _staging_slots.size()) {
+                _staging_slots[victim] = _staging_slots.back();
+            }
+            _staging_slots.pop_back();
+        }
+    }
+
+#if defined(_WIN32)
+    auto *ptr = static_cast<std::byte *>(_aligned_malloc(wanted, kAlign));
+#else
+    auto *ptr = static_cast<std::byte *>(std::aligned_alloc(kAlign, wanted));
+#endif
+    if (ptr == nullptr) {
+        return {};
+    }
+    StagingSlot s{};
+    s.ptr = ptr;
+    s.capacity = wanted;
+    s.in_use = true;
+    s.lru_tick = ++_staging_tick;
+    _staging_slots.push_back(s);
+
+    AccelArchiveStagingBuffer out{};
+    out.handle = reinterpret_cast<uint64_t>(ptr);
+    out.mapped_data = ptr;
+    out.capacity = wanted;
+    out.alignment = kAlign;
+    out.is_device_local = false;
+    out.is_pinned_host = false;
+    return out;
+}
+
+void EmbreeAccelArchiveExt::release_staging_buffer(AccelArchiveStagingBuffer &&buffer) noexcept {
+    if (buffer.handle != invalid_resource_handle && buffer.handle != 0u) {
+        std::lock_guard lck{_staging_mtx};
+        for (auto &s : _staging_slots) {
+            if (reinterpret_cast<uint64_t>(s.ptr) == buffer.handle ||
+                (buffer.mapped_data != nullptr && s.ptr == buffer.mapped_data)) {
+                s.in_use = false;
+                s.lru_tick = ++_staging_tick;
+                buffer = {};
+                return;
+            }
+        }
+    }
+    AccelArchiveExt::release_staging_buffer(std::move(buffer));
 }
 
 AccelArchiveResult EmbreeAccelArchiveExt::_check_compat_and_header(
@@ -324,21 +435,29 @@ AccelArchiveResult EmbreeAccelArchiveExt::export_mesh_archive(
             "Embree serialized BVH size is outside valid bounds.");
     }
 
-    luisa::vector<std::byte> payload(required_bytes);
+    auto payload_staging = acquire_staging_buffer(required_bytes);
+    if (payload_staging.mapped_data == nullptr || payload_staging.capacity < required_bytes) {
+        release_staging_buffer(std::move(payload_staging));
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::BACKEND_ERROR,
+            "Failed to allocate Embree export staging buffer.");
+    }
+    auto release_payload_staging = vstd::scope_exit([&]() noexcept {
+        release_staging_buffer(std::move(payload_staging));
+    });
+
     size_t written_bytes = 0u;
     size_t unpacked_confirm = 0u;
     auto export_status = _export_fn(
         state.committed_rtc_scene,
-        payload.data(),
-        payload.size(),
+        payload_staging.mapped_data,
+        required_bytes,
         &written_bytes,
         &unpacked_confirm);
     if (export_status != EmbreeArchiveStatus::OK) {
         return map_embree_status(export_status, "rtcExExportStaticTriangleBVH");
     }
-    if (written_bytes != payload.size()) {
-        payload.resize(written_bytes);
-    }
+    const luisa::span<const std::byte> payload{payload_staging.mapped_data, written_bytes};
 
     CompatBlob compat{};
     compat.magic = kEmbreeCompatMagic;
@@ -391,6 +510,23 @@ AccelArchiveResult EmbreeAccelArchiveExt::import_mesh_archive(
     const AccelArchiveMeshDesc &expected_desc,
     const AccelArchiveGeometryBinding &geometry_binding,
     luisa::span<const std::byte> archive_bytes) noexcept {
+    AccelArchiveImportOptions default_opts{};
+    return import_mesh_archive_with_options(
+        stream_handle,
+        mesh_handle,
+        expected_desc,
+        geometry_binding,
+        archive_bytes,
+        default_opts);
+}
+
+AccelArchiveResult EmbreeAccelArchiveExt::import_mesh_archive_with_options(
+    uint64_t stream_handle,
+    uint64_t mesh_handle,
+    const AccelArchiveMeshDesc &expected_desc,
+    const AccelArchiveGeometryBinding &geometry_binding,
+    luisa::span<const std::byte> archive_bytes,
+    const AccelArchiveImportOptions &options) noexcept {
     if (!_supported) {
         return accel_archive::make_archive_error(
             AccelArchiveStatus::UNSUPPORTED_FEATURE,
@@ -407,20 +543,32 @@ AccelArchiveResult EmbreeAccelArchiveExt::import_mesh_archive(
             "Mesh handle must be valid.");
     }
 
-    AccelArchiveMetadata meta{};
-    auto val_res = validate_mesh_archive(archive_bytes, expected_desc, &meta);
-    if (!val_res) {
-        return val_res;
-    }
-
     accel_archive::AccelArchiveEnvelopeView view{};
-    auto env_res = accel_archive::decode_and_validate_envelope(
+    uint8_t expected_payload_checksum[16]{};
+    auto env_res = accel_archive::decode_envelope_header_and_compat(
         archive_bytes,
         _ops.backend_kind,
         expected_desc,
-        view);
+        view,
+        expected_payload_checksum);
     if (!env_res) {
         return env_res;
+    }
+
+    uint64_t header_unpacked = 0u;
+    if (auto check_res = _check_compat_and_header(
+            view.compat_blob,
+            view.payload,
+            view.meta.unpacked_as_size,
+            header_unpacked);
+        !check_res) {
+        return check_res;
+    }
+
+    if (options.verify_payload_checksum) {
+        if (auto p = accel_archive::verify_payload_checksum(view.payload, expected_payload_checksum); !p) {
+            return p;
+        }
     }
 
     EmbreeResolvedTriangleGeometry resolved_geom{};
@@ -457,9 +605,9 @@ AccelArchiveResult EmbreeAccelArchiveExt::import_mesh_archive(
     AccelArchiveResult res{};
     res.status = AccelArchiveStatus::OK;
     res.readiness = AccelArchiveReadiness::READY_IMMEDIATELY;
-    res.unpacked_as_size = unpacked_bytes;
+    res.unpacked_as_size = unpacked_bytes != 0u ? unpacked_bytes : header_unpacked;
     res.serialized_payload_size = view.payload.size();
-    res.is_compacted = meta.is_compacted;
+    res.is_compacted = view.meta.is_compacted;
     res.message = "imported_immediately";
     return res;
 }

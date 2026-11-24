@@ -2,9 +2,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 
 #include <luisa/backends/ext/accel_archive_ext_interface.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/runtime/rtx/mesh.h>
 
 namespace luisa::compute {
@@ -74,7 +76,7 @@ struct EmbreeAccelArchiveOps {
 class EmbreeAccelArchiveExt final : public AccelArchiveExt {
 public:
     explicit EmbreeAccelArchiveExt(EmbreeAccelArchiveOps ops) noexcept;
-    ~EmbreeAccelArchiveExt() noexcept = default;
+    ~EmbreeAccelArchiveExt() noexcept;
 
     [[nodiscard]] AccelArchiveCapabilities capabilities() const noexcept override;
 
@@ -95,6 +97,20 @@ public:
         const AccelArchiveMeshDesc &expected_desc,
         const AccelArchiveGeometryBinding &geometry_binding,
         luisa::span<const std::byte> archive_bytes) noexcept override;
+
+    [[nodiscard]] AccelArchiveStagingBuffer acquire_staging_buffer(
+        size_t min_bytes) noexcept override;
+
+    void release_staging_buffer(
+        AccelArchiveStagingBuffer &&buffer) noexcept override;
+
+    [[nodiscard]] AccelArchiveResult import_mesh_archive_with_options(
+        uint64_t stream_handle,
+        uint64_t mesh_handle,
+        const AccelArchiveMeshDesc &expected_desc,
+        const AccelArchiveGeometryBinding &geometry_binding,
+        luisa::span<const std::byte> archive_bytes,
+        const AccelArchiveImportOptions &options) noexcept override;
 
 private:
     struct CompatBlob {
@@ -128,6 +144,13 @@ private:
         uint64_t meta_unpacked_size,
         uint64_t &out_unpacked_bytes) const noexcept;
 
+    struct StagingSlot {
+        std::byte *ptr{nullptr};
+        size_t capacity{0u};
+        bool in_use{false};
+        uint64_t lru_tick{0u};
+    };
+
     EmbreeAccelArchiveOps _ops;
     EmbreeConfigInfo _cfg{};
     luisa::string _driver_fingerprint;
@@ -135,6 +158,9 @@ private:
     ExportBvhFn _export_fn{nullptr};
     EmbreeArchiveImportFn _import_fn{nullptr};
     bool _supported{false};
+    mutable std::mutex _staging_mtx;
+    mutable luisa::vector<StagingSlot> _staging_slots;
+    mutable uint64_t _staging_tick{0u};
 };
 
 [[nodiscard]] inline AccelArchiveResult validate_embree_triangle_binding(

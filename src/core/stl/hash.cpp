@@ -1,6 +1,8 @@
 #ifndef XXH_INLINE_ALL
 #define XXH_INLINE_ALL
 #endif
+#include <algorithm>
+#include <cstring>
 #include <xxhash.h>
 
 #include <luisa/core/stl/hash.h>
@@ -14,6 +16,28 @@ LUISA_CORE_API uint64_t hash64(const void *ptr, size_t size, uint64_t seed) noex
 LUISA_CORE_API Hash128 hash128(const void *ptr, size_t size, uint64_t seed) noexcept {
     static_assert(sizeof(Hash128) == sizeof(XXH128_hash_t));
     auto result = XXH3_128bits_withSeed(ptr, size, seed);
+    return reinterpret_cast<Hash128 &>(result);
+}
+
+LUISA_CORE_API Hash128 hash128_and_copy(void *dst, const void *src, size_t size, uint64_t seed) noexcept {
+    static_assert(sizeof(Hash128) == sizeof(XXH128_hash_t));
+    if (size == 0u || dst == nullptr || src == nullptr) {
+        auto result = XXH3_128bits_withSeed(src, size, seed);
+        return reinterpret_cast<Hash128 &>(result);
+    }
+    XXH3_state_t state;
+    XXH3_128bits_reset_withSeed(&state, seed);
+    const auto *in = static_cast<const std::byte *>(src);
+    auto *out = static_cast<std::byte *>(dst);
+    constexpr size_t kChunk = 256ull * 1024ull;
+    size_t offset = 0u;
+    while (offset < size) {
+        const size_t n = std::min(kChunk, size - offset);
+        XXH3_128bits_update(&state, in + offset, n);
+        std::memcpy(out + offset, in + offset, n);
+        offset += n;
+    }
+    auto result = XXH3_128bits_digest(&state);
     return reinterpret_cast<Hash128 &>(result);
 }
 

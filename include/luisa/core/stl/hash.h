@@ -65,5 +65,6 @@ public:
 };
 
 LUISA_CORE_API Hash128 hash128(const void *ptr, size_t size, uint64_t seed) noexcept;
+LUISA_CORE_API Hash128 hash128_and_copy(void *dst, const void *src, size_t size, uint64_t seed) noexcept;
 
 }// namespace luisa

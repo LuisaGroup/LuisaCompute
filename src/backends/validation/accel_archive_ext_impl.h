@@ -40,6 +40,32 @@ public:
         const AccelArchiveMeshDesc &expected_desc,
         const AccelArchiveGeometryBinding &geometry_binding,
         luisa::span<const std::byte> archive_bytes) noexcept override;
+
+    [[nodiscard]] AccelArchiveStagingBuffer acquire_staging_buffer(
+        size_t min_bytes) noexcept override {
+        return _native->acquire_staging_buffer(min_bytes);
+    }
+
+    void release_staging_buffer(
+        AccelArchiveStagingBuffer &&buffer) noexcept override {
+        _native->release_staging_buffer(std::move(buffer));
+    }
+
+    [[nodiscard]] AccelArchiveResult import_mesh_archive_with_options(
+        uint64_t stream_handle,
+        uint64_t mesh_handle,
+        const AccelArchiveMeshDesc &expected_desc,
+        const AccelArchiveGeometryBinding &geometry_binding,
+        luisa::span<const std::byte> archive_bytes,
+        const AccelArchiveImportOptions &options) noexcept override;
+
+    [[nodiscard]] AccelArchiveResult import_mesh_archive_file(
+        uint64_t stream_handle,
+        uint64_t mesh_handle,
+        const AccelArchiveMeshDesc &expected_desc,
+        const AccelArchiveGeometryBinding &geometry_binding,
+        luisa::string_view file_path,
+        const AccelArchiveImportOptions &options) noexcept override;
 };
 
 }// namespace lc::validation

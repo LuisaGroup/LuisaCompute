@@ -138,10 +138,10 @@ index e55310b..53efac1 100644
      void selectIntersectors(int features);
 diff --git a/kernels/bvh/bvh_accel_archive.cpp b/kernels/bvh/bvh_accel_archive.cpp
 new file mode 100644
-index 0000000..7f6a7bf
+index 0000000..245c088
 --- /dev/null
 +++ b/kernels/bvh/bvh_accel_archive.cpp
-@@ -0,0 +1,922 @@
+@@ -0,0 +1,1003 @@
 +// Copyright 2009-2021 Intel Corporation
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -158,7 +158,9 @@ index 0000000..7f6a7bf
 +#include "../geometry/triangle.h"
 +#include "../geometry/trianglev.h"
 +#include "../geometry/trianglei.h"
++#include "../../common/algorithms/parallel_for.h"
 +
++#include <atomic>
 +#include <cmath>
 +#include <cstdint>
 +#include <cstring>
@@ -420,22 +422,16 @@ index 0000000..7f6a7bf
 +      using AABBNode = typename BVH::AABBNode;
 +      static_assert(sizeof(NodeRef) == sizeof(uint64_t), "64-bit Embree NodeRef required.");
 +
-+      struct StackEntry {
-+        const AABBNode* src;
-+        uint64_t dst_index;
-+      };
-+
-+      vector_t<AABBNode, aligned_allocator<AABBNode, 32>> serialized_nodes;
-+      vector_t<Prim, aligned_allocator<Prim, 16>> leaf_blocks;
-+      std::vector<StackEntry> stack;
-+
-+      auto encode_ref = [&](NodeRef ref, uint64_t& out_reloc) -> RTCExAccelArchiveStatus {
++      // Pass 1: Fast count-only DFS without copying any nodes or leaf blocks.
++      uint64_t node_count = 0ull;
++      uint64_t leaf_block_count = 0ull;
++      std::vector<const AABBNode*> count_stack;
++      auto push_count_ref = [&](NodeRef ref) -> RTCExAccelArchiveStatus {
 +        if (ref.isBarrier() || ref == BVH::invalidNode || ref == BVH::popRay) {
 +          return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
 +        }
 +        // emptyNode == tyLeaf (bit 3 set), so test emptyNode BEFORE isLeaf()!
 +        if (ref == BVH::emptyNode) {
-+          out_reloc = 0ull;
 +          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
 +        }
 +        if (ref.isLeaf()) {
@@ -444,16 +440,10 @@ index 0000000..7f6a7bf
 +          if (leaf_ptr == nullptr || num_blocks == 0u || num_blocks > BVH::maxLeafBlocks) {
 +            return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
 +          }
-+          const uint64_t leaf_idx = static_cast<uint64_t>(leaf_blocks.size());
-+          if (leaf_idx + num_blocks > kRelocIndexMask) {
++          if (leaf_block_count + static_cast<uint64_t>(num_blocks) > kRelocIndexMask) {
 +            return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
 +          }
-+          const size_t old_count = leaf_blocks.size();
-+          leaf_blocks.resize(old_count + num_blocks);
-+          std::memcpy(leaf_blocks.data() + old_count, leaf_ptr, num_blocks * sizeof(Prim));
-+          out_reloc = kRelocLeafFlag |
-+                      ((static_cast<uint64_t>(num_blocks) & kRelocBlockCountMask) << kRelocBlockCountShift) |
-+                      leaf_idx;
++          leaf_block_count += static_cast<uint64_t>(num_blocks);
 +          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
 +        }
 +        if (!ref.isAABBNode()) {
@@ -463,39 +453,29 @@ index 0000000..7f6a7bf
 +        if (child_node == nullptr) {
 +          return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
 +        }
-+        const uint64_t child_idx = static_cast<uint64_t>(serialized_nodes.size());
-+        if (child_idx + 1ull >= kRelocLeafFlag) {
++        if (node_count + 1ull >= kRelocLeafFlag) {
 +          return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
 +        }
-+        serialized_nodes.resize(static_cast<size_t>(child_idx + 1ull));
-+        stack.push_back(StackEntry{child_node, child_idx});
-+        out_reloc = child_idx + 1ull;
++        ++node_count;
++        count_stack.push_back(child_node);
 +        return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
 +      };
 +
-+      uint64_t root_reloc = 0ull;
-+      const auto root_status = encode_ref(bvh->root, root_reloc);
-+      if (root_status != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
-+        return root_status;
++      const auto count_root_st = push_count_ref(bvh->root);
++      if (count_root_st != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++        return count_root_st;
 +      }
-+
-+      while (!stack.empty()) {
-+        const StackEntry entry = stack.back();
-+        stack.pop_back();
-+        AABBNode copy_node = *entry.src;
++      while (!count_stack.empty()) {
++        const AABBNode* node = count_stack.back();
++        count_stack.pop_back();
 +        for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
-+          uint64_t child_reloc = 0ull;
-+          const auto child_status = encode_ref(entry.src->child(c), child_reloc);
-+          if (child_status != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
-+            return child_status;
++          const auto st = push_count_ref(node->child(c));
++          if (st != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++            return st;
 +          }
-+          copy_node.children[c] = NodeRef(static_cast<size_t>(child_reloc));
 +        }
-+        serialized_nodes[static_cast<size_t>(entry.dst_index)] = copy_node;
 +      }
 +
-+      const uint64_t node_count = static_cast<uint64_t>(serialized_nodes.size());
-+      const uint64_t leaf_block_count = static_cast<uint64_t>(leaf_blocks.size());
 +      uint64_t node_bytes_u64 = 0ull;
 +      uint64_t leaf_bytes_u64 = 0ull;
 +      uint64_t unpacked_u64 = 0ull;
@@ -518,6 +498,69 @@ index 0000000..7f6a7bf
 +      }
 +      if (buffer_capacity < static_cast<size_t>(total_u64)) {
 +        return RTC_EX_ACCEL_ARCHIVE_STATUS_BUFFER_TOO_SMALL;
++      }
++
++      // Pass 2: Stream nodes and leaves directly into caller output buffer (zero intermediate copies).
++      auto* dst = static_cast<unsigned char*>(out_buffer);
++      auto* dst_nodes = reinterpret_cast<AABBNode*>(dst + sizeof(EmbreeStaticTriangleBVHPayloadHeader));
++      auto* dst_leaves = reinterpret_cast<Prim*>(dst + sizeof(EmbreeStaticTriangleBVHPayloadHeader) + static_cast<size_t>(node_bytes_u64));
++
++      struct WriteStackEntry {
++        const AABBNode* src;
++        uint64_t dst_index;
++      };
++      std::vector<WriteStackEntry> write_stack;
++      uint64_t next_node_idx = 0ull;
++      uint64_t next_leaf_idx = 0ull;
++
++      auto write_encode_ref = [&](NodeRef ref, uint64_t& out_reloc) -> RTCExAccelArchiveStatus {
++        if (ref == BVH::emptyNode) {
++          out_reloc = 0ull;
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++        }
++        if (ref.isLeaf()) {
++          size_t num_blocks = 0u;
++          const char* leaf_ptr = ref.leaf(num_blocks);
++          const uint64_t leaf_idx = next_leaf_idx;
++          if (leaf_ptr == nullptr || num_blocks == 0u || leaf_idx + num_blocks > leaf_block_count) {
++            return RTC_EX_ACCEL_ARCHIVE_STATUS_INTERNAL_ERROR;
++          }
++          std::memcpy(dst_leaves + static_cast<size_t>(leaf_idx), leaf_ptr, num_blocks * sizeof(Prim));
++          next_leaf_idx += static_cast<uint64_t>(num_blocks);
++          out_reloc = kRelocLeafFlag |
++                      ((static_cast<uint64_t>(num_blocks) & kRelocBlockCountMask) << kRelocBlockCountShift) |
++                      leaf_idx;
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++        }
++        const AABBNode* child_node = ref.getAABBNode();
++        const uint64_t child_idx = next_node_idx++;
++        if (child_node == nullptr || child_idx >= node_count) {
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_INTERNAL_ERROR;
++        }
++        write_stack.push_back(WriteStackEntry{child_node, child_idx});
++        out_reloc = child_idx + 1ull;
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++      };
++
++      uint64_t root_reloc = 0ull;
++      const auto root_status = write_encode_ref(bvh->root, root_reloc);
++      if (root_status != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++        return root_status;
++      }
++
++      while (!write_stack.empty()) {
++        const WriteStackEntry entry = write_stack.back();
++        write_stack.pop_back();
++        AABBNode copy_node = *entry.src;
++        for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
++          uint64_t child_reloc = 0ull;
++          const auto child_status = write_encode_ref(entry.src->child(c), child_reloc);
++          if (child_status != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++            return child_status;
++          }
++          copy_node.children[c] = NodeRef(static_cast<size_t>(child_reloc));
++        }
++        std::memcpy(dst_nodes + static_cast<size_t>(entry.dst_index), &copy_node, sizeof(AABBNode));
 +      }
 +
 +      EmbreeStaticTriangleBVHPayloadHeader hdr{};
@@ -550,17 +593,7 @@ index 0000000..7f6a7bf
 +      hdr.bounds_upper[2] = b.upper.z;
 +      hdr.bounds_upper[3] = 0.0f;
 +
-+      auto* dst = static_cast<unsigned char*>(out_buffer);
 +      std::memcpy(dst, &hdr, sizeof(hdr));
-+      if (node_bytes_u64 > 0ull) {
-+        std::memcpy(dst + sizeof(hdr), serialized_nodes.data(), static_cast<size_t>(node_bytes_u64));
-+      }
-+      if (leaf_bytes_u64 > 0ull) {
-+        std::memcpy(
-+          dst + sizeof(hdr) + static_cast<size_t>(node_bytes_u64),
-+          leaf_blocks.data(),
-+          static_cast<size_t>(leaf_bytes_u64));
-+      }
 +      return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
 +    }
 +
@@ -604,6 +637,10 @@ index 0000000..7f6a7bf
 +      using NodeRef = typename BVH::NodeRef;
 +      using AABBNode = typename BVH::AABBNode;
 +      static_assert(sizeof(NodeRef) == sizeof(uint64_t), "64-bit Embree NodeRef required.");
++      static_assert((sizeof(AABBNode) % NodeRef::byteNodeAlignment) == 0u,
++                    "Embree AABBNode size must preserve node alignment.");
++      static_assert((sizeof(Prim) % NodeRef::byteAlignment) == 0u,
++                    "Embree triangle primitive size must preserve leaf alignment.");
 +
 +      if (!std::isfinite(hdr.bounds_lower[0]) || !std::isfinite(hdr.bounds_lower[1]) ||
 +          !std::isfinite(hdr.bounds_lower[2]) || !std::isfinite(hdr.bounds_upper[0]) ||
@@ -616,7 +653,7 @@ index 0000000..7f6a7bf
 +        return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
 +      }
 +
-+      // 1. Validate every internal/leaf reference and leaf primitive slot BEFORE mutating scene.
++      // 1a. Validate tree references & leaf block uniqueness directly from node_ptr (no local_nodes copy).
 +      std::vector<uint8_t> leaf_visited(static_cast<size_t>(hdr.leaf_block_count), 0u);
 +      auto validate_ref = [&](uint64_t reloc_ref, uint64_t parent_idx, bool is_root) -> RTCExAccelArchiveStatus {
 +        if (reloc_ref == 0ull) {
@@ -636,11 +673,6 @@ index 0000000..7f6a7bf
 +              return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
 +            }
 +            leaf_visited[static_cast<size_t>(block_id)] = 1u;
-+            Prim prim_copy;
-+            std::memcpy(&prim_copy, leaf_ptr + static_cast<size_t>(block_id) * sizeof(Prim), sizeof(Prim));
-+            if (!validate_leaf_block(prim_copy, hdr.vertex_count, hdr.triangle_count, hdr.vertex_stride_bytes)) {
-+              return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
-+            }
 +          }
 +          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
 +        }
@@ -663,14 +695,11 @@ index 0000000..7f6a7bf
 +        return root_check;
 +      }
 +
-+      vector_t<AABBNode, aligned_allocator<AABBNode, 32>> local_nodes(static_cast<size_t>(hdr.node_count));
 +      for (uint64_t i = 0ull; i < hdr.node_count; ++i) {
-+        std::memcpy(
-+          &local_nodes[static_cast<size_t>(i)],
-+          node_ptr + static_cast<size_t>(i) * sizeof(AABBNode),
-+          sizeof(AABBNode));
++        AABBNode tmp_node;
++        std::memcpy(&tmp_node, node_ptr + static_cast<size_t>(i) * sizeof(AABBNode), sizeof(AABBNode));
 +        for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
-+          const uint64_t reloc = static_cast<uint64_t>(local_nodes[static_cast<size_t>(i)].children[c].ptr);
++          const uint64_t reloc = static_cast<uint64_t>(tmp_node.children[c].ptr);
 +          const auto child_check = validate_ref(reloc, i, false);
 +          if (child_check != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
 +            return child_check;
@@ -678,50 +707,102 @@ index 0000000..7f6a7bf
 +        }
 +      }
 +
-+      // 2. Allocate BVH nodes and leaf blocks using bounded per-item FastAllocator calls.
-+      BVH* bvh = new BVH(prim_type_for_kind(hdr.prim_kind), scene);
-+      const size_t est_bytes = unpacked_bytes > 0u ? unpacked_bytes : sizeof(AABBNode);
-+      bvh->alloc.init_estimate(est_bytes);
-+
-+      std::vector<AABBNode*> allocated_nodes(static_cast<size_t>(hdr.node_count), nullptr);
-+      {
-+        auto cached = bvh->alloc.getCachedAllocator();
-+        for (uint64_t i = 0ull; i < hdr.node_count; ++i) {
-+          auto* dst_node = static_cast<AABBNode*>(cached.malloc0(sizeof(AABBNode), NodeRef::byteNodeAlignment));
-+          *dst_node = local_nodes[static_cast<size_t>(i)];
-+          allocated_nodes[static_cast<size_t>(i)] = dst_node;
-+        }
-+
-+        auto materialize_ref = [&](uint64_t reloc_ref) -> NodeRef {
-+          if (reloc_ref == 0ull) {
-+            return NodeRef(BVH::emptyNode);
++      // 1b. Validate every referenced leaf primitive slot in parallel BEFORE allocating/mutating scene.
++      std::atomic<bool> leaf_ok{true};
++      auto validate_leaf_range = [&](size_t begin, size_t end) noexcept {
++        for (size_t b = begin; b < end; ++b) {
++          if (leaf_visited[b] == 0u) {
++            continue;
 +          }
-+          if ((reloc_ref & kRelocLeafFlag) != 0ull) {
-+            const size_t num_blocks = static_cast<size_t>((reloc_ref >> kRelocBlockCountShift) & kRelocBlockCountMask);
-+            const size_t leaf_idx = static_cast<size_t>(reloc_ref & kRelocIndexMask);
-+            char* dst_leaf = static_cast<char*>(cached.malloc1(num_blocks * sizeof(Prim), NodeRef::byteAlignment));
-+            std::memcpy(dst_leaf, leaf_ptr + leaf_idx * sizeof(Prim), num_blocks * sizeof(Prim));
-+            return BVH::encodeLeaf(dst_leaf, num_blocks);
++          if (!leaf_ok.load(std::memory_order_relaxed)) {
++            return;
 +          }
-+          const size_t child_idx = static_cast<size_t>(reloc_ref - 1ull);
-+          return BVH::encodeNode(allocated_nodes[child_idx]);
-+        };
-+
-+        for (uint64_t i = 0ull; i < hdr.node_count; ++i) {
-+          AABBNode* dst_node = allocated_nodes[static_cast<size_t>(i)];
-+          for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
-+            const uint64_t reloc = static_cast<uint64_t>(local_nodes[static_cast<size_t>(i)].children[c].ptr);
-+            dst_node->children[c] = materialize_ref(reloc);
++          Prim prim_copy;
++          std::memcpy(&prim_copy, leaf_ptr + b * sizeof(Prim), sizeof(Prim));
++          if (!validate_leaf_block(prim_copy, hdr.vertex_count, hdr.triangle_count, hdr.vertex_stride_bytes)) {
++            leaf_ok.store(false, std::memory_order_relaxed);
++            return;
 +          }
 +        }
-+
-+        const BBox3fa bvh_bounds(
-+          Vec3fa(hdr.bounds_lower[0], hdr.bounds_lower[1], hdr.bounds_lower[2]),
-+          Vec3fa(hdr.bounds_upper[0], hdr.bounds_upper[1], hdr.bounds_upper[2]));
-+        const NodeRef root_ref = materialize_ref(hdr.root_encoded_ref);
-+        bvh->set(root_ref, LBBox3fa(bvh_bounds), static_cast<size_t>(hdr.num_primitives_in_bvh));
-+        bvh->numVertices = mesh->numVertices();
++      };
++      const size_t leaf_block_count = static_cast<size_t>(hdr.leaf_block_count);
++      if (leaf_block_count >= 2048u) {
++        embree::parallel_for(size_t(0u), leaf_block_count, size_t(1024u), [&](const range<size_t>& r) {
++          validate_leaf_range(r.begin(), r.end());
++        });
++      } else {
++        validate_leaf_range(0u, leaf_block_count);
 +      }
++      if (!leaf_ok.load(std::memory_order_relaxed)) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++      }
++
++      // 2. Single contiguous 64-byte-aligned FastAllocator slab + parallel pointer fixup & leaf copy.
++      const size_t node_count = static_cast<size_t>(hdr.node_count);
++      const size_t nodes_bytes = node_count * sizeof(AABBNode);
++      const size_t nodes_bytes_aligned = (nodes_bytes + 63u) & ~size_t{63u};
++      const size_t leaf_bytes = leaf_block_count * sizeof(Prim);
++      const size_t total_slab = std::max<size_t>(nodes_bytes_aligned + leaf_bytes, 64u);
++      (void)unpacked_bytes;
++
++      BVH* bvh = new BVH(prim_type_for_kind(hdr.prim_kind), scene);
++      bvh->alloc.init(total_slab, total_slab, total_slab);
++      char* const slab_ptr = static_cast<char*>(bvh->alloc.specialAlloc(total_slab));
++      AABBNode* const nodes_base = reinterpret_cast<AABBNode*>(slab_ptr);
++      char* const leaves_base = slab_ptr + nodes_bytes_aligned;
++
++      auto materialize_ref = [&](uint64_t reloc_ref) noexcept -> NodeRef {
++        if (reloc_ref == 0ull) {
++          return NodeRef(BVH::emptyNode);
++        }
++        if ((reloc_ref & kRelocLeafFlag) != 0ull) {
++          const size_t num_blocks = static_cast<size_t>((reloc_ref >> kRelocBlockCountShift) & kRelocBlockCountMask);
++          const size_t leaf_idx = static_cast<size_t>(reloc_ref & kRelocIndexMask);
++          return BVH::encodeLeaf(leaves_base + leaf_idx * sizeof(Prim), num_blocks);
++        }
++        const size_t child_idx = static_cast<size_t>(reloc_ref - 1ull);
++        return BVH::encodeNode(&nodes_base[child_idx]);
++      };
++
++      auto reconstruct_nodes = [&](size_t begin, size_t end) noexcept {
++        for (size_t i = begin; i < end; ++i) {
++          AABBNode node_copy;
++          std::memcpy(&node_copy, node_ptr + i * sizeof(AABBNode), sizeof(AABBNode));
++          for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
++            const uint64_t reloc = static_cast<uint64_t>(node_copy.children[c].ptr);
++            node_copy.children[c] = materialize_ref(reloc);
++          }
++          std::memcpy(nodes_base + i, &node_copy, sizeof(AABBNode));
++        }
++      };
++
++      if (node_count >= 2048u) {
++        embree::parallel_for(size_t(0u), node_count, size_t(1024u), [&](const range<size_t>& r) {
++          reconstruct_nodes(r.begin(), r.end());
++        });
++      } else if (node_count > 0u) {
++        reconstruct_nodes(0u, node_count);
++      }
++
++      if (leaf_bytes > 0u) {
++        constexpr size_t kLeafCopyBlockThreshold = 8192u;
++        if (leaf_block_count >= kLeafCopyBlockThreshold) {
++          embree::parallel_for(size_t(0u), leaf_block_count, size_t(4096u), [&](const range<size_t>& r) {
++            const size_t off = r.begin() * sizeof(Prim);
++            const size_t len = (r.end() - r.begin()) * sizeof(Prim);
++            std::memcpy(leaves_base + off, leaf_ptr + off, len);
++          });
++        } else {
++          std::memcpy(leaves_base, leaf_ptr, leaf_bytes);
++        }
++      }
++
++      const BBox3fa bvh_bounds(
++        Vec3fa(hdr.bounds_lower[0], hdr.bounds_lower[1], hdr.bounds_lower[2]),
++        Vec3fa(hdr.bounds_upper[0], hdr.bounds_upper[1], hdr.bounds_upper[2]));
++      const NodeRef root_ref = materialize_ref(hdr.root_encoded_ref);
++      bvh->set(root_ref, LBBox3fa(bvh_bounds), static_cast<size_t>(hdr.num_primitives_in_bvh));
++      bvh->numVertices = mesh->numVertices();
 +      bvh->cleanup();
 +
 +      Accel::Intersectors intersectors = select_triangle_intersectors<N>(

@@ -520,6 +520,55 @@ struct EnvelopeSlices {
     REQUIRE_COND(verify_trace_parity(ref_trace, imp_trace, "cross_process_import", true),
                  "Cross-process trace parity check failed");
 
+    // Verify acquire_staging_buffer / release_staging_buffer + import_mesh_archive_with_options
+    // (both verify_payload_checksum = true and false, releasing staging immediately after submit)
+    for (bool verify_csum : {true, false}) {
+        Mesh staged_mesh = device.create_mesh(vb, tb, blas_opt);
+        auto st = ext->acquire_staging_buffer(archive_bytes.size());
+        REQUIRE_COND(st.mapped_data != nullptr && st.capacity >= archive_bytes.size(),
+                     "acquire_staging_buffer returned invalid buffer");
+        std::memcpy(st.mapped_data, archive_bytes.data(), archive_bytes.size());
+        AccelArchiveImportOptions iopts{};
+        iopts.verify_payload_checksum = verify_csum;
+        auto st_res = import_mesh_archive_with_options(
+            ext, stream, staged_mesh, blas_opt, geom_hash,
+            luisa::span<const std::byte>{st.mapped_data, archive_bytes.size()}, iopts);
+        ext->release_staging_buffer(std::move(st));
+        REQUIRE_COND(static_cast<bool>(st_res), st_res.message.c_str());
+        stream.synchronize();
+
+        const Mesh *st_ptrs[1] = {&staged_mesh};
+        Accel st_accel = device.create_accel();
+        populate_tlas_from_descriptors(st_accel, st_ptrs, inst_descs);
+        stream << st_accel.build() << synchronize();
+        auto st_trace = run_trace_suite(device, stream, st_accel);
+        REQUIRE_COND(verify_trace_parity(ref_trace, st_trace,
+                                         verify_csum ? "pinned_staging_verified" : "pinned_staging_unverified", true),
+                     "Pinned staging trace parity check failed");
+    }
+
+    // Verify direct file import path (verified cached read and unverified unbuffered/DirectStorage)
+    const std::string arc_file_str = (opts.archive_dir / "archive.bin").string();
+    for (bool verify_csum : {true, false}) {
+        Mesh file_mesh = device.create_mesh(vb, tb, blas_opt);
+        AccelArchiveImportOptions fopts{};
+        fopts.verify_payload_checksum = verify_csum;
+        fopts.bypass_os_file_cache = !verify_csum;
+        auto fl_res = import_mesh_archive_file(
+            ext, stream, file_mesh, blas_opt, geom_hash, arc_file_str, fopts);
+        REQUIRE_COND(static_cast<bool>(fl_res), fl_res.message.c_str());
+        stream.synchronize();
+
+        const Mesh *fl_ptrs[1] = {&file_mesh};
+        Accel fl_accel = device.create_accel();
+        populate_tlas_from_descriptors(fl_accel, fl_ptrs, inst_descs);
+        stream << fl_accel.build() << synchronize();
+        auto fl_trace = run_trace_suite(device, stream, fl_accel);
+        REQUIRE_COND(verify_trace_parity(ref_trace, fl_trace,
+                                         verify_csum ? "direct_file_verified" : "direct_file_fast", true),
+                     "Direct file import trace parity check failed");
+    }
+
     // Release temporary vb/tb on hardware backends and confirm restored BLAS still traces cleanly.
     if (!caps.requires_geometry_rebind) {
         vb = Buffer<float3>{};

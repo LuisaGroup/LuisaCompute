@@ -262,6 +262,71 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    "optimized_hash_copy_and_prefix"_test = [] {
+        luisa::vector<PaddedVertex> verts(64);
+        for (size_t i = 0u; i < verts.size(); ++i) {
+            verts[i] = PaddedVertex{static_cast<float>(i), 1.0f, -2.0f, 0u};
+        }
+        luisa::vector<Triangle> tris;
+        for (uint32_t i = 0u; i + 2u < verts.size(); i += 3u) {
+            tris.push_back(Triangle{i, i + 1u, i + 2u});
+        }
+        AccelOption opt{};
+        opt.allow_compaction = true;
+        auto desc = make_sample_desc(verts, tris, opt);
+
+        // Small (< 2 MiB) & Large (>= 2 MiB) hash128_and_copy + copy_payload_optimized
+        for (size_t sz : {size_t{4096u}, size_t{3u * 1024u * 1024u + 137u}}) {
+            luisa::vector<std::byte> src(sz);
+            for (size_t i = 0u; i < sz; ++i) {
+                src[i] = static_cast<std::byte>((i * 131u + 17u) & 0xffu);
+            }
+            luisa::vector<std::byte> dst(sz);
+            const auto h_direct = luisa::hash128(src.data(), src.size(), 0x123456789abcdef0ull);
+            const auto h_fused = luisa::hash128_and_copy(dst.data(), src.data(), src.size(), 0x123456789abcdef0ull);
+            expect(h_fused == h_direct);
+            expect(std::memcmp(src.data(), dst.data(), sz) == 0);
+
+            std::array<std::byte, 24> compat{std::byte{0x42}};
+            luisa::vector<std::byte> archive;
+            auto enc = accel_archive::encode_envelope(
+                AccelArchiveBackendKind::DX, desc, true, 12345u, compat, src, archive);
+            expect(static_cast<bool>(enc));
+
+            AccelArchiveMetadata meta{};
+            uint64_t payload_off = 0u;
+            luisa::span<const std::byte> compat_view;
+            uint8_t payload_csum[16]{};
+            // Prefix contains only envelope header + compat blob (no payload bytes required!)
+            const auto pre_span = luisa::span<const std::byte>{archive}.subspan(
+                0u, sizeof(accel_archive::AccelArchiveEnvelopeHeader) + compat.size());
+            auto pre_res = accel_archive::decode_envelope_prefix(
+                pre_span, archive.size(), AccelArchiveBackendKind::DX, desc,
+                meta, payload_off, compat_view, payload_csum);
+            expect(static_cast<bool>(pre_res));
+            expect(payload_off == pre_span.size());
+            expect(meta.payload_size == sz);
+
+            accel_archive::AccelArchiveEnvelopeView hdr_view{};
+            uint8_t csum2[16]{};
+            auto hdr_res = accel_archive::decode_envelope_header_and_compat(
+                archive, AccelArchiveBackendKind::DX, desc, hdr_view, csum2);
+            expect(static_cast<bool>(hdr_res));
+            expect(std::memcmp(payload_csum, csum2, 16u) == 0);
+
+            luisa::vector<std::byte> copy_out(sz);
+            expect(accel_archive::copy_payload_optimized(copy_out.data(), hdr_view.payload, true, csum2));
+            expect(std::memcmp(copy_out.data(), src.data(), sz) == 0);
+
+            // Corrupt checksum rejects on verified copy, still succeeds on unverified fast copy
+            uint8_t bad_csum[16]{};
+            std::memcpy(bad_csum, csum2, 16u);
+            bad_csum[5] ^= 0xffu;
+            expect(!accel_archive::copy_payload_optimized(copy_out.data(), hdr_view.payload, true, bad_csum));
+            expect(accel_archive::copy_payload_optimized(copy_out.data(), hdr_view.payload, false, bad_csum));
+        }
+    };
+
     "cuda_optix_compat_codec"_test = [] {
         cuda::CudaOptixAccelArchiveCompatBlob blob{};
         blob.optix_abi_version = 118u;

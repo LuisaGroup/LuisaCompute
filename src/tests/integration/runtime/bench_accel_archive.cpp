@@ -99,14 +99,18 @@ struct ModeBenchResult {
     Stats tlas_build_ms;
     Stats export_ms;
     Stats relocate_ms;
+    Stats relocate_pinned_ms;
+    Stats relocate_fast_ms;
     Stats warm_read_ms;
     Stats warm_import_ms;
     Stats warm_tlas_ms;
     Stats warm_e2e_ms;
+    Stats warm_direct_e2e_ms;
     Stats cold_read_ms;
     Stats cold_import_ms;
     Stats cold_tlas_ms;
     Stats cold_e2e_ms;
+    Stats cold_direct_e2e_ms;
 
     Stats built_closest_mrays_s;
     Stats imported_closest_mrays_s;
@@ -541,6 +545,8 @@ void write_full_json(
         << "    \"supports_compacted_export\": " << (caps.supports_compacted_export ? "true" : "false") << ",\n"
         << "    \"requires_geometry_rebind\": " << (caps.requires_geometry_rebind ? "true" : "false") << ",\n"
         << "    \"import_is_async_on_stream\": " << (caps.import_is_async_on_stream ? "true" : "false") << ",\n"
+        << "    \"supports_pinned_staging\": " << (caps.supports_pinned_staging ? "true" : "false") << ",\n"
+        << "    \"supports_direct_file_import\": " << (caps.supports_direct_file_import ? "true" : "false") << ",\n"
         << "    \"backend_kind\": \"" << json_escape(to_string(caps.backend_kind)) << "\",\n"
         << "    \"envelope_version\": " << caps.envelope_version << ",\n"
         << "    \"device_fingerprint\": \"" << json_escape(caps.device_fingerprint) << "\",\n"
@@ -573,6 +579,10 @@ void write_full_json(
         write_stats_json(ofs, r.export_ms, 6);
         ofs << ",\n      \"relocate_ms\": ";
         write_stats_json(ofs, r.relocate_ms, 6);
+        ofs << ",\n      \"relocate_pinned_ms\": ";
+        write_stats_json(ofs, r.relocate_pinned_ms, 6);
+        ofs << ",\n      \"relocate_fast_ms\": ";
+        write_stats_json(ofs, r.relocate_fast_ms, 6);
         ofs << ",\n      \"warm_read_ms\": ";
         write_stats_json(ofs, r.warm_read_ms, 6);
         ofs << ",\n      \"warm_import_ms\": ";
@@ -581,6 +591,8 @@ void write_full_json(
         write_stats_json(ofs, r.warm_tlas_ms, 6);
         ofs << ",\n      \"warm_e2e_ms\": ";
         write_stats_json(ofs, r.warm_e2e_ms, 6);
+        ofs << ",\n      \"warm_direct_e2e_ms\": ";
+        write_stats_json(ofs, r.warm_direct_e2e_ms, 6);
         ofs << ",\n      \"cold_read_ms\": ";
         write_stats_json(ofs, r.cold_read_ms, 6);
         ofs << ",\n      \"cold_import_ms\": ";
@@ -589,6 +601,8 @@ void write_full_json(
         write_stats_json(ofs, r.cold_tlas_ms, 6);
         ofs << ",\n      \"cold_e2e_ms\": ";
         write_stats_json(ofs, r.cold_e2e_ms, 6);
+        ofs << ",\n      \"cold_direct_e2e_ms\": ";
+        write_stats_json(ofs, r.cold_direct_e2e_ms, 6);
         ofs << ",\n      \"built_closest_mrays_s\": ";
         write_stats_json(ofs, r.built_closest_mrays_s, 6);
         ofs << ",\n      \"imported_closest_mrays_s\": ";
@@ -855,14 +869,18 @@ int main(int argc, char *argv[]) {
             std::vector<double> tlas_ms;
             std::vector<double> export_ms;
             std::vector<double> relocate_ms;
+            std::vector<double> relocate_pinned_ms;
+            std::vector<double> relocate_fast_ms;
             std::vector<double> warm_read_ms;
             std::vector<double> warm_imp_ms;
             std::vector<double> warm_tlas_ms;
             std::vector<double> warm_e2e_ms;
+            std::vector<double> warm_direct_e2e_ms;
             std::vector<double> cold_read_ms;
             std::vector<double> cold_imp_ms;
             std::vector<double> cold_tlas_ms;
             std::vector<double> cold_e2e_ms;
+            std::vector<double> cold_direct_e2e_ms;
             std::vector<double> built_closest_mrays;
             std::vector<double> imp_closest_mrays;
             std::vector<double> built_any_mrays;
@@ -997,6 +1015,48 @@ int main(int argc, char *argv[]) {
                     }
                     imp_mesh = Mesh{};
                     stream.synchronize();
+                }
+
+                // 1b. Persistent staging zero-copy relocate (verified & unverified)
+                if (auto staging = ext->acquire_staging_buffer(ref_archive.size());
+                    staging.mapped_data != nullptr && staging.capacity >= ref_archive.size()) {
+                    std::memcpy(staging.mapped_data, ref_archive.data(), ref_archive.size());
+                    const luisa::span<const std::byte> staged_span{staging.mapped_data, ref_archive.size()};
+                    for (uint32_t it = 0u; it < total_iters; ++it) {
+                        Mesh imp_mesh = device.create_mesh(vb, tb, option);
+                        Clock c_imp;
+                        auto ires = import_mesh_archive_with_options(
+                            ext, stream, imp_mesh, option, m.content_hash, staged_span,
+                            AccelArchiveImportOptions{.verify_payload_checksum = true});
+                        if (ires.readiness == AccelArchiveReadiness::READY_ON_STREAM) {
+                            stream.synchronize();
+                        }
+                        const double t_imp = c_imp.toc();
+                        LUISA_ASSERT(static_cast<bool>(ires), "pinned relocate failed: {}", ires.message);
+                        if (it >= cfg.warmup) {
+                            relocate_pinned_ms.push_back(t_imp);
+                        }
+                        imp_mesh = Mesh{};
+                        stream.synchronize();
+                    }
+                    for (uint32_t it = 0u; it < total_iters; ++it) {
+                        Mesh imp_mesh = device.create_mesh(vb, tb, option);
+                        Clock c_imp;
+                        auto ires = import_mesh_archive_with_options(
+                            ext, stream, imp_mesh, option, m.content_hash, staged_span,
+                            AccelArchiveImportOptions{.verify_payload_checksum = false});
+                        if (ires.readiness == AccelArchiveReadiness::READY_ON_STREAM) {
+                            stream.synchronize();
+                        }
+                        const double t_imp = c_imp.toc();
+                        LUISA_ASSERT(static_cast<bool>(ires), "fast relocate failed: {}", ires.message);
+                        if (it >= cfg.warmup) {
+                            relocate_fast_ms.push_back(t_imp);
+                        }
+                        imp_mesh = Mesh{};
+                        stream.synchronize();
+                    }
+                    ext->release_staging_buffer(std::move(staging));
                 }
 
                 // 2. Warm disk load -> import -> TLAS
@@ -1155,6 +1215,55 @@ int main(int argc, char *argv[]) {
                     stream.synchronize();
                 }
 
+                // 2b. Warm direct file import -> TLAS (skipping extra host copy/hash)
+                const std::string arc_path_str = arc_path.string();
+                for (uint32_t it = 0u; it < total_iters; ++it) {
+                    Clock c_e2e;
+                    Mesh imp_mesh = device.create_mesh(vb, tb, option);
+                    auto ires = import_mesh_archive_file(
+                        ext, stream, imp_mesh, option, m.content_hash, arc_path_str,
+                        AccelArchiveImportOptions{.verify_payload_checksum = false, .bypass_os_file_cache = false});
+                    if (ires.readiness == AccelArchiveReadiness::READY_ON_STREAM) {
+                        stream.synchronize();
+                    }
+                    LUISA_ASSERT(static_cast<bool>(ires), "warm direct import failed: {}", ires.message);
+                    const Mesh *imp_ptr = &imp_mesh;
+                    Accel imp_tlas = device.create_accel(tlas_option);
+                    populate_tlas_from_descriptors(imp_tlas, luisa::span{&imp_ptr, 1u}, instances);
+                    stream << imp_tlas.build(Accel::BuildRequest::FORCE_BUILD) << synchronize();
+                    const double t_tot = c_e2e.toc();
+                    if (it >= cfg.warmup) {
+                        warm_direct_e2e_ms.push_back(t_tot);
+                    }
+                    imp_tlas = Accel{};
+                    imp_mesh = Mesh{};
+                    stream.synchronize();
+                }
+
+                // 3b. Cold direct file import -> TLAS (DirectStorage / unbuffered)
+                for (uint32_t it = 0u; it < total_iters; ++it) {
+                    Clock c_e2e;
+                    Mesh imp_mesh = device.create_mesh(vb, tb, option);
+                    auto ires = import_mesh_archive_file(
+                        ext, stream, imp_mesh, option, m.content_hash, arc_path_str,
+                        AccelArchiveImportOptions{.verify_payload_checksum = false, .bypass_os_file_cache = true});
+                    if (ires.readiness == AccelArchiveReadiness::READY_ON_STREAM) {
+                        stream.synchronize();
+                    }
+                    LUISA_ASSERT(static_cast<bool>(ires), "cold direct import failed: {}", ires.message);
+                    const Mesh *imp_ptr = &imp_mesh;
+                    Accel imp_tlas = device.create_accel(tlas_option);
+                    populate_tlas_from_descriptors(imp_tlas, luisa::span{&imp_ptr, 1u}, instances);
+                    stream << imp_tlas.build(Accel::BuildRequest::FORCE_BUILD) << synchronize();
+                    const double t_tot = c_e2e.toc();
+                    if (it >= cfg.warmup) {
+                        cold_direct_e2e_ms.push_back(t_tot);
+                    }
+                    imp_tlas = Accel{};
+                    imp_mesh = Mesh{};
+                    stream.synchronize();
+                }
+
                 std::error_code ec;
                 std::filesystem::remove(arc_path, ec);
             } else {
@@ -1166,14 +1275,18 @@ int main(int argc, char *argv[]) {
             rec.tlas_build_ms = compute_stats(tlas_ms);
             rec.export_ms = compute_stats(export_ms);
             rec.relocate_ms = compute_stats(relocate_ms);
+            rec.relocate_pinned_ms = compute_stats(relocate_pinned_ms);
+            rec.relocate_fast_ms = compute_stats(relocate_fast_ms);
             rec.warm_read_ms = compute_stats(warm_read_ms);
             rec.warm_import_ms = compute_stats(warm_imp_ms);
             rec.warm_tlas_ms = compute_stats(warm_tlas_ms);
             rec.warm_e2e_ms = compute_stats(warm_e2e_ms);
+            rec.warm_direct_e2e_ms = compute_stats(warm_direct_e2e_ms);
             rec.cold_read_ms = compute_stats(cold_read_ms);
             rec.cold_import_ms = compute_stats(cold_imp_ms);
             rec.cold_tlas_ms = compute_stats(cold_tlas_ms);
             rec.cold_e2e_ms = compute_stats(cold_e2e_ms);
+            rec.cold_direct_e2e_ms = compute_stats(cold_direct_e2e_ms);
             rec.built_closest_mrays_s = compute_stats(built_closest_mrays);
             rec.imported_closest_mrays_s = compute_stats(imp_closest_mrays);
             rec.built_any_mrays_s = compute_stats(built_any_mrays);
@@ -1199,8 +1312,12 @@ int main(int argc, char *argv[]) {
                       << " status=" << rec.status
                       << " blas_med=" << rec.blas_build_ms.median << "ms"
                       << " reloc_med=" << rec.relocate_ms.median << "ms"
+                      << " reloc_pin=" << rec.relocate_pinned_ms.median << "ms"
+                      << " reloc_fast=" << rec.relocate_fast_ms.median << "ms"
                       << " warm_e2e=" << rec.warm_e2e_ms.median << "ms"
+                      << " warm_dir=" << rec.warm_direct_e2e_ms.median << "ms"
                       << " cold_e2e=" << rec.cold_e2e_ms.median << "ms"
+                      << " cold_dir=" << rec.cold_direct_e2e_ms.median << "ms"
                       << " tlas_med=" << rec.tlas_build_ms.median << "ms"
                       << " bytes=" << rec.archive_bytes
                       << " unpacked=" << rec.unpacked_as_bytes

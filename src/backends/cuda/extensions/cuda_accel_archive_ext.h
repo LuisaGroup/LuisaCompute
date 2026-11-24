@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 #include <cuda.h>
 
@@ -17,7 +18,7 @@ class CUDADevice;
 class CUDAAccelArchiveExt final : public AccelArchiveExt {
 public:
     explicit CUDAAccelArchiveExt(CUDADevice *device) noexcept;
-    ~CUDAAccelArchiveExt() noexcept = default;
+    ~CUDAAccelArchiveExt() noexcept;
 
     [[nodiscard]] AccelArchiveCapabilities capabilities() const noexcept override;
 
@@ -39,7 +40,23 @@ public:
         const AccelArchiveGeometryBinding &geometry_binding,
         luisa::span<const std::byte> archive_bytes) noexcept override;
 
+    [[nodiscard]] AccelArchiveStagingBuffer acquire_staging_buffer(
+        size_t min_bytes) noexcept override;
+
+    void release_staging_buffer(
+        AccelArchiveStagingBuffer &&buffer) noexcept override;
+
+    [[nodiscard]] AccelArchiveResult import_mesh_archive_with_options(
+        uint64_t stream_handle,
+        uint64_t mesh_handle,
+        const AccelArchiveMeshDesc &expected_desc,
+        const AccelArchiveGeometryBinding &geometry_binding,
+        luisa::span<const std::byte> archive_bytes,
+        const AccelArchiveImportOptions &options) noexcept override;
+
 private:
+    struct Impl;
+
     [[nodiscard]] AccelArchiveResult _validate_compat_and_relocation(
         luisa::span<const std::byte> compat_blob,
         luisa::span<const std::byte> payload,
@@ -54,6 +71,7 @@ private:
     uint32_t _compute_capability{0u};
     uint32_t _driver_version{0u};
     bool _supported{false};
+    std::unique_ptr<Impl> _impl;
 };
 
 }// namespace luisa::compute::cuda

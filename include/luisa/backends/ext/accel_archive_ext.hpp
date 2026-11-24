@@ -99,6 +99,44 @@ struct AccelArchiveInstanceDesc {
     return ext->import_mesh_archive(stream.handle(), mesh.handle(), desc, binding, archive_bytes);
 }
 
+[[nodiscard]] inline AccelArchiveResult import_mesh_archive_with_options(
+    AccelArchiveExt *ext,
+    Stream &stream,
+    const Mesh &mesh,
+    const AccelOption &option,
+    luisa::Hash128 geometry_content_hash,
+    luisa::span<const std::byte> archive_bytes,
+    const AccelArchiveImportOptions &options) noexcept {
+    if (ext == nullptr) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::UNSUPPORTED_BACKEND,
+            "AccelArchiveExt is not available on this device.");
+    }
+    auto desc = make_accel_archive_mesh_desc(mesh, option, geometry_content_hash);
+    auto binding = make_accel_archive_geometry_binding(mesh);
+    return ext->import_mesh_archive_with_options(
+        stream.handle(), mesh.handle(), desc, binding, archive_bytes, options);
+}
+
+[[nodiscard]] inline AccelArchiveResult import_mesh_archive_file(
+    AccelArchiveExt *ext,
+    Stream &stream,
+    const Mesh &mesh,
+    const AccelOption &option,
+    luisa::Hash128 geometry_content_hash,
+    luisa::string_view file_path,
+    const AccelArchiveImportOptions &options = {}) noexcept {
+    if (ext == nullptr) {
+        return accel_archive::make_archive_error(
+            AccelArchiveStatus::UNSUPPORTED_BACKEND,
+            "AccelArchiveExt is not available on this device.");
+    }
+    auto desc = make_accel_archive_mesh_desc(mesh, option, geometry_content_hash);
+    auto binding = make_accel_archive_geometry_binding(mesh);
+    return ext->import_mesh_archive_file(
+        stream.handle(), mesh.handle(), desc, binding, file_path, options);
+}
+
 inline void populate_tlas_from_descriptors(
     Accel &accel,
     luisa::span<const Mesh *const> blases,

@@ -776,6 +776,10 @@ HIPDevice::~HIPDevice() noexcept {
             }
         });
     }
+    {
+        std::scoped_lock lock{_extension_mutex};
+        _accel_archive_ext.reset();
+    }
     LUISA_CHECK_HIP(hipDevicePrimaryCtxRelease(_hip_device));
     _hip_context = nullptr;
 }
