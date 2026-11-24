@@ -691,6 +691,21 @@ void coro_call_structure_continuation(Function *function) {
         }
     }
 
+    if (needs_dispatcher && is_dispatch[old_entry_id] == 0u) {
+        // Hoist only an unconditional prefix. Keep selection and return
+        // nesting inside the same dispatcher arm as before.
+        auto prefix = old_entry_id;
+        while (is_dispatch[prefix] == 0u) {
+            auto *terminator = blocks[prefix]->terminator();
+            if (terminator == nullptr || !terminator->isa<BranchInst>() ||
+                succs[prefix].size() != 1u) {
+                is_dispatch[old_entry_id] = 1u;
+                break;
+            }
+            prefix = succs[prefix].front();
+        }
+    }
+
     bool has_return = false;
     for (auto *block : blocks) {
         if (auto *term = block->terminator(); term != nullptr && term->isa<ReturnInst>()) {

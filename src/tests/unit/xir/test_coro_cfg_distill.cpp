@@ -3365,6 +3365,58 @@ void reg_coro_cfg_distill() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "coro_call_structure_continuation_keeps_branching_prefix_in_dispatcher"_test = [] {
+        for (auto has_linear_prefix : {false, true}) {
+            Module m;
+            auto *f = m.create_callable(Type::of<uint32_t>());
+            auto *take_short_path = f->create_value_argument(Type::of<bool>());
+            auto *value = f->create_value_argument(Type::of<uint32_t>());
+            auto *out = f->create_reference_argument(Type::of<uint32_t>());
+            auto *entry = f->create_body_block();
+            auto *selection = has_linear_prefix ? f->create_basic_block() : entry;
+            auto *short_path = f->create_basic_block();
+            auto *loop_header = f->create_basic_block();
+            auto *loop_body = f->create_basic_block();
+            auto *exit_block = f->create_basic_block();
+
+            const bool yes = true;
+            const bool no = false;
+            const uint32_t short_result = 1u;
+            const uint32_t loop_result = 2u;
+            XIRBuilder b;
+            b.set_insertion_point(entry);
+            auto *first_iteration = b.alloca_local(Type::of<bool>());
+            b.store(first_iteration, m.create_constant(Type::of<bool>(), &yes));
+            if (has_linear_prefix) {
+                b.br(selection);
+                b.set_insertion_point(selection);
+            }
+            b.cond_br(take_short_path, short_path, loop_header);
+            b.set_insertion_point(short_path);
+            b.return_(m.create_constant(Type::of<uint32_t>(), &short_result));
+            b.set_insertion_point(loop_header);
+            b.cond_br(b.load(Type::of<bool>(), first_iteration), loop_body, exit_block);
+            b.set_insertion_point(loop_body);
+            b.store(out, value);
+            b.store(first_iteration, m.create_constant(Type::of<bool>(), &no));
+            b.br(loop_header);
+            b.set_insertion_point(exit_block);
+            b.return_(m.create_constant(Type::of<uint32_t>(), &loop_result));
+
+            expect(xir_verify_module(&m).succeeded());
+            coro_call_structure_continuation(f);
+            expect(f->body_block() != entry);
+            expect(xir_verify_module(
+                       &m,
+                       {.require_no_phi = true,
+                        .require_no_unstructured_control_flow = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                       .succeeded());
+            expect(xir_to_ast_translate(*f->definition(), {.strict = true}) != nullptr);
+        }
+    };
+
     "coro_call_structure_continuation_keeps_cyclic_entry_in_dispatcher"_test = [] {
         Module m;
         auto *f = m.create_callable(Type::of<void>());
