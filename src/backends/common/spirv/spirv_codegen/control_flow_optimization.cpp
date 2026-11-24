@@ -1,6 +1,7 @@
 #include "control_flow_optimization.h"
 
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include <luisa/ast/type.h>
@@ -25,62 +26,116 @@ namespace xir = luisa::compute::xir;
 
 namespace {
 
-[[nodiscard]] bool is_integral_constant(const xir::Value *value,
-                                        int64_t &result) noexcept {
-    if (value == nullptr || !value->isa<xir::Constant>()) { return false; }
-    auto *constant = static_cast<const xir::Constant *>(value);
-    auto *type = constant->type();
-    if (type == nullptr || (!type->is_int() && !type->is_uint())) {
+struct IntegralTypeBounds {
+    bool is_signed{false};
+    int64_t min_s{0};
+    int64_t max_s{0};
+    uint64_t max_u{0u};
+};
+
+[[nodiscard]] bool get_integral_type_bounds(
+    const Type *type, IntegralTypeBounds &bounds) noexcept {
+    if (type == nullptr) { return false; }
+    switch (type->tag()) {
+        case Type::Tag::INT8:
+            bounds = {.is_signed = true,
+                      .min_s = std::numeric_limits<int8_t>::min(),
+                      .max_s = std::numeric_limits<int8_t>::max()};
+            return true;
+        case Type::Tag::INT16:
+            bounds = {.is_signed = true,
+                      .min_s = std::numeric_limits<int16_t>::min(),
+                      .max_s = std::numeric_limits<int16_t>::max()};
+            return true;
+        case Type::Tag::INT32:
+            bounds = {.is_signed = true,
+                      .min_s = std::numeric_limits<int32_t>::min(),
+                      .max_s = std::numeric_limits<int32_t>::max()};
+            return true;
+        case Type::Tag::INT64:
+            bounds = {.is_signed = true,
+                      .min_s = std::numeric_limits<int64_t>::min(),
+                      .max_s = std::numeric_limits<int64_t>::max()};
+            return true;
+        case Type::Tag::UINT8:
+            bounds = {.is_signed = false,
+                      .max_u = std::numeric_limits<uint8_t>::max()};
+            return true;
+        case Type::Tag::UINT16:
+            bounds = {.is_signed = false,
+                      .max_u = std::numeric_limits<uint16_t>::max()};
+            return true;
+        case Type::Tag::UINT32:
+            bounds = {.is_signed = false,
+                      .max_u = std::numeric_limits<uint32_t>::max()};
+            return true;
+        case Type::Tag::UINT64:
+            bounds = {.is_signed = false,
+                      .max_u = std::numeric_limits<uint64_t>::max()};
+            return true;
+        default:
+            return false;
+    }
+}
+
+[[nodiscard]] bool extract_typed_integral_constant(
+    const xir::Value *value, const Type *expected_type,
+    int64_t &out_s, uint64_t &out_u) noexcept {
+    if (value == nullptr || expected_type == nullptr ||
+        !value->isa<xir::Constant>()) {
         return false;
     }
-    switch (type->size()) {
-        case 1u: {
-            if (type->is_int()) {
-                int8_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                result = v;
-            } else {
-                uint8_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                result = v;
-            }
+    auto *constant = static_cast<const xir::Constant *>(value);
+    if (constant->type() != expected_type) { return false; }
+    out_s = 0;
+    out_u = 0u;
+    switch (expected_type->tag()) {
+        case Type::Tag::INT8: {
+            int8_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_s = v;
             return true;
         }
-        case 2u: {
-            if (type->is_int()) {
-                int16_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                result = v;
-            } else {
-                uint16_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                result = v;
-            }
+        case Type::Tag::INT16: {
+            int16_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_s = v;
             return true;
         }
-        case 4u: {
-            if (type->is_int()) {
-                int32_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                result = v;
-            } else {
-                uint32_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                result = v;
-            }
+        case Type::Tag::INT32: {
+            int32_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_s = v;
             return true;
         }
-        case 8u: {
-            if (type->is_int()) {
-                int64_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                result = v;
-            } else {
-                uint64_t v{};
-                std::memcpy(&v, constant->data(), sizeof(v));
-                if (v > static_cast<uint64_t>(INT64_MAX)) { return false; }
-                result = static_cast<int64_t>(v);
-            }
+        case Type::Tag::INT64: {
+            int64_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_s = v;
+            return true;
+        }
+        case Type::Tag::UINT8: {
+            uint8_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_u = v;
+            return true;
+        }
+        case Type::Tag::UINT16: {
+            uint16_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_u = v;
+            return true;
+        }
+        case Type::Tag::UINT32: {
+            uint32_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_u = v;
+            return true;
+        }
+        case Type::Tag::UINT64: {
+            uint64_t v{};
+            std::memcpy(&v, constant->data(), sizeof(v));
+            out_u = v;
             return true;
         }
         default: return false;
@@ -230,7 +285,7 @@ SpirvLoopControlDecision plan_spirv_loop_control(
     }
 
     const xir::PhiInst *induction = nullptr;
-    int64_t bound = 0;
+    const xir::Value *bound_value = nullptr;
     // Normalize the comparison to `phi <relation> bound`; a bound on the left
     // side flips the relation.
     auto relation = compare_op;
@@ -251,14 +306,10 @@ SpirvLoopControlDecision plan_spirv_loop_control(
     auto *rhs = comparison->operand(1u);
     if (lhs != nullptr && lhs->isa<xir::PhiInst>()) {
         induction = static_cast<const xir::PhiInst *>(lhs);
-        if (!is_integral_constant(rhs, bound)) {
-            return reject("loop bound is not an exact integral constant");
-        }
+        bound_value = rhs;
     } else if (rhs != nullptr && rhs->isa<xir::PhiInst>()) {
         induction = static_cast<const xir::PhiInst *>(rhs);
-        if (!is_integral_constant(lhs, bound)) {
-            return reject("loop bound is not an exact integral constant");
-        }
+        bound_value = lhs;
         relation = flip(compare_op);
     } else {
         return reject("loop condition has no induction Phi operand");
@@ -266,11 +317,23 @@ SpirvLoopControlDecision plan_spirv_loop_control(
     if (induction->parent_block() != prepare) {
         return reject("induction Phi is not owned by the loop prepare block");
     }
+    auto *induction_type = induction->type();
+    IntegralTypeBounds bounds{};
+    if (!get_integral_type_bounds(induction_type, bounds)) {
+        return reject("induction Phi does not have a supported scalar integer type");
+    }
+    int64_t bound_s = 0;
+    uint64_t bound_u = 0u;
+    if (!extract_typed_integral_constant(bound_value, induction_type, bound_s, bound_u)) {
+        return reject("loop bound is not an exact typed integral constant");
+    }
 
     // Exactly one incoming from the update block (the step) and one from the
     // entry edge (the initial value).
-    int64_t initial = 0;
-    int64_t step = 0;
+    int64_t initial_s = 0;
+    uint64_t initial_u = 0u;
+    bool step_is_positive = false;
+    uint64_t step_magnitude = 0u;
     auto step_found = false;
     auto initial_found = false;
     for (auto i = 0u; i < induction->incoming_count(); ++i) {
@@ -280,7 +343,8 @@ SpirvLoopControlDecision plan_spirv_loop_control(
                 return reject("induction Phi has more than one backedge incoming");
             }
             auto *next = as_arithmetic(incoming.value);
-            if (next == nullptr || next->operand_count() != 2u) {
+            if (next == nullptr || next->operand_count() != 2u ||
+                next->type() != induction_type) {
                 return reject("induction step is not a two-operand arithmetic op");
             }
             auto *step_lhs = next->operand(0u);
@@ -298,18 +362,41 @@ SpirvLoopControlDecision plan_spirv_loop_control(
             } else {
                 return reject("induction step does not use the induction Phi");
             }
-            if (!is_integral_constant(other, step)) {
-                return reject("induction step is not an exact integral constant");
+            int64_t raw_step_s = 0;
+            uint64_t raw_step_u = 0u;
+            if (!extract_typed_integral_constant(
+                    other, induction_type, raw_step_s, raw_step_u)) {
+                return reject("induction step is not an exact typed integral constant");
             }
-            if (sub) { step = -step; }
-            if (step == 0) { return reject("induction step is zero"); }
+            if (bounds.is_signed) {
+                if (raw_step_s == 0) { return reject("induction step is zero"); }
+                if (add) {
+                    step_is_positive = raw_step_s > 0;
+                    step_magnitude = step_is_positive ?
+                                         static_cast<uint64_t>(raw_step_s) :
+                                         (uint64_t{0} - static_cast<uint64_t>(raw_step_s));
+                } else {
+                    if (raw_step_s == bounds.min_s) {
+                        return reject("signed subtraction step hits minimum type bound");
+                    }
+                    step_is_positive = raw_step_s < 0;
+                    step_magnitude = step_is_positive ?
+                                         (uint64_t{0} - static_cast<uint64_t>(raw_step_s)) :
+                                         static_cast<uint64_t>(raw_step_s);
+                }
+            } else {
+                if (raw_step_u == 0u) { return reject("induction step is zero"); }
+                step_is_positive = add;
+                step_magnitude = raw_step_u;
+            }
             step_found = true;
         } else {
             if (initial_found) {
                 return reject("induction Phi has more than one entry incoming");
             }
-            if (!is_integral_constant(incoming.value, initial)) {
-                return reject("induction initial value is not an exact constant");
+            if (!extract_typed_integral_constant(
+                    incoming.value, induction_type, initial_s, initial_u)) {
+                return reject("induction initial value is not an exact typed constant");
             }
             initial_found = true;
         }
@@ -318,32 +405,64 @@ SpirvLoopControlDecision plan_spirv_loop_control(
         return reject("induction Phi is not a two-incoming counted loop");
     }
 
-    // Convert the comparison into an exact trip count. A relative bound larger
-    // than 32 bits is left to the ordinary loop path rather than unrolled.
-    constexpr auto bound_limit = int64_t{1} << 31;
-    auto delta = int64_t{0};
-    uint64_t trip_count = 0;
-    if (relation == xir::ArithmeticOp::BINARY_LESS ||
-        relation == xir::ArithmeticOp::BINARY_LESS_EQUAL) {
-        if (step <= 0) { return reject("increasing comparison with non-positive step"); }
-        if (bound < initial) { return reject("loop trip count is zero"); }
-        delta = bound - initial;
-        if (delta >= bound_limit) { return reject("loop trip count exceeds the proof limit"); }
-        trip_count = relation == xir::ArithmeticOp::BINARY_LESS ?
-                         static_cast<uint64_t>((delta + step - 1) / step) :
-                         static_cast<uint64_t>(delta / step + 1);
+    // Convert the comparison into an exact trip count in unsigned arithmetic,
+    // and prove the induction variable cannot wrap past the type bounds before
+    // exiting. A relative bound >= 2^31 is left to the ordinary loop path.
+    constexpr auto bound_limit = uint64_t{1} << 31;
+    uint64_t dist = 0u;
+    uint64_t headroom = 0u;
+    const bool increasing =
+        relation == xir::ArithmeticOp::BINARY_LESS ||
+        relation == xir::ArithmeticOp::BINARY_LESS_EQUAL;
+    const bool strict =
+        relation == xir::ArithmeticOp::BINARY_LESS ||
+        relation == xir::ArithmeticOp::BINARY_GREATER;
+    if (increasing) {
+        if (!step_is_positive) {
+            return reject("increasing comparison with non-positive step");
+        }
+        if (bounds.is_signed) {
+            if (bound_s < initial_s) { return reject("loop trip count is zero"); }
+            dist = static_cast<uint64_t>(bound_s) -
+                   static_cast<uint64_t>(initial_s);
+            headroom = static_cast<uint64_t>(bounds.max_s) -
+                       static_cast<uint64_t>(initial_s);
+        } else {
+            if (bound_u < initial_u) { return reject("loop trip count is zero"); }
+            dist = bound_u - initial_u;
+            headroom = bounds.max_u - initial_u;
+        }
     } else {
-        if (step >= 0) { return reject("decreasing comparison with non-negative step"); }
-        if (initial < bound) { return reject("loop trip count is zero"); }
-        delta = initial - bound;
-        if (delta >= bound_limit) { return reject("loop trip count exceeds the proof limit"); }
-        auto magnitude = -step;
-        trip_count = relation == xir::ArithmeticOp::BINARY_GREATER ?
-                         static_cast<uint64_t>((delta + magnitude - 1) / magnitude) :
-                         static_cast<uint64_t>(delta / magnitude + 1);
+        if (step_is_positive) {
+            return reject("decreasing comparison with non-negative step");
+        }
+        if (bounds.is_signed) {
+            if (initial_s < bound_s) { return reject("loop trip count is zero"); }
+            dist = static_cast<uint64_t>(initial_s) -
+                   static_cast<uint64_t>(bound_s);
+            headroom = static_cast<uint64_t>(initial_s) -
+                       static_cast<uint64_t>(bounds.min_s);
+        } else {
+            if (initial_u < bound_u) { return reject("loop trip count is zero"); }
+            dist = initial_u - bound_u;
+            headroom = initial_u;
+        }
+    }
+    if (dist >= bound_limit) {
+        return reject("loop trip count exceeds the proof limit");
+    }
+    uint64_t trip_count = 0u;
+    if (strict) {
+        if (dist == 0u) { return reject("loop trip count is zero"); }
+        trip_count = ((dist - 1u) / step_magnitude) + 1u;
+    } else {
+        trip_count = (dist / step_magnitude) + 1u;
     }
     if (trip_count == 0u || trip_count > options.max_trip_count) {
         return reject("loop trip count is not an exact small constant");
+    }
+    if (trip_count > headroom / step_magnitude) {
+        return reject("induction variable can wrap before loop exit");
     }
 
     // No payload may be duplicated unless it is pure value arithmetic.

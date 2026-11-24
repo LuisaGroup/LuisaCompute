@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -501,6 +502,48 @@ create_counted_loop(uint32_t trip_count) {
         offset += word_count;
     }
     return controls;
+}
+
+template<typename T>
+[[nodiscard]] luisa::unique_ptr<CountedLoopFixture>
+create_typed_counted_loop(T init_value, T bound_value,
+                          ArithmeticOp compare_op,
+                          ArithmeticOp step_op, T step_value) {
+    auto fixture = luisa::make_unique<CountedLoopFixture>();
+    auto *type = Type::of<T>();
+    auto *kernel = fixture->module.create_kernel();
+    auto *value_argument = kernel->create_value_argument(type);
+    auto *initial = fixture->module.create_constant(type, &init_value);
+    auto *bound = fixture->module.create_constant(type, &bound_value);
+    auto *step = fixture->module.create_constant(type, &step_value);
+    auto *entry = kernel->create_body_block();
+    XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *loop = builder.loop();
+    auto *prepare = loop->create_prepare_block();
+    auto *body = loop->create_body_block();
+    auto *update = loop->create_update_block();
+    auto *loop_merge = loop->create_merge_block();
+    builder.set_insertion_point(prepare);
+    auto *induction = builder.phi(type, {});
+    auto *condition =
+        builder.call(Type::of<bool>(), compare_op, {induction, bound});
+    builder.cond_br(condition, body, loop_merge);
+    builder.set_insertion_point(body);
+    static_cast<void>(builder.call(
+        type, ArithmeticOp::BINARY_ADD, {induction, value_argument}));
+    builder.br(update);
+    builder.set_insertion_point(update);
+    auto *next = builder.call(type, step_op, {induction, step});
+    induction->add_incoming(initial, entry);
+    induction->add_incoming(next, update);
+    builder.br(prepare);
+    builder.set_insertion_point(loop_merge);
+    builder.return_void();
+    fixture->kernel = kernel;
+    fixture->loop = loop;
+    fixture->induction = induction;
+    return fixture;
 }
 
 }// namespace
@@ -2805,6 +2848,107 @@ int main(int argc, char *argv[]) {
                 fixture->loop, options);
             expect(!decision.unroll()) << decision.reason;
             expect(!decision.reason.empty());
+        }
+    };
+
+    "spirv_loop_control_rejects_wrapping_and_overflow_bounds"_test = [] {
+        using Options = lc::spirv::ControlFlowOptimizationPlan::Options;
+        auto options = Options{};
+        // Wrapping infinite unsigned loops must never unroll.
+        {
+            auto f = create_typed_counted_loop<uint32_t>(
+                3u, 0u, ArithmeticOp::BINARY_GREATER_EQUAL,
+                ArithmeticOp::BINARY_SUB, 1u);
+            expect(!lc::spirv::plan_spirv_loop_control(f->loop, options).unroll())
+                << "uint32 i=3; i>=0; --i wraps past 0 and is infinite";
+        }
+        {
+            auto f = create_typed_counted_loop<uint32_t>(
+                3u, 0u, ArithmeticOp::BINARY_GREATER,
+                ArithmeticOp::BINARY_SUB, 2u);
+            expect(!lc::spirv::plan_spirv_loop_control(f->loop, options).unroll())
+                << "uint32 i=3; i>0; i-=2 wraps past 0";
+        }
+        {
+            auto f = create_typed_counted_loop<uint8_t>(
+                250u, 255u, ArithmeticOp::BINARY_LESS_EQUAL,
+                ArithmeticOp::BINARY_ADD, 2u);
+            expect(!lc::spirv::plan_spirv_loop_control(f->loop, options).unroll())
+                << "uint8 i=250; i<=255; i+=2 wraps past 255";
+        }
+        {
+            auto f = create_typed_counted_loop<uint8_t>(
+                250u, 255u, ArithmeticOp::BINARY_LESS,
+                ArithmeticOp::BINARY_ADD, 4u);
+            expect(!lc::spirv::plan_spirv_loop_control(f->loop, options).unroll())
+                << "uint8 i=250; i<255; i+=4 wraps past 255";
+        }
+        // Wrapping signed induction variables and INT64 extremes must reject cleanly.
+        {
+            auto f = create_typed_counted_loop<int8_t>(
+                124, 127, ArithmeticOp::BINARY_LESS_EQUAL,
+                ArithmeticOp::BINARY_ADD, 2);
+            expect(!lc::spirv::plan_spirv_loop_control(f->loop, options).unroll())
+                << "int8 i=124; i<=127; i+=2 overflows on update";
+        }
+        {
+            auto f = create_typed_counted_loop<int8_t>(
+                124, 127, ArithmeticOp::BINARY_LESS,
+                ArithmeticOp::BINARY_ADD, 2);
+            expect(!lc::spirv::plan_spirv_loop_control(f->loop, options).unroll())
+                << "int8 i=124; i<127; i+=2 overflows 126+2";
+        }
+        {
+            auto f = create_typed_counted_loop<int8_t>(
+                -125, -128, ArithmeticOp::BINARY_GREATER_EQUAL,
+                ArithmeticOp::BINARY_SUB, 2);
+            expect(!lc::spirv::plan_spirv_loop_control(f->loop, options).unroll())
+                << "int8 i=-125; i>=-128; i-=2 underflows";
+        }
+        {
+            auto max64 = std::numeric_limits<int64_t>::max();
+            auto min64 = std::numeric_limits<int64_t>::min();
+            auto f1 = create_typed_counted_loop<int64_t>(
+                max64 - 1, max64, ArithmeticOp::BINARY_LESS_EQUAL,
+                ArithmeticOp::BINARY_ADD, 2);
+            expect(!lc::spirv::plan_spirv_loop_control(f1->loop, options).unroll());
+            auto f2 = create_typed_counted_loop<int64_t>(
+                min64 + 1, max64, ArithmeticOp::BINARY_LESS,
+                ArithmeticOp::BINARY_SUB, min64);
+            expect(!lc::spirv::plan_spirv_loop_control(f2->loop, options).unroll());
+        }
+        // Exact non-wrapping boundary cases must still unroll with exact trip counts.
+        {
+            auto f = create_typed_counted_loop<uint32_t>(
+                3u, 0u, ArithmeticOp::BINARY_GREATER,
+                ArithmeticOp::BINARY_SUB, 1u);
+            auto d = lc::spirv::plan_spirv_loop_control(f->loop, options);
+            expect(d.unroll()) << d.reason;
+            expect(eq(d.trip_count, 3u));
+        }
+        {
+            auto f = create_typed_counted_loop<uint8_t>(
+                250u, 255u, ArithmeticOp::BINARY_LESS,
+                ArithmeticOp::BINARY_ADD, 1u);
+            auto d = lc::spirv::plan_spirv_loop_control(f->loop, options);
+            expect(d.unroll()) << d.reason;
+            expect(eq(d.trip_count, 5u));
+        }
+        {
+            auto f = create_typed_counted_loop<int8_t>(
+                124, 126, ArithmeticOp::BINARY_LESS_EQUAL,
+                ArithmeticOp::BINARY_ADD, 1);
+            auto d = lc::spirv::plan_spirv_loop_control(f->loop, options);
+            expect(d.unroll()) << d.reason;
+            expect(eq(d.trip_count, 3u));
+        }
+        {
+            auto f = create_typed_counted_loop<int8_t>(
+                -125, -127, ArithmeticOp::BINARY_GREATER_EQUAL,
+                ArithmeticOp::BINARY_SUB, 1);
+            auto d = lc::spirv::plan_spirv_loop_control(f->loop, options);
+            expect(d.unroll()) << d.reason;
+            expect(eq(d.trip_count, 3u));
         }
     };
 }
