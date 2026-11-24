@@ -216,9 +216,9 @@ void DevicePipelineCache::release(Device *device) noexcept {
         static_cast<void>(write_artifact(device));
     }
     {
-        // Destroy under the same lock that guards every other cache access, so a
-        // concurrent pipeline creation cannot race the teardown.
-        std::lock_guard lock{_mtx};
+        // Destroy under an exclusive lock so concurrent pipeline creation
+        // cannot race the teardown.
+        std::unique_lock lock{_mtx};
         auto handle = _handle.exchange(VK_NULL_HANDLE, std::memory_order_relaxed);
         if (handle != VK_NULL_HANDLE) {
             vkDestroyPipelineCache(device->logic_device(), handle,
@@ -228,7 +228,7 @@ void DevicePipelineCache::release(Device *device) noexcept {
 }
 
 DevicePipelineCache::Lease DevicePipelineCache::acquire() noexcept {
-    std::unique_lock lock{_mtx};
+    std::shared_lock lock{_mtx};
     return Lease{std::move(lock), _handle.load(std::memory_order_relaxed)};
 }
 
@@ -247,7 +247,7 @@ bool DevicePipelineCache::merge_seed(
     if (vk_device == VK_NULL_HANDLE) { return false; }
     VkPipelineCache source{VK_NULL_HANDLE};
     {
-        std::lock_guard lock{_mtx};
+        std::unique_lock lock{_mtx};
         auto handle = _handle.load(std::memory_order_relaxed);
         if (handle == VK_NULL_HANDLE) { return false; }
         VkPipelineCacheCreateInfo create_info{
@@ -296,7 +296,7 @@ bool DevicePipelineCache::write_artifact(Device *device) noexcept {
     }
     luisa::vector<std::byte> payload;
     {
-        std::lock_guard lock{_mtx};
+        std::unique_lock lock{_mtx};
         auto handle = _handle.load(std::memory_order_relaxed);
         if (handle == VK_NULL_HANDLE) { return false; }
         size_t size = 0u;

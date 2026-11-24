@@ -516,7 +516,15 @@ void ShaderSerializer::merge_legacy_pso_seed(
     // is validated exactly like before (framing, sizes, MD5 and the
     // VkPipelineCacheHeaderVersionOne identity) and folded into the device-scoped
     // cache, which is the only cache shaders use.
-    auto seed = read_pso_artifact(device, pso_seed_name);
+    // Release `_shader_cache_mtx` before calling `merge_seed()` so cache I/O and
+    // `DevicePipelineCache::_mtx` never nest.
+    auto seed = [&]() noexcept {
+        if (device != nullptr) {
+            std::lock_guard cache_lock{device->shader_cache_mutex()};
+            return read_pso_artifact(device, pso_seed_name);
+        }
+        return read_pso_artifact(device, pso_seed_name);
+    }();
     if (seed.status == PsoArtifactStatus::kAccepted) {
         static_cast<void>(
             device->pipeline_cache().merge_seed(device, seed.payload));
@@ -540,9 +548,18 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
     bool enable_driver_optimization) {
     DeserResult result{.shader = nullptr};
     ComputeShaderArtifactLoad load;
-    if (!load_compute_artifact(
+    const bool loaded = [&]() noexcept {
+        if (device != nullptr) {
+            std::lock_guard cache_lock{device->shader_cache_mutex()};
+            return load_compute_artifact(
+                device, requirements, file_name, serde_type, bin_io,
+                push_constant_size, enable_driver_optimization, load);
+        }
+        return load_compute_artifact(
             device, requirements, file_name, serde_type, bin_io,
-            push_constant_size, enable_driver_optimization, load)) {
+            push_constant_size, enable_driver_optimization, load);
+    }();
+    if (!loaded) {
         return result;
     }
     result.type_md5 = load.type_md5;

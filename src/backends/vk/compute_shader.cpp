@@ -248,6 +248,7 @@ ComputeShader *ComputeShader::compile(
                     codegen_dialect,
                     enable_driver_optimization);
                 if (write_cache) {
+                    std::lock_guard cache_lock{device->shader_cache_mutex()};
                     ShaderSerializer::serialize_bytecode(
                         shader->binds(),
                         shader->saved_arguments(),

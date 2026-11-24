@@ -1180,6 +1180,53 @@ static void test_fiber_executor_concurrent_batches() {
     };
 }
 
+static void test_nested_prepare_multi_worker_no_deadlock() {
+    "vk_shader_compile_nested_multi_worker_no_deadlock"_test = [] {
+        NestedCompileBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        constexpr auto kOuterCount = 4u;
+        auto kernels = make_kernels(kOuterCount + 1u);
+        binary_io.configure_nested(
+            ext, kernels[kOuterCount].function()->function());
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        for (auto i = 0u; i < kOuterCount; i++) {
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{},
+                .kernel = kernels[i].function()->function()});
+        }
+        luisa::vector<VulkanShaderCompileResult> results;
+        auto status = ext->compile_shaders(
+            luisa::span<const VulkanShaderCompileRequest>{requests},
+            results, 2u);
+        expect(status == VulkanShaderCompileStatus::SUCCESS);
+        expect(results.size() == kOuterCount);
+        expect(binary_io.nested_started());
+        expect(binary_io.nested_status() == VulkanShaderCompileStatus::FELL_BACK_TO_SERIAL);
+        auto &nested_results = binary_io.nested_results();
+        expect(nested_results.size() == 1u);
+        expect(nested_results[0].status == VulkanShaderCompileStatus::SUCCESS);
+        expect(nested_results[0].shader.handle != 0u);
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        for (auto i = 0u; i < kOuterCount; i++) {
+            expect(results[i].status == VulkanShaderCompileStatus::SUCCESS);
+            dispatcher.verify(results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+        dispatcher.verify(nested_results[0].shader.handle,
+                          kernels[kOuterCount].function()->function(),
+                          kOuterCount + 1u, kOuterCount);
+    };
+}
+
 int main(int argc, char *argv[]) {
     g_argc = argc;
     g_argv = argv;
@@ -1200,5 +1247,6 @@ int main(int argc, char *argv[]) {
     test_fiber_executor_batch();
     test_fiber_executor_publisher_on_fiber();
     test_fiber_executor_concurrent_batches();
+    test_nested_prepare_multi_worker_no_deadlock();
     return 0;
 }

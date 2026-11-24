@@ -30,28 +30,30 @@
 //
 // Ownership/synchronization contract:
 //
-//  * Vulkan requires host access to a `VkPipelineCache` to be externally
-//    synchronized for `vkCreate*Pipelines`, `vkGetPipelineCacheData`,
-//    `vkMergePipelineCaches` and `vkDestroyPipelineCache`. Every one of those
-//    calls in this backend runs while holding `_mtx`; `acquire()` hands that
-//    lock out as a `Lease` for exactly the duration of one creation call.
+//  * With `flags = 0` (without `VK_PIPELINE_CACHE_CREATE_EXTERNALLY_SYNCHRONIZED_BIT`),
+//    the Vulkan specification makes `vkCreate*Pipelines` and read-only
+//    `vkGetPipelineCacheData` thread-safe against a shared `VkPipelineCache`; only
+//    mutating `vkMergePipelineCaches` (`dstCache`) and `vkDestroyPipelineCache`
+//    require external exclusive synchronization.
+//  * `_mtx` is therefore a `std::shared_mutex`: `acquire()` returns a `Lease`
+//    holding `std::shared_lock<std::shared_mutex>` so parallel pipeline
+//    creations run concurrently without serializing across threads, while
+//    `merge_seed()`, `write_artifact()`, and `release()` take
+//    `std::unique_lock<std::shared_mutex>`.
 //  * A lease never covers HLSL/DXC/SPIR-V compilation: callers compile first and
-//    lock only around the driver call. A slow compile therefore cannot serialize
-//    another thread's pipeline creation, which is what a future parallel compile
-//    (P5.1) plus the current serial creation model need.
+//    lock only around the driver call.
 //  * `VK_PIPELINE_CACHE_CREATE_EXTERNALLY_SYNCHRONIZED_BIT` is a Vulkan 1.4
 //    core flag (the EXT alias only exists with VK_EXT_... enabled). This backend
 //    creates its instance at `VK_API_VERSION_1_3` (device.cpp `create_instance`),
-//    so the effective logical-device version is at most 1.3 and the flag is not
-//    legal here: `flags = 0` is the only legal value, and the mutex above is the
-//    synchronization Vulkan demands on those versions. It is also what keeps the
-//    Vulkan 1.2 floor working (plan §6.3).
+//    so the effective logical-device version is at most 1.3 and `flags = 0` is
+//    used uniformly across Vulkan 1.2+ devices.
 #pragma once
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <shared_mutex>
 
 #include <volk.h>
 
@@ -117,17 +119,18 @@ public:
         kRejected = 3u    // artifact existed but was rejected; created empty
     };
 
-    // Holds the device cache for the duration of exactly one Vulkan call that
-    // needs it (a pipeline creation). Obtained from `acquire()`.
+    // Holds the device cache for the duration of one `vkCreate*Pipelines` call
+    // via a shared lock so concurrent threads can compile pipelines in parallel
+    // while blocking exclusive teardown / merge operations.
     class Lease {
     public:
         Lease() noexcept = default;
-        Lease(std::unique_lock<std::mutex> lock, VkPipelineCache handle) noexcept
+        Lease(std::shared_lock<std::shared_mutex> lock, VkPipelineCache handle) noexcept
             : _lock{std::move(lock)}, _handle{handle} {}
         [[nodiscard]] VkPipelineCache handle() const noexcept { return _handle; }
 
     private:
-        std::unique_lock<std::mutex> _lock{};
+        std::shared_lock<std::shared_mutex> _lock{};
         VkPipelineCache _handle{VK_NULL_HANDLE};
     };
 
@@ -195,7 +198,7 @@ public:
 
 private:
     std::atomic<VkPipelineCache> _handle{VK_NULL_HANDLE};
-    std::mutex _mtx;
+    std::shared_mutex _mtx;
     luisa::string _artifact_name;
     SeedStatus _seed_status{SeedStatus::kUnavailable};
     uint64_t _seed_bytes{0u};

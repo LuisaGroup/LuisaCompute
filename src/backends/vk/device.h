@@ -144,10 +144,6 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     // finishes before it returns. Stopping it early in `~Device` is therefore enough,
     // and is done explicitly there.
     luisa::unique_ptr<detail::ShaderCompilePool> _shader_compile_pool;
-    // Serializes publication (pipeline creation + artifact write). A batch holds it
-    // once per request, in request order; concurrent ordinary `create_shader` calls
-    // hold it for their own publication only, so their preparation still overlaps.
-    std::mutex _shader_construct_mtx;
     // Serializes every shader-cache read/write of this device. A `BinaryIO` is one
     // resource that a user implementation need not make thread-safe, and one writer
     // keeps the artifact sequence deterministic. It is never held over code

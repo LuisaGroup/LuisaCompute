@@ -4480,6 +4480,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
         auto &buffer = comp_result.get<0>();
         {
             auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
+            std::lock_guard cache_lock{_shader_cache_mtx};
             ShaderSerializer::serialize_bytecode(
                 code.properties,
                 saved_args,
@@ -4947,9 +4948,11 @@ ShaderCreationInfo Device::_create_shader_serial(
     if (option.compile_only) {
         assert(!option.name.empty());
         info.invalidate();
+        auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
+        std::lock_guard cache_lock{_shader_cache_mtx};
         ShaderSerializer::serialize_bytecode(
             llvm_result.properties,
-            ShaderSerializer::serialize_saved_args(kernel),
+            saved_args,
             vstd::MD5{vstd::span<const uint8_t>(
                 reinterpret_cast<const uint8_t *>(llvm_result.spv_bin.data()),
                 llvm_result.spv_bin.size() * sizeof(uint32_t))},
@@ -5002,17 +5005,16 @@ ShaderCreationInfo Device::_create_shader_serial(
 #endif
 }
 
-// Publication: the only phase that creates Vulkan objects (plan P5.1).
+// Publication: creates Vulkan objects and persists artifacts (plan P5.1).
+// Cache I/O takes `_shader_cache_mtx` narrowly around BinaryIO accesses so
+// pipeline compilation (`new ComputeShader`) is never serialized across threads.
 ShaderCreationInfo Device::_publish_compute_shader(
     detail::PreparedComputeShader &&prepared,
     const ShaderOption &option, Function kernel) noexcept {
     if (prepared.kind == detail::PreparedComputeShader::Kind::SERIAL_FALLBACK) {
-        // Serial fallback: the unchanged pre-P5.1 path, on this thread. It reads and
-        // writes the shader cache without knowing about the pool, so it runs under
-        // the device-wide cache lock - a batch that mixes this route with native
-        // requests therefore serializes its cache traffic instead of racing it. A
-        // batch of only this route is exactly today's serial loop.
-        std::lock_guard cache_lock{_shader_cache_mtx};
+        // Serial fallback: cache reads/writes are locked inside ShaderSerializer
+        // and ComputeShader::compile, leaving DXC and vkCreateComputePipelines
+        // unlocked.
         return _create_shader_serial(
             option, kernel, prepared.fallback_requires_sampler_anisotropy,
             prepared.fallback_rtx);
@@ -5023,16 +5025,10 @@ ShaderCreationInfo Device::_publish_compute_shader(
         info.block_size = prepared.reported_block_size;
         return info;
     }
-    // One construction at a time, device-wide. This is the ordering point of a
-    // batch (`compile_shaders` publishes sequence number 0, 1, 2, ... from one
-    // thread) and the safety point for a caller that compiles from several threads:
-    // the interned layout table, the device pipeline cache's write path and the
-    // driver's pipeline compiler see one creation at a time.
-    std::lock_guard construct_lock{_shader_construct_mtx};
     // Pre-P1.3 per-shader PSO blobs are add-only inputs of the device cache, and
-    // merging one is a Vulkan call: it happens here, not on a worker.
+    // merging one is a Vulkan call: `merge_legacy_pso_seed` reads the artifact
+    // under `_shader_cache_mtx` and releases it before touching `_pipeline_cache`.
     if (!prepared.pso_seed_name.empty()) {
-        std::lock_guard cache_lock{_shader_cache_mtx};
         ShaderSerializer::merge_legacy_pso_seed(
             this, prepared.artifact_name, prepared.pso_seed_name);
     }
@@ -5094,9 +5090,8 @@ ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<cons
         required_dialect = detail::ShaderCodegenDialect::XIR_SPIRV;
     }
     auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(arg_types);
-    // AOT load: same device-wide shader-cache lock as every other reader/writer
-    // (plan P5.1), so it cannot interleave with a compile batch.
-    std::lock_guard cache_lock{_shader_cache_mtx};
+    // AOT load: `try_deser_compute` locks `_shader_cache_mtx` narrowly around the
+    // artifact read, leaving pipeline creation outside the cache lock.
     auto deser_result = ShaderSerializer::try_deser_compute(
         this,
         {.type_md5 = type_md5,
