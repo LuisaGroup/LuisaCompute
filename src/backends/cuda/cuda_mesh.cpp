@@ -68,4 +68,8 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
     }
 }
 
+uint64_t CUDAMesh::_primitive_count() const noexcept {
+    return static_cast<uint64_t>(_triangle_buffer_size / sizeof(Triangle));
+}
+
 }// namespace luisa::compute::cuda

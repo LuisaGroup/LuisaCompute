@@ -31,6 +31,7 @@
 
 // extensions
 #include "fallback_tex_compress.h"
+#include "../common/embree_accel_archive.h"
 
 namespace luisa::compute::fallback {
 
@@ -101,6 +102,7 @@ FallbackDevice::~FallbackDevice() noexcept {
             static_cast<unsigned long long>(s.last_instanced_slots.load()));
         std::fflush(stdout);
     }
+    _accel_archive_ext.reset();
     rtcReleaseDevice(_rtc_device);
 }
 
@@ -251,7 +253,7 @@ ShaderCreationInfo FallbackDevice::load_shader(luisa::string_view name, luisa::s
 }
 
 Usage FallbackDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    return reinterpret_cast<FallbackShader *>(handle)->argument_usage(index);
 }
 
 void FallbackDevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept {
@@ -333,6 +335,37 @@ DeviceExtension *FallbackDevice::extension(luisa::string_view name) noexcept {
         std::scoped_lock lock{_ext_mutex};
         if (_tex_compress_ext == nullptr) { _tex_compress_ext = create_fallback_tex_compress_ext(); }
         return _tex_compress_ext.get();
+    }
+    if (name == AccelArchiveExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (_accel_archive_ext == nullptr) {
+            struct FallbackEmbreeArchiveTraits {
+                using MeshType = FallbackMesh;
+                static constexpr const char *mesh_type_name() noexcept { return "FallbackMesh"; }
+                static void synchronize_stream(uint64_t stream_handle) noexcept {
+                    reinterpret_cast<FallbackStream *>(stream_handle)->synchronize();
+                }
+                static FallbackMesh *try_cast_mesh(uint64_t mesh_handle) noexcept {
+                    auto *base = reinterpret_cast<FallbackPrimBase *>(mesh_handle);
+                    if (base->is_motion_instance() || !static_cast<const FallbackPrim *>(base)->is_mesh()) {
+                        return nullptr;
+                    }
+                    return static_cast<FallbackMesh *>(base);
+                }
+                static void *committed_scene(const FallbackMesh *mesh) noexcept {
+                    return static_cast<void *>(mesh->committed_handle());
+                }
+                static std::pair<const std::byte *, size_t> buffer_span(uint64_t buffer_handle) noexcept {
+                    auto *buf = reinterpret_cast<FallbackBuffer *>(buffer_handle);
+                    return {static_cast<const std::byte *>(buf->data()), buf->size_bytes()};
+                }
+            };
+            _accel_archive_ext = make_embree_accel_archive_ext<FallbackEmbreeArchiveTraits>(
+                AccelArchiveBackendKind::FALLBACK,
+                _rtc_device,
+                "embree4_fallback_cpu");
+        }
+        return _accel_archive_ext.get();
     }
     return DeviceInterface::extension(name);
 }

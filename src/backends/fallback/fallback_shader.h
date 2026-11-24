@@ -43,6 +43,7 @@ private:
     size_t _argument_buffer_size{};
     size_t _shared_memory_size{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments{};
+    luisa::vector<Usage> _argument_usages{};
     luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>> _print_formatters;
 
     uint3 _block_size;
@@ -61,6 +62,9 @@ public:
     ~FallbackShader() noexcept;
 
     [[nodiscard]] auto argument_buffer_size() const noexcept { return _argument_buffer_size; }
+    [[nodiscard]] auto argument_usage(size_t index) const noexcept {
+        return index < _argument_usages.size() ? _argument_usages[index] : Usage::NONE;
+    }
     [[nodiscard]] auto shared_memory_size() const noexcept { return _shared_memory_size; }
     [[nodiscard]] auto native_handle() const noexcept { return _kernel_entry; }
     [[nodiscard]] auto print_formatter(size_t i) const noexcept -> const ShaderPrintFormatter * { return _print_formatters[i].get(); }

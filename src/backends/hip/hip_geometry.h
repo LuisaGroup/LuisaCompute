@@ -52,6 +52,7 @@ public:
 
     virtual ~HIPPrimitive() noexcept = default;
     [[nodiscard]] virtual Binding binding() const noexcept = 0;
+    [[nodiscard]] virtual bool is_static_triangle_mesh() const noexcept { return false; }
     virtual void prepare_for_tlas_build(HIPCommandEncoder &) const noexcept {}
 };
 

@@ -6,6 +6,7 @@
 namespace lc::vk {
 class CommandBuffer;
 class OpacityMicromap;
+class Stream;
 using namespace luisa;
 using namespace luisa::compute;
 class Tlas;
@@ -21,10 +22,17 @@ public:
 };
 class Blas : public PrimitiveBase {
     friend class Tlas;
+    friend class Stream;
+    friend class VkAccelArchiveExt;
 private:
     luisa::spin_mutex _handle_mtx;
     VkAccelerationStructureKHR _accel{nullptr};
     vstd::unique_ptr<DefaultBuffer> _accel_buffer;
+    VkDeviceSize _accel_size{0u};
+    bool _is_compacted{false};
+    bool _compaction_query_written{false};
+    VkQueryPool _compaction_query_pool{VK_NULL_HANDLE};
+    Stream *_pending_compaction_stream{nullptr};
     VkAccelerationStructureBuildGeometryInfoKHR *_acceleration_build_geometry_info{nullptr};
     AccelOption _option;
     const Buffer *_scratch_buffer{nullptr};
@@ -47,6 +55,9 @@ private:
     MeshHandle *_add_accel_ref(Tlas *accel, uint index);
     void _remove_accel_ref(MeshHandle *handle);
     void _sync_tlas();
+    void _ensure_compaction_query_pool();
+    void _emit_compaction_query(CommandBuffer &cmdbuffer);
+    void _set_pending_compaction_stream(Stream *stream) noexcept { _pending_compaction_stream = stream; }
     void _pre_build(
         CommandBuffer &cmdbuffer,
         VkAccelerationStructureGeometryKHR* acceleration_structure_geometry,
@@ -55,8 +66,23 @@ private:
     );
 public:
     [[nodiscard]] auto &accel() const { return _accel; }
+    [[nodiscard]] auto *accel_buffer() const { return _accel_buffer.get(); }
+    [[nodiscard]] auto accel_size() const noexcept { return _accel_size; }
+    [[nodiscard]] auto last_primitive_count() const noexcept { return _last_primitive_count; }
+    [[nodiscard]] bool is_compacted() const noexcept { return _is_compacted; }
+    [[nodiscard]] bool compaction_query_written() const noexcept { return _compaction_query_written; }
     [[nodiscard]] auto &option() const { return _option; }
     [[nodiscard]] bool has_motion() const noexcept { return _option.motion.is_enabled(); }
+    [[nodiscard]] bool has_tlas_refs() const noexcept { return !_handles.empty(); }
+    [[nodiscard]] bool try_compact_in_place(Stream &stream);
+    [[nodiscard]] VkDeviceSize query_compacted_size() const;
+    void replace_from_archive(
+        CommandBuffer &cmdbuffer,
+        VkAccelerationStructureKHR new_accel,
+        vstd::unique_ptr<DefaultBuffer> new_buffer,
+        VkDeviceSize logical_size,
+        bool is_compacted,
+        uint32_t primitive_count);
     // Backend-internal attachment of an opacity micromap to this BLAS
     // (VK_KHR_opacity_micromap).
     //

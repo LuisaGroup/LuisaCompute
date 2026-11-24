@@ -1,5 +1,6 @@
 set(LUISA_COMPUTE_VALIDATION_SOURCES
         accel.cpp accel.h
+        accel_archive_ext_impl.cpp accel_archive_ext_impl.h
         bindless_array.h
         buffer.h
         depth_buffer.h

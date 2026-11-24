@@ -25,6 +25,7 @@ namespace lc::vk {
 class Event;
 class Stream;
 class Swapchain;
+class Blas;
 using namespace luisa::compute;
 class CommandBuffer;
 struct PipelineRef;
@@ -184,6 +185,10 @@ public:
     CommandBuffer(CommandBuffer &&) noexcept;
     ~CommandBuffer();
     [[nodiscard]] auto cmdbuffer() const { return _cmdbuffer; }
+    [[nodiscard]] Stream &stream() const noexcept { return _stream; }
+    [[nodiscard]] bool is_persistent_recording() const noexcept {
+        return _ownership == detail::CommandBufferOwnership::PERSISTENT;
+    }
     [[nodiscard]] bool retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
     // `flags` is forwarded to VkCommandBufferBeginInfo; only the replay recorder
     // passes VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT (plan P4), so an
@@ -290,6 +295,8 @@ class Stream : public Resource {
     vstd::vector<uint4> _bindless_cache;
     StreamTag _stream_tag;
     luisa::spin_mutex *_queue_mtx;
+    luisa::spin_mutex _pending_compaction_mtx;
+    vstd::vector<Blas *> _pending_compaction_blases;
 public:
     luisa::function<void(luisa::string_view)> logger;
     CommandReorderVisitor<ReorderFuncTable, true> reorder;
@@ -317,6 +324,11 @@ public:
         bool inqueue_limit);
     void update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_update) noexcept;
     void sync();
+    uint64_t execute_immediate(
+        luisa::move_only_function<void(CommandBuffer &)> &&fn,
+        bool wait_after = true);
+    void register_pending_compaction(Blas *blas) noexcept;
+    void unregister_pending_compaction(Blas *blas) noexcept;
     void remove_resource_state(Resource const *resource) noexcept;
     void signal(Event *event, uint64_t value);
     void wait(Event *event, uint64_t value);

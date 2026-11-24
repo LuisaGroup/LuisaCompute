@@ -16,6 +16,7 @@
 #include "compute_shader.h"
 #include "hlsl_spirv_opt.h"
 #include "native_shader_ext.h"
+#include "vk_accel_archive_ext.h"
 #include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
 #include "../common/hlsl/binding_to_arg.h"
@@ -1212,6 +1213,18 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         },
         [](DeviceExtension *ext) {
             delete static_cast<VkNativeShaderExt *>(ext);
+        });
+    _exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{AccelArchiveExt::name},
+#else
+        AccelArchiveExt::name,
+#endif
+        [](Device *device) -> DeviceExtension * {
+            return new VkAccelArchiveExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<VkAccelArchiveExt *>(ext);
         });
     // Direct storage: the Vulkan backend provides a host-staged fallback
     // (see src/backends/vk/dstorage_ext.{h,cpp}).
@@ -3510,6 +3523,7 @@ Device::~Device() {
         // handle, so a shader destroyed later cannot touch it.
         _pipeline_cache.release(this);
     }
+    _exts.clear();
     _default_file_io = nullptr;
 #ifndef LC_NO_HLSL_BUILTIN
     {

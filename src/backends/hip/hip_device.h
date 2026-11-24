@@ -16,9 +16,11 @@
 namespace luisa::compute::hip {
 
 class HIPPinnedMemoryExt;
+class HIPAccelArchiveExt;
 class HIPMotionMeshBuiltin;
 
 class HIPDevice final : public luisa::compute::DeviceInterface {
+    friend class HIPAccelArchiveExt;
 
 private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io{nullptr};
@@ -33,6 +35,7 @@ private:
     mutable bool _hiprt_global_stack_buffer_initialized{false};
     std::mutex _extension_mutex;
     luisa::unique_ptr<HIPPinnedMemoryExt> _pinned_memory_ext{nullptr};
+    luisa::unique_ptr<HIPAccelArchiveExt> _accel_archive_ext{nullptr};
     mutable std::mutex _motion_mesh_builtin_mutex;
     mutable luisa::unique_ptr<HIPMotionMeshBuiltin> _motion_mesh_builtin{nullptr};
     std::mutex _shader_module_retirement_mutex;

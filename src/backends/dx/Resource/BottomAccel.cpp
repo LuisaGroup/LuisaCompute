@@ -65,7 +65,7 @@ Buffer const *BottomAccel::GetAccelBuffer() const {
 BottomAccel::BottomAccel(
     Device *device,
     AccelOption const &option)
-    : Resource(device), compactSize(0) {
+    : Resource(device), compactSize(0), _option(option) {
     if (!device->feature_check.raytracing_supported()) [[unlikely]] {
         LUISA_ERROR("RayTracing not supported on this device.");
     }
@@ -162,6 +162,11 @@ size_t BottomAccel::PreProcessStates(
         SetAccelBuffer();
         SyncTopAccel();
     }
+    _logicalSize = bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes;
+    _isTriangleMesh = (options.index() == 0);
+    _lastTriangleCount = _isTriangleMesh ? (options.get<0>().iSize / (3u * sizeof(uint))) : 0u;
+    _built = true;
+    _isCompacted = false;
     bottomStruct.DestAccelerationStructureData = accelBuffer->GetAddress();
     if (update) {
         bottomStruct.SourceAccelerationStructureData = bottomStruct.DestAccelerationStructureData;
@@ -173,6 +178,52 @@ size_t BottomAccel::PreProcessStates(
     }
     tracker.Record(GetAccelBuffer(), EnhancedBarrierTracker::Range(), EnhancedBarrierTracker::Usage::BuildAccel);
     return (update ? bottomLevelPrebuildInfo.UpdateScratchDataSizeInBytes : bottomLevelPrebuildInfo.ScratchDataSizeInBytes) + sizeof(size_t);
+}
+void BottomAccel::EmitPostCopyBarrier(
+    CommandBufferBuilder &builder,
+    Buffer const *buffer) {
+    auto *dev = buffer->GetDevice();
+    auto *cmdlist = builder.get_cb()->cmd_list();
+    if (dev->feature_check.enhanced_barriers_supported()) {
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> cmd7;
+        if (SUCCEEDED(cmdlist->QueryInterface(IID_PPV_ARGS(&cmd7)))) {
+            D3D12_BUFFER_BARRIER barrier{
+                .SyncBefore = D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,
+                .SyncAfter = D3D12_BARRIER_SYNC_ALL,
+                .AccessBefore = D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE,
+                .AccessAfter = D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ,
+                .pResource = buffer->GetResource(),
+                .Offset = 0,
+                .Size = UINT64_MAX};
+            D3D12_BARRIER_GROUP group{
+                .Type = D3D12_BARRIER_TYPE_BUFFER,
+                .NumBarriers = 1,
+                .pBufferBarriers = &barrier};
+            cmd7->Barrier(1, &group);
+            return;
+        }
+    }
+    auto uavBarrier = CD3DX12_RESOURCE_BARRIER::UAV(buffer->GetResource());
+    cmdlist->ResourceBarrier(1, &uavBarrier);
+}
+void BottomAccel::ReplaceFromArchive(
+    CommandAllocator *alloc,
+    vstd::unique_ptr<DefaultBuffer> newBuffer,
+    uint64 logicalSize,
+    bool isCompacted,
+    uint64 triangleCount) {
+    if (accelBuffer && alloc != nullptr) {
+        alloc->dispose_after_complete(std::move(accelBuffer));
+    }
+    accelBuffer = std::move(newBuffer);
+    compactSize = 0;
+    _logicalSize = logicalSize;
+    _lastTriangleCount = triangleCount;
+    _built = true;
+    _isTriangleMesh = true;
+    _isCompacted = isCompacted;
+    update = false;
+    SyncTopAccel();
 }
 bool BottomAccel::CheckAccel(
     CommandBufferBuilder &builder) {
@@ -191,8 +242,11 @@ bool BottomAccel::CheckAccel(
         newAccelBuffer->GetAddress(),
         accelBuffer->GetAddress(),
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+    EmitPostCopyBarrier(builder, newAccelBuffer.get());
     alloc->dispose_after_complete(std::move(accelBuffer));
     accelBuffer = std::move(newAccelBuffer);
+    _logicalSize = compactSize;
+    _isCompacted = true;
     SyncTopAccel();
     return true;
 }

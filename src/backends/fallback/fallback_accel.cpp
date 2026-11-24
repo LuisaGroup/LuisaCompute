@@ -185,7 +185,7 @@ void FallbackAccel::build(luisa::unique_ptr<AccelBuildCommand> cmd) noexcept {
             if (prim->is_mesh() && !prim->motion() && !prim->option().allow_update &&
                 luisa_fallback_affine_transform_is_identity(instance.affine)) {
                 const auto *mesh = static_cast<const FallbackMesh *>(prim);
-                if (mesh->has_shared_buffers() && mesh_ref_counts[mesh] == 1u) {
+                if (!mesh->is_imported_blas() && mesh->has_shared_buffers() && mesh_ref_counts[mesh] == 1u) {
                     want_direct_mesh = mesh;
                 }
             }

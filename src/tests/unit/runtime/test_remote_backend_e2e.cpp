@@ -14,6 +14,7 @@
 
 #include <asio.hpp>
 
+#include <luisa/backends/ext/accel_archive_ext.hpp>
 #include <luisa/backends/ext/remote_config_ext.h>
 #include <luisa/luisa-compute.h>
 
@@ -672,6 +673,7 @@ void test_remote_backend_e2e(const char *program_path) {
         expect(device.query("remote.native_backend") == "mock");
         expect(device.query("remote.blob_cache.enabled") == "true");
         expect(device.query("mock.property") == "mock.value");
+        expect(device.extension<AccelArchiveExt>() == nullptr);
 
         constexpr auto count = 16u;
         auto source = device.create_buffer<uint>(count);

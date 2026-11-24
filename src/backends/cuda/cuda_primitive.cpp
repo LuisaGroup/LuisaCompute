@@ -88,6 +88,8 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
             _bvh_buffer_handle, _bvh_buffer_size, &_handle));
         if (!_name.empty()) { nvtxRangePop(); }
         LUISA_CHECK_CUDA(cuMemFreeAsync(build_buffer, cuda_stream));
+        _bvh_active_size = compacted_size;
+        _is_compacted = true;
     } else {// without compaction
         if (_bvh_buffer_size < sizes.outputSizeInBytes) {
             _bvh_buffer_size = sizes.outputSizeInBytes;
@@ -103,9 +105,13 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
             _bvh_buffer_size, &_handle, nullptr, 0u));
         if (!_name.empty()) { nvtxRangePop(); }
         LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, cuda_stream));
+        _bvh_active_size = sizes.outputSizeInBytes;
+        _is_compacted = false;
     }
     // update handle
     LUISA_ASSERT(_handle != 0ull, "OptiX BVH build failed.");
+    _built = true;
+    _last_primitive_count = _primitive_count();
     if (!_name.empty()) { nvtxRangePop(); }
     LUISA_VERBOSE("Built CUDA primitive: handle = {}, bvh_buffer = {}, size = {}.",
                   reinterpret_cast<void *>(_handle),
@@ -152,6 +158,43 @@ void CUDAPrimitiveBase::set_name(luisa::string &&name) noexcept {
 OptixTraversableHandle CUDAPrimitiveBase::handle() const noexcept {
     std::scoped_lock lock{_mutex};
     return _handle;
+}
+
+CUDAPrimitive::ArchiveSnapshot CUDAPrimitive::archive_snapshot() const noexcept {
+    std::scoped_lock lock{_mutex};
+    return ArchiveSnapshot{
+        .handle = _handle,
+        .bvh_buffer_handle = _bvh_buffer_handle,
+        .bvh_active_size = _bvh_active_size,
+        .last_primitive_count = _last_primitive_count,
+        .built = _built,
+        .is_compacted = _is_compacted,
+    };
+}
+
+void CUDAPrimitive::replace_from_archive(
+    CUstream cuda_stream,
+    CUdeviceptr bvh_buffer,
+    size_t bvh_size,
+    OptixTraversableHandle handle,
+    uint64_t primitive_count,
+    bool is_compacted) noexcept {
+    std::scoped_lock lock{_mutex};
+    if (_bvh_buffer_handle != 0ull && _bvh_buffer_handle != bvh_buffer) {
+        if (cuda_stream != nullptr) {
+            LUISA_CHECK_CUDA(cuMemFreeAsync(_bvh_buffer_handle, cuda_stream));
+        } else {
+            LUISA_CHECK_CUDA(cuMemFree(_bvh_buffer_handle));
+        }
+    }
+    _bvh_buffer_handle = bvh_buffer;
+    _bvh_buffer_size = bvh_size;
+    _bvh_active_size = bvh_size;
+    _update_buffer_size = 0u;
+    _handle = handle;
+    _last_primitive_count = primitive_count;
+    _built = (handle != 0ull);
+    _is_compacted = is_compacted;
 }
 
 }// namespace luisa::compute::cuda

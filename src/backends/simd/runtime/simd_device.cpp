@@ -21,8 +21,10 @@
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/format.h>
 
 #include "../../common/indirect_dispatch_layout.h"
+#include "../../common/embree_accel_archive.h"
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
@@ -215,6 +217,7 @@ SIMDDevice::SIMDDevice(
 }
 
 SIMDDevice::~SIMDDevice() noexcept {
+    _accel_archive_ext.reset();
     _thread_pool.reset();
     if (_rtc_device != nullptr) {
         shared_embree_device().release();
@@ -541,6 +544,41 @@ ResourceCreationInfo SIMDDevice::create_accel(
 void SIMDDevice::destroy_accel(uint64_t handle) noexcept {
     luisa::delete_with_allocator(
         reinterpret_cast<SIMDAccel *>(handle));
+}
+
+DeviceExtension *SIMDDevice::extension(luisa::string_view name) noexcept {
+    if (name == AccelArchiveExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (_accel_archive_ext == nullptr) {
+            struct SIMDEmbreeArchiveTraits {
+                using MeshType = SIMDMesh;
+                static constexpr const char *mesh_type_name() noexcept { return "SIMDMesh"; }
+                static void synchronize_stream(uint64_t stream_handle) noexcept {
+                    reinterpret_cast<SIMDStream *>(stream_handle)->synchronize();
+                }
+                static SIMDMesh *try_cast_mesh(uint64_t mesh_handle) noexcept {
+                    auto *prim = reinterpret_cast<SIMDPrimitive *>(mesh_handle);
+                    if (prim->kind() != SIMDPrimitive::Kind::mesh) {
+                        return nullptr;
+                    }
+                    return static_cast<SIMDMesh *>(prim);
+                }
+                static void *committed_scene(const SIMDMesh *mesh) noexcept {
+                    return static_cast<void *>(mesh->handle());
+                }
+                static std::pair<const std::byte *, size_t> buffer_span(uint64_t buffer_handle) noexcept {
+                    auto *buf = reinterpret_cast<SIMDBuffer *>(buffer_handle);
+                    return {static_cast<const std::byte *>(buf->data()), buf->size()};
+                }
+            };
+            _accel_archive_ext = make_embree_accel_archive_ext<SIMDEmbreeArchiveTraits>(
+                AccelArchiveBackendKind::SIMD,
+                _rtc_device,
+                luisa::format("embree4_simd_cpu_w{}", _warp_width));
+        }
+        return _accel_archive_ext.get();
+    }
+    return DeviceInterface::extension(name);
 }
 
 void SIMDDevice::set_name(

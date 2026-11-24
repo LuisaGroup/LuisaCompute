@@ -21,6 +21,7 @@
 #include "vk_cuda_interop_impl.h"
 #include "native_res_ext_impl.h"
 #include "native_shader_ext_impl.h"
+#include "accel_archive_ext_impl.h"
 #include <luisa/core/logging.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/runtime/rhi/command.h>
@@ -106,6 +107,7 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
     auto pinned_ext = static_cast<PinnedMemoryExt *>(_native->extension(PinnedMemoryExt::name));
     auto native_res_ext = static_cast<NativeResourceExt *>(_native->extension(NativeResourceExt::name));
     auto native_shader_ext = static_cast<NativeShaderExt *>(_native->extension(NativeShaderExt::name));
+    auto accel_archive_ext = static_cast<AccelArchiveExt *>(_native->extension(AccelArchiveExt::name));
     auto dx_hdr_ext = static_cast<DXHDRExt *>(_native->extension(DXHDRExt::name));
     auto dx_cuda_interop = static_cast<DxCudaInterop *>(_native->extension(DxCudaInterop::name));
     auto vk_cuda_interop = static_cast<VkCudaInterop *>(_native->extension(VkCudaInterop::name));
@@ -193,6 +195,16 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
                 native_shader_ext_impl,
                 detail::ext_deleter<DeviceExtension>{[](DeviceExtension *ptr) {
                     delete static_cast<NativeShaderExtImpl *>(ptr);
+                }}});
+    }
+    if (accel_archive_ext) {
+        auto accel_archive_ext_impl = new AccelArchiveExtImpl(this, accel_archive_ext);
+        exts.try_emplace(
+            unordered_map_key(AccelArchiveExt::name),
+            ExtPtr{
+                accel_archive_ext_impl,
+                detail::ext_deleter<DeviceExtension>{[](DeviceExtension *ptr) {
+                    delete static_cast<AccelArchiveExtImpl *>(ptr);
                 }}});
     }
     {

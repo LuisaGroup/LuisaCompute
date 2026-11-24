@@ -64,12 +64,40 @@ private:
     hipDeviceptr_t _motion_aabb_buffer{};
     size_t _motion_aabb_buffer_size{};
     hipDeviceptr_t _motion_device_data{};
+    bool _built{false};
+    bool _is_compacted{false};
+    bool _owns_direct_device_geom{false};
+    uint64_t _last_triangle_count{0u};
     mutable spin_mutex _mutex;
+
+    void _destroy_geometry_no_lock(hiprtContext ctx) noexcept;
 
 public:
     explicit HIPMesh(hiprtContext ctx, const AccelOption &option) noexcept;
     ~HIPMesh() noexcept;
     void build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexcept;
+    void replace_geometry_from_archive(
+        hiprtContext ctx,
+        hipStream_t stream,
+        hiprtGeometry new_geometry,
+        uint64_t triangle_count,
+        bool is_compacted,
+        bool owns_direct_device_geom = false) noexcept;
+    [[nodiscard]] bool is_static_triangle_mesh() const noexcept override {
+        return !_option.motion.is_enabled();
+    }
+    [[nodiscard]] bool is_built() const noexcept {
+        std::scoped_lock lock{_mutex};
+        return _built && _geometry != nullptr;
+    }
+    [[nodiscard]] bool is_compacted() const noexcept {
+        std::scoped_lock lock{_mutex};
+        return _is_compacted;
+    }
+    [[nodiscard]] uint64_t last_triangle_count() const noexcept {
+        std::scoped_lock lock{_mutex};
+        return _last_triangle_count;
+    }
     [[nodiscard]] hiprtGeometry handle() const noexcept override {
         std::scoped_lock lock{_mutex};
         return _geometry;

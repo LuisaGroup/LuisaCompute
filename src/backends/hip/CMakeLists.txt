@@ -17,6 +17,7 @@ if (hip_FOUND)
             hip_geometry_build_policy.cpp hip_geometry_build_policy.h
             hip_geometry_memory_policy.h
             hip_mesh.cpp hip_mesh.h
+            hip_accel_archive_ext.cpp hip_accel_archive_ext.h
             hip_motion_mesh_builtin.cpp hip_motion_mesh_builtin.h
             hip_motion_instance.cpp hip_motion_instance.h
             hip_pinned_memory.cpp hip_pinned_memory.h
@@ -112,6 +113,56 @@ if (hip_FOUND)
     target_sources(luisa-compute-backend-hip PRIVATE
             "${_hip_motion_mesh_builtin_embedded_cpp}"
             "${_hip_motion_mesh_builtin_embedded_h}")
+
+    set(_hip_accel_archive_builtin_source
+            "${CMAKE_CURRENT_LIST_DIR}/hip_accel_archive_builtin.hip")
+    set(_hip_accel_archive_builtin_fatbin
+            "${CMAKE_CURRENT_BINARY_DIR}/hip_accel_archive_builtin.hipfb")
+    set(_hip_accel_archive_builtin_embedded_cpp
+            "${CMAKE_CURRENT_BINARY_DIR}/hip_accel_archive_builtin_embedded.cpp")
+    set(_hip_accel_archive_builtin_embedded_h
+            "${CMAKE_CURRENT_BINARY_DIR}/hip_accel_archive_builtin_embedded.h")
+    add_custom_command(
+            OUTPUT "${_hip_accel_archive_builtin_fatbin}"
+            COMMAND "${hip_HIPCC_EXECUTABLE}"
+            -x hip "${_hip_accel_archive_builtin_source}"
+            -O3 -std=c++17
+            ${_hiprt_offload_args}
+            --genco
+            -o "${_hip_accel_archive_builtin_fatbin}"
+            DEPENDS "${_hip_accel_archive_builtin_source}"
+                    "${hip_HIPCC_EXECUTABLE}"
+                    "${CMAKE_CURRENT_LIST_FILE}"
+            COMMENT "[HIP] Compiling accel-archive verification kernel for ${_hiprt_gpu_archs}..."
+            VERBATIM)
+    add_custom_command(
+            OUTPUT "${_hip_accel_archive_builtin_embedded_cpp}"
+                   "${_hip_accel_archive_builtin_embedded_h}"
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib>
+            "${_hip_accel_archive_builtin_fatbin}"
+            --unsigned --prefix luisa_compute_
+            -o "${_hip_accel_archive_builtin_embedded_cpp}"
+            -h "${_hip_accel_archive_builtin_embedded_h}"
+            COMMAND ${CMAKE_COMMAND} -E touch
+                    "${_hip_accel_archive_builtin_embedded_cpp}"
+                    "${_hip_accel_archive_builtin_embedded_h}"
+            DEPENDS luisa_embed_device_lib
+                    "${_hip_accel_archive_builtin_fatbin}"
+            COMMENT "[HIP] Embedding accel-archive verification kernel..."
+            VERBATIM)
+    add_custom_target(luisa-compute-backend-hip-embed-accel-archive-builtin
+            DEPENDS "${_hip_accel_archive_builtin_fatbin}"
+                    "${_hip_accel_archive_builtin_embedded_cpp}"
+                    "${_hip_accel_archive_builtin_embedded_h}")
+    add_dependencies(luisa-compute-backend-hip
+            luisa-compute-backend-hip-embed-accel-archive-builtin)
+    set_source_files_properties(
+            "${_hip_accel_archive_builtin_embedded_cpp}"
+            "${_hip_accel_archive_builtin_embedded_h}"
+            PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION TRUE)
+    target_sources(luisa-compute-backend-hip PRIVATE
+            "${_hip_accel_archive_builtin_embedded_cpp}"
+            "${_hip_accel_archive_builtin_embedded_h}")
     target_include_directories(luisa-compute-backend-hip PRIVATE
             "${CMAKE_CURRENT_BINARY_DIR}")
 

@@ -310,6 +310,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
 #include "extensions/cuda_dstorage.h"
 #include "extensions/cuda_denoiser.h"
 #include "extensions/cuda_pinned_memory.h"
+#include "extensions/cuda_accel_archive_ext.h"
 #include "extensions/cuda_graph_ext.h"
 #include "extensions/cuda_pdl_stream.h"
 
@@ -1646,6 +1647,7 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
 #endif
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(PinnedMemory, _pinned_memory_ext)
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(AccelArchive, _accel_archive_ext)
     if (name == CudaGraphExt::name) {
         std::scoped_lock lock{_ext_mutex};
         if (_cuda_graph_ext == nullptr) { _cuda_graph_ext = luisa::make_unique<CudaGraphExtImpl>(this); }

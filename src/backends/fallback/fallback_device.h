@@ -18,6 +18,10 @@ namespace llvm::orc {
 class LLJIT;
 }// namespace llvm::orc
 
+namespace luisa::compute {
+class EmbreeAccelArchiveExt;
+}
+
 namespace luisa::compute::fallback {
 
 class FallbackTexCompressInterface;
@@ -32,6 +36,7 @@ private:
 private:
     luisa::spin_mutex _ext_mutex;
     luisa::unique_ptr<FallbackTexCompressInterface> _tex_compress_ext{};
+    luisa::unique_ptr<EmbreeAccelArchiveExt> _accel_archive_ext{};
 
 public:
     explicit FallbackDevice(Context &&ctx, const DeviceConfig *config) noexcept;

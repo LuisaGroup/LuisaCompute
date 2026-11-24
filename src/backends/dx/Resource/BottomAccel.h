@@ -43,6 +43,12 @@ protected:
 
 private:
     uint64 compactSize;
+    uint64 _logicalSize{0};
+    uint64 _lastTriangleCount{0};
+    luisa::compute::AccelOption _option;
+    bool _built{false};
+    bool _isTriangleMesh{false};
+    bool _isCompacted{false};
     bool update = false;
     vstd::fixed_vector<MeshHandle *, 2> handles;
     vstd::spin_mutex handleMtx;
@@ -65,6 +71,21 @@ public:
         size_t offset;
         size_t size;
     };
+    [[nodiscard]] luisa::compute::AccelOption const &Option() const noexcept { return _option; }
+    [[nodiscard]] bool IsBuilt() const noexcept { return _built; }
+    [[nodiscard]] bool IsTriangleMesh() const noexcept { return _isTriangleMesh; }
+    [[nodiscard]] bool IsCompacted() const noexcept { return _isCompacted; }
+    [[nodiscard]] uint64 LogicalSize() const noexcept { return _logicalSize; }
+    [[nodiscard]] uint64 LastTriangleCount() const noexcept { return _lastTriangleCount; }
+    [[nodiscard]] bool HasAccelBuffer() const noexcept { return static_cast<bool>(accelBuffer); }
+    [[nodiscard]] DefaultBuffer const *TryGetAccelBuffer() const noexcept { return accelBuffer.get(); }
+    static void EmitPostCopyBarrier(CommandBufferBuilder &builder, Buffer const *buffer);
+    void ReplaceFromArchive(
+        class CommandAllocator *alloc,
+        vstd::unique_ptr<DefaultBuffer> newBuffer,
+        uint64 logicalSize,
+        bool isCompacted,
+        uint64 triangleCount);
     bool RequireCompact() const;
     Buffer const *GetAccelBuffer() const;
     BottomAccel(

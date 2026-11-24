@@ -1,10 +1,15 @@
 #pragma once
 
+#include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/runtime/device.h>
 
 #include "../../common/default_binary_io.h"
 #include "simd_embree.h"
+
+namespace luisa::compute {
+class EmbreeAccelArchiveExt;
+}
 
 namespace luisa::compute::simd {
 
@@ -22,6 +27,8 @@ private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io{};
     const BinaryIO *_io{nullptr};
     std::unique_ptr<SIMDThreadPool> _thread_pool;
+    mutable luisa::spin_mutex _ext_mutex;
+    luisa::unique_ptr<EmbreeAccelArchiveExt> _accel_archive_ext;
 
 public:
     explicit SIMDDevice(Context &&context, const DeviceConfig *config) noexcept;
@@ -106,6 +113,7 @@ public:
     [[nodiscard]] ResourceCreationInfo create_accel(
         const AccelOption &option) noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
+    [[nodiscard]] DeviceExtension *extension(luisa::string_view name) noexcept override;
     void set_name(
         Resource::Tag resource_tag, uint64_t resource_handle,
         luisa::string_view name) noexcept override;

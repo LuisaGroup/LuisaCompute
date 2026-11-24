@@ -2099,6 +2099,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             const auto *mesh = static_cast<const SIMDMesh *>(primitive);
             if (!mesh->option().motion &&
                 !mesh->option().allow_update &&
+                !mesh->is_imported_blas() &&
                 mesh->has_shared_buffers() &&
                 affine_is_identity(instance.affine) &&
                 mesh_ref_counts[mesh] == 1u) {

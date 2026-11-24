@@ -23,6 +23,7 @@
 #include "hip_procedural_primitive.h"
 #include "hip_accel.h"
 #include "hip_pinned_memory.h"
+#include "hip_accel_archive_ext.h"
 #include "hip_device.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
@@ -775,6 +776,10 @@ HIPDevice::~HIPDevice() noexcept {
             }
         });
     }
+    {
+        std::scoped_lock lock{_extension_mutex};
+        _accel_archive_ext.reset();
+    }
     LUISA_CHECK_HIP(hipDevicePrimaryCtxRelease(_hip_device));
     _hip_context = nullptr;
 }
@@ -948,6 +953,13 @@ DeviceExtension *HIPDevice::extension(luisa::string_view name) noexcept {
             _pinned_memory_ext = luisa::make_unique<HIPPinnedMemoryExt>(this);
         }
         return _pinned_memory_ext.get();
+    }
+    if (name == AccelArchiveExt::name) {
+        std::scoped_lock lock{_extension_mutex};
+        if (_accel_archive_ext == nullptr) {
+            _accel_archive_ext = luisa::make_unique<HIPAccelArchiveExt>(this);
+        }
+        return _accel_archive_ext.get();
     }
     return DeviceInterface::extension(name);
 }

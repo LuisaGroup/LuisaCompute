@@ -17,6 +17,11 @@ namespace luisa::compute::fallback {
 FallbackMesh::FallbackMesh(RTCDevice device, const AccelOption &option) noexcept
     : FallbackPrim{device, RTC_GEOMETRY_TYPE_TRIANGLE, option} {}
 
+FallbackMesh::~FallbackMesh() noexcept {
+    std::scoped_lock lock{_blas_mutex};
+    _imported_bvh.restore_and_release();
+}
+
 void FallbackMesh::bind_shared_buffers(RTCGeometry dst_geom) const noexcept {
     if (auto m = motion()) {
         auto v_count_per_keyframe = _v_count / m.keyframe_count;
@@ -51,6 +56,7 @@ void FallbackMesh::build(luisa::unique_ptr<MeshBuildCommand> cmd) noexcept {
     }
     {
         std::scoped_lock lock{_blas_mutex};
+        _imported_bvh.restore_and_release();
         _v_buffer = v_buffer;
         _v_offset = cmd->vertex_buffer_offset();
         _v_stride = cmd->vertex_stride();
@@ -59,6 +65,8 @@ void FallbackMesh::build(luisa::unique_ptr<MeshBuildCommand> cmd) noexcept {
         _t_offset = cmd->triangle_buffer_offset();
         _t_count = t_count;
         _blas_dirty = true;
+        _built = true;
+        _is_imported_blas.store(false, std::memory_order_release);
         _build_revision.fetch_add(1u, std::memory_order_release);
     }
     // Mirror Cycles Geometry::need_build_bvh(BVH_LAYOUT_EMBREE): defer committing
@@ -69,6 +77,46 @@ void FallbackMesh::build(luisa::unique_ptr<MeshBuildCommand> cmd) noexcept {
     if (!luisa_fallback_direct_static_mesh_enabled() || motion() || option().allow_update) {
         (void)committed_handle();
     }
+}
+
+bool FallbackMesh::import_from_archive(
+    const EmbreeResolvedTriangleGeometry &geom,
+    luisa::span<const std::byte> bvh_payload,
+    const EmbreeOutOfTreeABI &abi,
+    size_t &out_unpacked_bytes,
+    EmbreeArchiveStatus &out_status) noexcept {
+    std::scoped_lock lock{_blas_mutex};
+    EmbreeTriangleBufferBinding binding{_v_buffer, _v_offset, _v_stride, _v_count, _t_buffer, _t_offset, _t_count};
+    auto sync_binding = [&](const EmbreeTriangleBufferBinding &b) noexcept {
+        _v_buffer = b.v_buffer;
+        _v_offset = b.v_offset;
+        _v_stride = b.v_stride;
+        _v_count = b.v_count;
+        _t_buffer = b.t_buffer;
+        _t_offset = b.t_offset;
+        _t_count = b.t_count;
+    };
+    const bool ok = embree_mesh_import_from_archive_locked(
+        abi,
+        handle(),
+        geometry(),
+        geom,
+        bvh_payload,
+        _imported_bvh,
+        binding,
+        _blas_dirty,
+        _built,
+        _is_imported_blas,
+        _build_revision,
+        [&](const EmbreeTriangleBufferBinding &old_b) noexcept {
+            sync_binding(old_b);
+            bind_shared_buffers(geometry());
+            rtcCommitGeometry(geometry());
+        },
+        out_unpacked_bytes,
+        out_status);
+    sync_binding(binding);
+    return ok;
 }
 
 RTCScene FallbackMesh::committed_handle() const noexcept {

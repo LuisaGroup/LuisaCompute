@@ -31,7 +31,13 @@ SIMDMesh::SIMDMesh(
     rtcReleaseGeometry(_geometry);
 }
 
-SIMDMesh::~SIMDMesh() noexcept { rtcReleaseScene(_scene); }
+SIMDMesh::~SIMDMesh() noexcept {
+    {
+        std::scoped_lock lock{_blas_mutex};
+        _imported_bvh.restore_and_release();
+    }
+    rtcReleaseScene(_scene);
+}
 
 void SIMDMesh::bind_shared_buffers(RTCGeometry dst_geometry) const noexcept {
     if (_option.motion) {
@@ -85,6 +91,7 @@ void SIMDMesh::build(const MeshBuildCommand &command) noexcept {
     }
     {
         std::scoped_lock lock{_blas_mutex};
+        _imported_bvh.restore_and_release();
         _v_buffer = vertices;
         _v_offset = command.vertex_buffer_offset();
         _v_stride = command.vertex_stride();
@@ -93,12 +100,54 @@ void SIMDMesh::build(const MeshBuildCommand &command) noexcept {
         _t_offset = command.triangle_buffer_offset();
         _t_count = triangle_count;
         _blas_dirty = true;
+        _built = true;
+        _is_imported_blas.store(false, std::memory_order_release);
         _build_revision.fetch_add(1u, std::memory_order_release);
     }
     if (!simd_direct_static_mesh_enabled() ||
         _option.motion || _option.allow_update) {
         static_cast<void>(handle());
     }
+}
+
+bool SIMDMesh::import_from_archive(
+    const EmbreeResolvedTriangleGeometry &geom,
+    luisa::span<const std::byte> bvh_payload,
+    const EmbreeOutOfTreeABI &abi,
+    size_t &out_unpacked_bytes,
+    EmbreeArchiveStatus &out_status) noexcept {
+    std::scoped_lock lock{_blas_mutex};
+    EmbreeTriangleBufferBinding binding{_v_buffer, _v_offset, _v_stride, _v_count, _t_buffer, _t_offset, _t_count};
+    auto sync_binding = [&](const EmbreeTriangleBufferBinding &b) noexcept {
+        _v_buffer = b.v_buffer;
+        _v_offset = b.v_offset;
+        _v_stride = b.v_stride;
+        _v_count = b.v_count;
+        _t_buffer = b.t_buffer;
+        _t_offset = b.t_offset;
+        _t_count = b.t_count;
+    };
+    const bool ok = embree_mesh_import_from_archive_locked(
+        abi,
+        _scene,
+        _geometry,
+        geom,
+        bvh_payload,
+        _imported_bvh,
+        binding,
+        _blas_dirty,
+        _built,
+        _is_imported_blas,
+        _build_revision,
+        [&](const EmbreeTriangleBufferBinding &old_b) noexcept {
+            sync_binding(old_b);
+            bind_shared_buffers(_geometry);
+            rtcCommitGeometry(_geometry);
+        },
+        out_unpacked_bytes,
+        out_status);
+    sync_binding(binding);
+    return ok;
 }
 
 RTCScene SIMDMesh::handle() const noexcept {

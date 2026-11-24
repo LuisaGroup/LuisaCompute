@@ -40,7 +40,7 @@ static constexpr VkAccessFlagBits2 kBarrierAccessMap[] = {
     VK_ACCESS_2_TRANSFER_READ_BIT,                                             // kCopySource,
     VK_ACCESS_2_TRANSFER_WRITE_BIT,                                            // kCopyDest,
     VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,                          // kBuildAccel,
-    VK_ACCESS_2_TRANSFER_READ_BIT,                                             // kCopyAccelSrc
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,                           // kCopyAccelSrc
     VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,                          // kCopyAccelDst
     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,                             //kDepthRead
     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,                            //kDepthWrite
