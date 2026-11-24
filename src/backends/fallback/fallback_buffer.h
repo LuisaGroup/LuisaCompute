@@ -25,6 +25,7 @@ public:
     FallbackBuffer(std::byte *data, size_t size) noexcept;// create from external memory
     ~FallbackBuffer() noexcept;
     [[nodiscard]] auto data() noexcept { return _data; }
+    [[nodiscard]] auto size_bytes() const noexcept { return static_cast<size_t>(_size); }
     [[nodiscard]] FallbackBufferView view(size_t offset, size_t size) noexcept;
     [[nodiscard]] FallbackBufferView view_with_offset(size_t offset) noexcept;
 };

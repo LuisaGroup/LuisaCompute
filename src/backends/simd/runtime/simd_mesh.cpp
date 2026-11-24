@@ -93,12 +93,75 @@ void SIMDMesh::build(const MeshBuildCommand &command) noexcept {
         _t_offset = command.triangle_buffer_offset();
         _t_count = triangle_count;
         _blas_dirty = true;
+        _built = true;
+        _is_imported_blas.store(false, std::memory_order_release);
         _build_revision.fetch_add(1u, std::memory_order_release);
     }
     if (!simd_direct_static_mesh_enabled() ||
         _option.motion || _option.allow_update) {
         static_cast<void>(handle());
     }
+}
+
+bool SIMDMesh::import_from_archive(
+    const EmbreeResolvedTriangleGeometry &geom,
+    luisa::span<const std::byte> bvh_payload,
+    EmbreeArchiveImportFn import_fn,
+    size_t &out_unpacked_bytes,
+    EmbreeArchiveStatus &out_status) noexcept {
+    if (import_fn == nullptr || bvh_payload.empty()) {
+        out_status = EmbreeArchiveStatus::INVALID_ARGUMENT;
+        return false;
+    }
+    std::scoped_lock lock{_blas_mutex};
+    const auto old_v_buf = _v_buffer;
+    const auto old_v_ofs = _v_offset;
+    const auto old_v_str = _v_stride;
+    const auto old_v_cnt = _v_count;
+    const auto old_t_buf = _t_buffer;
+    const auto old_t_ofs = _t_offset;
+    const auto old_t_cnt = _t_count;
+    const bool old_dirty = _blas_dirty;
+    const bool old_built = _built;
+
+    _v_buffer = geom.vertex_buffer;
+    _v_offset = geom.vertex_offset;
+    _v_stride = geom.vertex_stride;
+    _v_count = geom.vertex_count;
+    _t_buffer = geom.triangle_buffer;
+    _t_offset = geom.triangle_offset;
+    _t_count = geom.triangle_count;
+    bind_shared_buffers(_geometry);
+    rtcCommitGeometry(_geometry);
+
+    out_status = import_fn(
+        _scene,
+        bvh_payload.data(),
+        bvh_payload.size(),
+        &out_unpacked_bytes);
+    if (out_status != EmbreeArchiveStatus::OK) {
+        _v_buffer = old_v_buf;
+        _v_offset = old_v_ofs;
+        _v_stride = old_v_str;
+        _v_count = old_v_cnt;
+        _t_buffer = old_t_buf;
+        _t_offset = old_t_ofs;
+        _t_count = old_t_cnt;
+        if (old_built && old_v_buf != nullptr && old_t_buf != nullptr) {
+            bind_shared_buffers(_geometry);
+            rtcCommitGeometry(_geometry);
+            _blas_dirty = true;
+        } else {
+            _blas_dirty = old_dirty;
+        }
+        return false;
+    }
+
+    _blas_dirty = false;
+    _built = true;
+    _is_imported_blas.store(true, std::memory_order_release);
+    _build_revision.fetch_add(1u, std::memory_order_release);
+    return true;
 }
 
 RTCScene SIMDMesh::handle() const noexcept {

@@ -182,6 +182,7 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_accel_ray_query_status.cpp
         runtime/simd_accel_ray_query_filter_pipeline.cpp
         runtime/simd_swapchain.cpp
+        ../common/embree_accel_archive.cpp
         ../common/default_binary_io.cpp)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # Keep the optional W8/W16 ray-query filter from contributing a small

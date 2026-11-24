@@ -651,6 +651,10 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
 
     _block_size = kernel.block_size();
     _build_bound_arguments(kernel.bound_arguments());
+    _argument_usages.reserve(kernel.arguments().size());
+    for (auto arg : kernel.arguments()) {
+        _argument_usages.emplace_back(kernel.variable_usage(arg.uid()));
+    }
 
     // Compute the dispatch argument layout before trying the cache. Bound
     // resource handles and uniform values are intentionally absent from the

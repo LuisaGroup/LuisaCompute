@@ -21,8 +21,10 @@
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/format.h>
 
 #include "../../common/indirect_dispatch_layout.h"
+#include "../../common/embree_accel_archive.h"
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
@@ -215,6 +217,7 @@ SIMDDevice::SIMDDevice(
 }
 
 SIMDDevice::~SIMDDevice() noexcept {
+    _accel_archive_ext.reset();
     _thread_pool.reset();
     if (_rtc_device != nullptr) {
         shared_embree_device().release();
@@ -541,6 +544,80 @@ ResourceCreationInfo SIMDDevice::create_accel(
 void SIMDDevice::destroy_accel(uint64_t handle) noexcept {
     luisa::delete_with_allocator(
         reinterpret_cast<SIMDAccel *>(handle));
+}
+
+DeviceExtension *SIMDDevice::extension(luisa::string_view name) noexcept {
+    if (name == AccelArchiveExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (_accel_archive_ext == nullptr) {
+            EmbreeAccelArchiveOps ops{};
+            ops.backend_kind = AccelArchiveBackendKind::SIMD;
+            ops.rtc_device = _rtc_device;
+            ops.device_fingerprint = luisa::format("embree4_simd_cpu_w{}", _warp_width);
+            ops.user_ctx = this;
+            ops.validate_stream = [](void *, uint64_t stream_handle) noexcept -> bool {
+                return stream_handle != invalid_resource_handle && stream_handle != 0u;
+            };
+            ops.synchronize_stream = [](void *, uint64_t stream_handle) noexcept {
+                reinterpret_cast<SIMDStream *>(stream_handle)->synchronize();
+            };
+            ops.get_mesh_export_state = [](void *, uint64_t mesh_handle, EmbreeMeshExportState &out_state) noexcept -> AccelArchiveResult {
+                const auto *prim = reinterpret_cast<const SIMDPrimitive *>(mesh_handle);
+                if (prim->kind() != SIMDPrimitive::Kind::mesh) {
+                    return accel_archive::make_archive_error(
+                        AccelArchiveStatus::INVALID_ARGUMENT,
+                        "Resource handle does not denote a SIMDMesh.");
+                }
+                const auto *mesh = static_cast<const SIMDMesh *>(prim);
+                out_state.option = mesh->option();
+                out_state.is_built = mesh->is_built();
+                out_state.triangle_count = mesh->last_triangle_count();
+                out_state.committed_rtc_scene = out_state.is_built ?
+                                                    static_cast<void *>(mesh->handle()) :
+                                                    nullptr;
+                return {};
+            };
+            ops.resolve_geometry_binding = [](void *, uint64_t mesh_handle, const AccelArchiveMeshDesc &expected_desc,
+                                              const AccelArchiveGeometryBinding &binding,
+                                              EmbreeResolvedTriangleGeometry &out_geom) noexcept -> AccelArchiveResult {
+                const auto *prim = reinterpret_cast<const SIMDPrimitive *>(mesh_handle);
+                if (prim->kind() != SIMDPrimitive::Kind::mesh) {
+                    return accel_archive::make_archive_error(
+                        AccelArchiveStatus::INVALID_ARGUMENT,
+                        "Resource handle does not denote a SIMDMesh.");
+                }
+                const auto *mesh = static_cast<const SIMDMesh *>(prim);
+                if (binding.vertex_buffer == invalid_resource_handle || binding.vertex_buffer == 0u ||
+                    binding.triangle_buffer == invalid_resource_handle || binding.triangle_buffer == 0u) {
+                    return accel_archive::make_archive_error(
+                        AccelArchiveStatus::INVALID_ARGUMENT,
+                        "Embree BLAS import requires valid rebound vertex and triangle buffer handles.");
+                }
+                auto *vbuf = reinterpret_cast<SIMDBuffer *>(binding.vertex_buffer);
+                auto *tbuf = reinterpret_cast<SIMDBuffer *>(binding.triangle_buffer);
+                return validate_embree_triangle_binding(
+                    mesh->option(),
+                    expected_desc,
+                    binding,
+                    static_cast<const std::byte *>(vbuf->data()),
+                    vbuf->size(),
+                    static_cast<const std::byte *>(tbuf->data()),
+                    tbuf->size(),
+                    out_geom);
+            };
+            ops.import_mesh_bvh = [](void *, uint64_t mesh_handle, const EmbreeResolvedTriangleGeometry &geom,
+                                     luisa::span<const std::byte> bvh_payload, EmbreeArchiveImportFn import_fn,
+                                     size_t &out_unpacked_bytes, EmbreeArchiveStatus &out_status) noexcept -> AccelArchiveResult {
+                auto *mesh = static_cast<SIMDMesh *>(reinterpret_cast<SIMDPrimitive *>(mesh_handle));
+                static_cast<void>(mesh->import_from_archive(
+                    geom, bvh_payload, import_fn, out_unpacked_bytes, out_status));
+                return {};
+            };
+            _accel_archive_ext = luisa::make_unique<EmbreeAccelArchiveExt>(std::move(ops));
+        }
+        return _accel_archive_ext.get();
+    }
+    return DeviceInterface::extension(name);
 }
 
 void SIMDDevice::set_name(

@@ -31,6 +31,7 @@
 
 // extensions
 #include "fallback_tex_compress.h"
+#include "../common/embree_accel_archive.h"
 
 namespace luisa::compute::fallback {
 
@@ -101,6 +102,7 @@ FallbackDevice::~FallbackDevice() noexcept {
             static_cast<unsigned long long>(s.last_instanced_slots.load()));
         std::fflush(stdout);
     }
+    _accel_archive_ext.reset();
     rtcReleaseDevice(_rtc_device);
 }
 
@@ -251,7 +253,7 @@ ShaderCreationInfo FallbackDevice::load_shader(luisa::string_view name, luisa::s
 }
 
 Usage FallbackDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
-    LUISA_NOT_IMPLEMENTED();
+    return reinterpret_cast<FallbackShader *>(handle)->argument_usage(index);
 }
 
 void FallbackDevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept {
@@ -333,6 +335,76 @@ DeviceExtension *FallbackDevice::extension(luisa::string_view name) noexcept {
         std::scoped_lock lock{_ext_mutex};
         if (_tex_compress_ext == nullptr) { _tex_compress_ext = create_fallback_tex_compress_ext(); }
         return _tex_compress_ext.get();
+    }
+    if (name == AccelArchiveExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (_accel_archive_ext == nullptr) {
+            EmbreeAccelArchiveOps ops{};
+            ops.backend_kind = AccelArchiveBackendKind::FALLBACK;
+            ops.rtc_device = _rtc_device;
+            ops.device_fingerprint = "embree4_fallback_cpu";
+            ops.user_ctx = this;
+            ops.validate_stream = [](void *, uint64_t stream_handle) noexcept -> bool {
+                return stream_handle != invalid_resource_handle && stream_handle != 0u;
+            };
+            ops.synchronize_stream = [](void *, uint64_t stream_handle) noexcept {
+                reinterpret_cast<FallbackStream *>(stream_handle)->synchronize();
+            };
+            ops.get_mesh_export_state = [](void *, uint64_t mesh_handle, EmbreeMeshExportState &out_state) noexcept -> AccelArchiveResult {
+                const auto *base = reinterpret_cast<const FallbackPrimBase *>(mesh_handle);
+                if (base->is_motion_instance() || !static_cast<const FallbackPrim *>(base)->is_mesh()) {
+                    return accel_archive::make_archive_error(
+                        AccelArchiveStatus::INVALID_ARGUMENT,
+                        "Resource handle does not denote a FallbackMesh.");
+                }
+                const auto *mesh = static_cast<const FallbackMesh *>(base);
+                out_state.option = mesh->option();
+                out_state.is_built = mesh->is_built();
+                out_state.triangle_count = mesh->last_triangle_count();
+                out_state.committed_rtc_scene = out_state.is_built ?
+                                                    static_cast<void *>(mesh->committed_handle()) :
+                                                    nullptr;
+                return {};
+            };
+            ops.resolve_geometry_binding = [](void *, uint64_t mesh_handle, const AccelArchiveMeshDesc &expected_desc,
+                                              const AccelArchiveGeometryBinding &binding,
+                                              EmbreeResolvedTriangleGeometry &out_geom) noexcept -> AccelArchiveResult {
+                const auto *base = reinterpret_cast<const FallbackPrimBase *>(mesh_handle);
+                if (base->is_motion_instance() || !static_cast<const FallbackPrim *>(base)->is_mesh()) {
+                    return accel_archive::make_archive_error(
+                        AccelArchiveStatus::INVALID_ARGUMENT,
+                        "Resource handle does not denote a FallbackMesh.");
+                }
+                const auto *mesh = static_cast<const FallbackMesh *>(base);
+                if (binding.vertex_buffer == invalid_resource_handle || binding.vertex_buffer == 0u ||
+                    binding.triangle_buffer == invalid_resource_handle || binding.triangle_buffer == 0u) {
+                    return accel_archive::make_archive_error(
+                        AccelArchiveStatus::INVALID_ARGUMENT,
+                        "Embree BLAS import requires valid rebound vertex and triangle buffer handles.");
+                }
+                auto *vbuf = reinterpret_cast<FallbackBuffer *>(binding.vertex_buffer);
+                auto *tbuf = reinterpret_cast<FallbackBuffer *>(binding.triangle_buffer);
+                return validate_embree_triangle_binding(
+                    mesh->option(),
+                    expected_desc,
+                    binding,
+                    static_cast<const std::byte *>(vbuf->data()),
+                    vbuf->size_bytes(),
+                    static_cast<const std::byte *>(tbuf->data()),
+                    tbuf->size_bytes(),
+                    out_geom);
+            };
+            ops.import_mesh_bvh = [](void *, uint64_t mesh_handle, const EmbreeResolvedTriangleGeometry &geom,
+                                     luisa::span<const std::byte> bvh_payload, EmbreeArchiveImportFn import_fn,
+                                     size_t &out_unpacked_bytes, EmbreeArchiveStatus &out_status) noexcept -> AccelArchiveResult {
+                auto *mesh = static_cast<FallbackMesh *>(reinterpret_cast<FallbackPrimBase *>(mesh_handle));
+                static_cast<void>(mesh->import_from_archive(
+                    geom, bvh_payload, import_fn, out_unpacked_bytes, out_status));
+                return {};
+            };
+            _accel_archive_ext = luisa::make_unique<EmbreeAccelArchiveExt>(std::move(ops));
+        }
+        return _accel_archive_ext.get();
     }
     return DeviceInterface::extension(name);
 }

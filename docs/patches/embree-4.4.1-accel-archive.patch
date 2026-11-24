@@ -1,0 +1,1275 @@
+diff --git a/include/embree4/rtcore_scene.h b/include/embree4/rtcore_scene.h
+index 74f7ccf..30b6c82 100644
+--- a/include/embree4/rtcore_scene.h
++++ b/include/embree4/rtcore_scene.h
+@@ -342,6 +342,45 @@ typedef void (*RTCCollideFunc) (void* userPtr, struct RTCCollision* collisions,
+ /*! Performs collision detection of two scenes */
+ RTC_API void rtcCollide (RTCScene scene0, RTCScene scene1, RTCCollideFunc callback, void* userPtr);
+ 
++/* Opt-in static triangle BVH serialization / relocation extension */
++typedef enum RTCExAccelArchiveStatus {
++  RTC_EX_ACCEL_ARCHIVE_STATUS_OK = 0,
++  RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT = 1,
++  RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT = 2,
++  RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT = 3,
++  RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_CONFIG = 4,
++  RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_ISA = 5,
++  RTC_EX_ACCEL_ARCHIVE_STATUS_BUFFER_TOO_SMALL = 6,
++  RTC_EX_ACCEL_ARCHIVE_STATUS_INTERNAL_ERROR = 7
++} RTCExAccelArchiveStatus;
++
++struct RTCExStaticTriangleBVHArchiveConfig {
++  unsigned int struct_size;
++  unsigned int archive_abi_version;
++  unsigned int embree_version_number;
++  unsigned int build_config_flags;
++  unsigned int enabled_cpu_features;
++  unsigned int supports_static_triangle_bvh;
++  unsigned int supports_bvh4;
++  unsigned int supports_bvh8;
++};
++
++RTC_API RTCExAccelArchiveStatus rtcExQueryStaticTriangleBVHArchiveConfig(
++  RTCDevice hdevice, struct RTCExStaticTriangleBVHArchiveConfig* out_config);
++
++RTC_API RTCExAccelArchiveStatus rtcExExportStaticTriangleBVH(
++  RTCScene hscene,
++  void* out_buffer,
++  size_t buffer_capacity,
++  size_t* out_written_size,
++  size_t* out_unpacked_bytes);
++
++RTC_API RTCExAccelArchiveStatus rtcExImportStaticTriangleBVH(
++  RTCScene hscene,
++  const void* in_buffer,
++  size_t buffer_size,
++  size_t* out_unpacked_bytes);
++
+ #if defined(__cplusplus)
+ 
+ /* Helper for easily combining scene flags */
+diff --git a/kernels/CMakeLists.txt b/kernels/CMakeLists.txt
+index b827807..cb883fa 100644
+--- a/kernels/CMakeLists.txt
++++ b/kernels/CMakeLists.txt
+@@ -72,6 +72,7 @@ SET(EMBREE_LIBRARY_FILES
+   builders/primrefgen.cpp
+ 
+   bvh/bvh.cpp
++  bvh/bvh_accel_archive.cpp
+   bvh/bvh_statistics.cpp
+   bvh/bvh4_factory.cpp
+   bvh/bvh8_factory.cpp
+@@ -174,6 +175,7 @@ MACRO(embree_files TARGET ISA)
+   IF (${ISA} EQUAL ${AVX})
+     LIST(APPEND ${TARGET}
+       bvh/bvh.cpp
++      bvh/bvh_accel_archive.cpp
+       bvh/bvh_statistics.cpp)
+   ENDIF()
+ 
+diff --git a/kernels/bvh/bvh4_factory.cpp b/kernels/bvh/bvh4_factory.cpp
+index d03940d..8e8aa21 100644
+--- a/kernels/bvh/bvh4_factory.cpp
++++ b/kernels/bvh/bvh4_factory.cpp
+@@ -493,6 +493,16 @@ namespace embree
+ #endif
+   }
+ 
++  Accel::Intersectors BVH4Factory::BVH4TriangleIntersectorsByPrimKind(BVH4* bvh, unsigned int prim_kind, IntersectVariant ivariant)
++  {
++    switch (prim_kind) {
++    case 1: return BVH4Triangle4Intersectors(bvh, ivariant);
++    case 2: return BVH4Triangle4vIntersectors(bvh, ivariant);
++    case 3: return BVH4Triangle4iIntersectors(bvh, ivariant);
++    default: return Accel::Intersectors();
++    }
++  }
++
+   Accel::Intersectors BVH4Factory::BVH4OBBVirtualCurveIntersectors(BVH4* bvh, VirtualCurveIntersector* leafIntersector, IntersectVariant ivariant)
+   {
+     switch (ivariant) {
+diff --git a/kernels/bvh/bvh4_factory.h b/kernels/bvh/bvh4_factory.h
+index abf51dd..410dc7a 100644
+--- a/kernels/bvh/bvh4_factory.h
++++ b/kernels/bvh/bvh4_factory.h
+@@ -54,6 +54,8 @@ namespace embree
+     Accel* BVH4Grid(Scene* scene, BuildVariant bvariant = BuildVariant::STATIC, IntersectVariant ivariant = IntersectVariant::FAST);
+     Accel* BVH4GridMB(Scene* scene, BuildVariant bvariant = BuildVariant::STATIC, IntersectVariant ivariant = IntersectVariant::FAST);
+ 
++    Accel::Intersectors BVH4TriangleIntersectorsByPrimKind(BVH4* bvh, unsigned int prim_kind, IntersectVariant ivariant);
++
+   private:
+     void selectBuilders(int features);
+     void selectIntersectors(int features);
+diff --git a/kernels/bvh/bvh8_factory.cpp b/kernels/bvh/bvh8_factory.cpp
+index 7c0f756..1ac4c56 100644
+--- a/kernels/bvh/bvh8_factory.cpp
++++ b/kernels/bvh/bvh8_factory.cpp
+@@ -442,6 +442,16 @@ namespace embree
+ #endif
+   }
+ 
++  Accel::Intersectors BVH8Factory::BVH8TriangleIntersectorsByPrimKind(BVH8* bvh, unsigned int prim_kind, IntersectVariant ivariant)
++  {
++    switch (prim_kind) {
++    case 1: return BVH8Triangle4Intersectors(bvh, ivariant);
++    case 2: return BVH8Triangle4vIntersectors(bvh, ivariant);
++    case 3: return BVH8Triangle4iIntersectors(bvh, ivariant);
++    default: return Accel::Intersectors();
++    }
++  }
++
+   Accel::Intersectors BVH8Factory::BVH8OBBVirtualCurveIntersectors(BVH8* bvh, VirtualCurveIntersector* leafIntersector, IntersectVariant ivariant)
+   {
+     switch (ivariant) {
+diff --git a/kernels/bvh/bvh8_factory.h b/kernels/bvh/bvh8_factory.h
+index e55310b..53efac1 100644
+--- a/kernels/bvh/bvh8_factory.h
++++ b/kernels/bvh/bvh8_factory.h
+@@ -45,6 +45,8 @@ namespace embree
+     Accel* BVH8Grid(Scene* scene, BuildVariant bvariant = BuildVariant::STATIC, IntersectVariant ivariant = IntersectVariant::FAST);
+     Accel* BVH8GridMB(Scene* scene, BuildVariant bvariant = BuildVariant::STATIC, IntersectVariant ivariant = IntersectVariant::FAST);
+ 
++    Accel::Intersectors BVH8TriangleIntersectorsByPrimKind(BVH8* bvh, unsigned int prim_kind, IntersectVariant ivariant);
++
+   private:
+     void selectBuilders(int features);
+     void selectIntersectors(int features);
+diff --git a/kernels/bvh/bvh_accel_archive.cpp b/kernels/bvh/bvh_accel_archive.cpp
+new file mode 100644
+index 0000000..7f6a7bf
+--- /dev/null
++++ b/kernels/bvh/bvh_accel_archive.cpp
+@@ -0,0 +1,922 @@
++// Copyright 2009-2021 Intel Corporation
++// SPDX-License-Identifier: Apache-2.0
++
++#include "bvh_accel_archive.h"
++#include "bvh4_factory.h"
++#if defined(EMBREE_TARGET_SIMD8)
++#include "bvh8_factory.h"
++#endif
++
++#include "../common/accelinstance.h"
++#include "../common/device.h"
++#include "../common/scene.h"
++#include "../common/scene_triangle_mesh.h"
++#include "../geometry/triangle.h"
++#include "../geometry/trianglev.h"
++#include "../geometry/trianglei.h"
++
++#include <cmath>
++#include <cstdint>
++#include <cstring>
++#include <limits>
++#include <vector>
++
++namespace embree
++{
++  namespace
++  {
++    using EmbreeStaticTriangleBVHPayloadHeader =
++      bvh_archive_detail::EmbreeStaticTriangleBVHPayloadHeader;
++
++    constexpr uint32_t kArchiveMagic = 0x45425648u; // "EBVH"
++    constexpr uint32_t kArchiveAbiVersion = 1u;
++
++    enum : uint32_t {
++      kPrimKindUnknown = 0u,
++      kPrimKindTriangle4 = 1u,
++      kPrimKindTriangle4v = 2u,
++      kPrimKindTriangle4i = 3u,
++    };
++
++    enum : uint32_t {
++      kIvariantFast = 0u,
++      kIvariantRobust = 1u,
++    };
++
++    constexpr uint64_t kRelocLeafFlag = (1ull << 63);
++    constexpr uint64_t kRelocBlockCountShift = 56u;
++    constexpr uint64_t kRelocBlockCountMask = 0x7full;
++    constexpr uint64_t kRelocIndexMask = ((1ull << 56) - 1ull);
++
++    inline uint32_t current_build_config_flags() noexcept
++    {
++      uint32_t flags = 0u;
++#if defined(EMBREE_RAY_MASK)
++      flags |= (1u << 0);
++#endif
++#if defined(EMBREE_FILTER_FUNCTION)
++      flags |= (1u << 1);
++#endif
++#if defined(EMBREE_RAY_PACKETS)
++      flags |= (1u << 2);
++#endif
++#if defined(EMBREE_BACKFACE_CULLING)
++      flags |= (1u << 3);
++#endif
++#if defined(EMBREE_COMPACT_POLYS)
++      flags |= (1u << 4);
++#endif
++#if defined(EMBREE_TARGET_SIMD8)
++      flags |= (1u << 5);
++#endif
++#if RTC_MIN_WIDTH
++      flags |= (1u << 6);
++#endif
++#if UINTPTR_MAX == UINT64_MAX
++      flags |= (1u << 7);
++#endif
++      flags |= (static_cast<uint32_t>(RTC_MAX_INSTANCE_LEVEL_COUNT) & 0xffu) << 8;
++      return flags;
++    }
++
++    inline bool checked_mul_add(
++      uint64_t a,
++      uint64_t b,
++      uint64_t addend,
++      uint64_t& out) noexcept
++    {
++      if (a != 0ull && b > (std::numeric_limits<uint64_t>::max() - addend) / a) {
++        return false;
++      }
++      out = addend + a * b;
++      return true;
++    }
++
++    template<typename Prim>
++    inline uint32_t classify_prim_type() noexcept;
++
++    template<>
++    inline uint32_t classify_prim_type<Triangle4>() noexcept { return kPrimKindTriangle4; }
++
++    template<>
++    inline uint32_t classify_prim_type<Triangle4v>() noexcept { return kPrimKindTriangle4v; }
++
++    template<>
++    inline uint32_t classify_prim_type<Triangle4i>() noexcept { return kPrimKindTriangle4i; }
++
++    inline size_t prim_struct_bytes_for_kind(uint32_t prim_kind) noexcept
++    {
++      switch (prim_kind) {
++      case kPrimKindTriangle4:
++        return sizeof(Triangle4);
++      case kPrimKindTriangle4v:
++        return sizeof(Triangle4v);
++      case kPrimKindTriangle4i:
++        return sizeof(Triangle4i);
++      default:
++        return 0u;
++      }
++    }
++
++    inline bool is_supported_triangle_prim_and_ivariant(
++      uint32_t prim_kind,
++      uint32_t ivariant) noexcept
++    {
++      switch (prim_kind) {
++      case kPrimKindTriangle4:
++        return ivariant == kIvariantFast;
++      case kPrimKindTriangle4v:
++        return ivariant == kIvariantRobust;
++      case kPrimKindTriangle4i:
++        return ivariant == kIvariantFast || ivariant == kIvariantRobust;
++      default:
++        return false;
++      }
++    }
++
++    inline const PrimitiveType& prim_type_for_kind(uint32_t prim_kind) noexcept
++    {
++      switch (prim_kind) {
++      case kPrimKindTriangle4:
++        return Triangle4::type;
++      case kPrimKindTriangle4v:
++        return Triangle4v::type;
++      case kPrimKindTriangle4i:
++      default:
++        return Triangle4i::type;
++      }
++    }
++
++    template<int M>
++    struct TriangleMiAccess : public embree::TriangleMi<M>
++    {
++#if !defined(EMBREE_COMPACT_POLYS)
++      using embree::TriangleMi<M>::v0_;
++      using embree::TriangleMi<M>::v1_;
++      using embree::TriangleMi<M>::v2_;
++#endif
++      using embree::TriangleMi<M>::geomIDs;
++      using embree::TriangleMi<M>::primIDs;
++    };
++
++    template<typename Prim>
++    inline bool validate_leaf_block(
++      const Prim& prim,
++      uint64_t vertex_count,
++      uint64_t triangle_count,
++      uint64_t vertex_stride_bytes) noexcept
++    {
++      if (!prim.valid(0)) {
++        return false;
++      }
++      for (size_t i = 0; i < Prim::max_size(); ++i) {
++        if (prim.valid(i)) {
++          if (prim.geomID(i) != 0u || static_cast<uint64_t>(prim.primID(i)) >= triangle_count) {
++            return false;
++          }
++        }
++      }
++      (void)vertex_count;
++      (void)vertex_stride_bytes;
++      return true;
++    }
++
++    template<>
++    inline bool validate_leaf_block<Triangle4i>(
++      const Triangle4i& prim,
++      uint64_t vertex_count,
++      uint64_t triangle_count,
++      uint64_t vertex_stride_bytes) noexcept
++    {
++      if (!prim.valid(0)) {
++        return false;
++      }
++      const uint64_t float_stride = vertex_stride_bytes / 4ull;
++      if (float_stride < 3ull || vertex_count == 0ull) {
++        return false;
++      }
++      const uint64_t max_float_offset = (vertex_count - 1ull) * float_stride;
++      const auto& acc = static_cast<const TriangleMiAccess<4>&>(prim);
++      for (size_t i = 0; i < 4; ++i) {
++        if (acc.geomIDs[i] != 0u) {
++          return false;
++        }
++        const unsigned int pid = acc.primIDs[i];
++        if (pid != static_cast<unsigned int>(-1) &&
++            static_cast<uint64_t>(pid) >= triangle_count) {
++          return false;
++        }
++#if !defined(EMBREE_COMPACT_POLYS)
++        if (static_cast<uint64_t>(acc.v0_[i]) > max_float_offset ||
++            static_cast<uint64_t>(acc.v1_[i]) > max_float_offset ||
++            static_cast<uint64_t>(acc.v2_[i]) > max_float_offset ||
++            (static_cast<uint64_t>(acc.v0_[i]) % float_stride) != 0ull ||
++            (static_cast<uint64_t>(acc.v1_[i]) % float_stride) != 0ull ||
++            (static_cast<uint64_t>(acc.v2_[i]) % float_stride) != 0ull) {
++          return false;
++        }
++#else
++        (void)max_float_offset;
++#endif
++      }
++      return true;
++    }
++
++    template<int N>
++    Accel::Intersectors select_triangle_intersectors(
++      Device* device,
++      BVHN<N>* bvh,
++      uint32_t prim_kind,
++      uint32_t ivariant) noexcept;
++
++#if defined(EMBREE_LOWEST_ISA)
++    template<>
++    inline Accel::Intersectors select_triangle_intersectors<4>(
++      Device* device,
++      BVH4* bvh,
++      uint32_t prim_kind,
++      uint32_t ivariant) noexcept
++    {
++      const auto v = (ivariant == kIvariantRobust)
++        ? BVHFactory::IntersectVariant::ROBUST
++        : BVHFactory::IntersectVariant::FAST;
++      return device->bvh4_factory->BVH4TriangleIntersectorsByPrimKind(bvh, prim_kind, v);
++    }
++#endif
++
++#if defined(__AVX__) && defined(EMBREE_TARGET_SIMD8)
++    template<>
++    inline Accel::Intersectors select_triangle_intersectors<8>(
++      Device* device,
++      BVH8* bvh,
++      uint32_t prim_kind,
++      uint32_t ivariant) noexcept
++    {
++      const auto v = (ivariant == kIvariantRobust)
++        ? BVHFactory::IntersectVariant::ROBUST
++        : BVHFactory::IntersectVariant::FAST;
++      return device->bvh8_factory->BVH8TriangleIntersectorsByPrimKind(bvh, prim_kind, v);
++    }
++#endif
++
++    template<int N, typename Prim>
++    RTCExAccelArchiveStatus export_typed_bvh(
++      Scene* scene,
++      AccelInstance* inst,
++      BVHN<N>* bvh,
++      TriangleMesh* mesh,
++      uint32_t ivariant,
++      void* out_buffer,
++      size_t buffer_capacity,
++      size_t* out_written_size,
++      size_t* out_unpacked_bytes)
++    {
++      using BVH = BVHN<N>;
++      using NodeRef = typename BVH::NodeRef;
++      using AABBNode = typename BVH::AABBNode;
++      static_assert(sizeof(NodeRef) == sizeof(uint64_t), "64-bit Embree NodeRef required.");
++
++      struct StackEntry {
++        const AABBNode* src;
++        uint64_t dst_index;
++      };
++
++      vector_t<AABBNode, aligned_allocator<AABBNode, 32>> serialized_nodes;
++      vector_t<Prim, aligned_allocator<Prim, 16>> leaf_blocks;
++      std::vector<StackEntry> stack;
++
++      auto encode_ref = [&](NodeRef ref, uint64_t& out_reloc) -> RTCExAccelArchiveStatus {
++        if (ref.isBarrier() || ref == BVH::invalidNode || ref == BVH::popRay) {
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++        }
++        // emptyNode == tyLeaf (bit 3 set), so test emptyNode BEFORE isLeaf()!
++        if (ref == BVH::emptyNode) {
++          out_reloc = 0ull;
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++        }
++        if (ref.isLeaf()) {
++          size_t num_blocks = 0u;
++          const char* leaf_ptr = ref.leaf(num_blocks);
++          if (leaf_ptr == nullptr || num_blocks == 0u || num_blocks > BVH::maxLeafBlocks) {
++            return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++          }
++          const uint64_t leaf_idx = static_cast<uint64_t>(leaf_blocks.size());
++          if (leaf_idx + num_blocks > kRelocIndexMask) {
++            return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++          }
++          const size_t old_count = leaf_blocks.size();
++          leaf_blocks.resize(old_count + num_blocks);
++          std::memcpy(leaf_blocks.data() + old_count, leaf_ptr, num_blocks * sizeof(Prim));
++          out_reloc = kRelocLeafFlag |
++                      ((static_cast<uint64_t>(num_blocks) & kRelocBlockCountMask) << kRelocBlockCountShift) |
++                      leaf_idx;
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++        }
++        if (!ref.isAABBNode()) {
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++        }
++        const AABBNode* child_node = ref.getAABBNode();
++        if (child_node == nullptr) {
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++        }
++        const uint64_t child_idx = static_cast<uint64_t>(serialized_nodes.size());
++        if (child_idx + 1ull >= kRelocLeafFlag) {
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++        }
++        serialized_nodes.resize(static_cast<size_t>(child_idx + 1ull));
++        stack.push_back(StackEntry{child_node, child_idx});
++        out_reloc = child_idx + 1ull;
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++      };
++
++      uint64_t root_reloc = 0ull;
++      const auto root_status = encode_ref(bvh->root, root_reloc);
++      if (root_status != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++        return root_status;
++      }
++
++      while (!stack.empty()) {
++        const StackEntry entry = stack.back();
++        stack.pop_back();
++        AABBNode copy_node = *entry.src;
++        for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
++          uint64_t child_reloc = 0ull;
++          const auto child_status = encode_ref(entry.src->child(c), child_reloc);
++          if (child_status != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++            return child_status;
++          }
++          copy_node.children[c] = NodeRef(static_cast<size_t>(child_reloc));
++        }
++        serialized_nodes[static_cast<size_t>(entry.dst_index)] = copy_node;
++      }
++
++      const uint64_t node_count = static_cast<uint64_t>(serialized_nodes.size());
++      const uint64_t leaf_block_count = static_cast<uint64_t>(leaf_blocks.size());
++      uint64_t node_bytes_u64 = 0ull;
++      uint64_t leaf_bytes_u64 = 0ull;
++      uint64_t unpacked_u64 = 0ull;
++      uint64_t total_u64 = 0ull;
++      if (!checked_mul_add(node_count, sizeof(AABBNode), 0ull, node_bytes_u64) ||
++          !checked_mul_add(leaf_block_count, sizeof(Prim), 0ull, leaf_bytes_u64) ||
++          !checked_mul_add(1ull, node_bytes_u64, leaf_bytes_u64, unpacked_u64) ||
++          !checked_mul_add(1ull, unpacked_u64, sizeof(EmbreeStaticTriangleBVHPayloadHeader), total_u64)) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++      }
++
++      if (out_written_size != nullptr) {
++        *out_written_size = static_cast<size_t>(total_u64);
++      }
++      if (out_unpacked_bytes != nullptr) {
++        *out_unpacked_bytes = static_cast<size_t>(unpacked_u64);
++      }
++      if (out_buffer == nullptr) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++      }
++      if (buffer_capacity < static_cast<size_t>(total_u64)) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_BUFFER_TOO_SMALL;
++      }
++
++      EmbreeStaticTriangleBVHPayloadHeader hdr{};
++      hdr.magic = kArchiveMagic;
++      hdr.format_version = kArchiveAbiVersion;
++      hdr.embree_version_number = RTC_VERSION;
++      hdr.build_config_flags = current_build_config_flags();
++      hdr.required_isa_mask = (N == 8) ? static_cast<uint32_t>(AVX) : 0u;
++      hdr.branching_factor = static_cast<uint32_t>(N);
++      hdr.prim_kind = classify_prim_type<Prim>();
++      hdr.intersect_variant = ivariant;
++      hdr.scene_flags = static_cast<uint32_t>(scene->scene_flags);
++      hdr.quality_flags = static_cast<uint32_t>(scene->quality_flags);
++      hdr.node_struct_bytes = static_cast<uint32_t>(sizeof(AABBNode));
++      hdr.prim_struct_bytes = static_cast<uint32_t>(sizeof(Prim));
++      hdr.vertex_stride_bytes = static_cast<uint64_t>(mesh->vertices0.getStride());
++      hdr.vertex_count = static_cast<uint64_t>(mesh->numVertices());
++      hdr.triangle_count = static_cast<uint64_t>(mesh->numPrimitives);
++      hdr.num_primitives_in_bvh = static_cast<uint64_t>(bvh->numPrimitives);
++      hdr.node_count = node_count;
++      hdr.leaf_block_count = leaf_block_count;
++      hdr.root_encoded_ref = root_reloc;
++      const BBox3fa b = inst->bounds.bounds();
++      hdr.bounds_lower[0] = b.lower.x;
++      hdr.bounds_lower[1] = b.lower.y;
++      hdr.bounds_lower[2] = b.lower.z;
++      hdr.bounds_lower[3] = 0.0f;
++      hdr.bounds_upper[0] = b.upper.x;
++      hdr.bounds_upper[1] = b.upper.y;
++      hdr.bounds_upper[2] = b.upper.z;
++      hdr.bounds_upper[3] = 0.0f;
++
++      auto* dst = static_cast<unsigned char*>(out_buffer);
++      std::memcpy(dst, &hdr, sizeof(hdr));
++      if (node_bytes_u64 > 0ull) {
++        std::memcpy(dst + sizeof(hdr), serialized_nodes.data(), static_cast<size_t>(node_bytes_u64));
++      }
++      if (leaf_bytes_u64 > 0ull) {
++        std::memcpy(
++          dst + sizeof(hdr) + static_cast<size_t>(node_bytes_u64),
++          leaf_blocks.data(),
++          static_cast<size_t>(leaf_bytes_u64));
++      }
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++    }
++
++    template<int N>
++    RTCExAccelArchiveStatus export_bvhn_dispatch(
++      Scene* scene,
++      AccelInstance* inst,
++      BVHN<N>* bvh,
++      TriangleMesh* mesh,
++      uint32_t ivariant,
++      void* out_buffer,
++      size_t buffer_capacity,
++      size_t* out_written_size,
++      size_t* out_unpacked_bytes)
++    {
++      if (bvh->primTy == &Triangle4::type) {
++        return export_typed_bvh<N, Triangle4>(
++          scene, inst, bvh, mesh, ivariant, out_buffer, buffer_capacity, out_written_size, out_unpacked_bytes);
++      }
++      if (bvh->primTy == &Triangle4v::type) {
++        return export_typed_bvh<N, Triangle4v>(
++          scene, inst, bvh, mesh, ivariant, out_buffer, buffer_capacity, out_written_size, out_unpacked_bytes);
++      }
++      if (bvh->primTy == &Triangle4i::type) {
++        return export_typed_bvh<N, Triangle4i>(
++          scene, inst, bvh, mesh, ivariant, out_buffer, buffer_capacity, out_written_size, out_unpacked_bytes);
++      }
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++
++    template<int N, typename Prim>
++    RTCExAccelArchiveStatus import_typed_bvh(
++      Scene* scene,
++      TriangleMesh* mesh,
++      const EmbreeStaticTriangleBVHPayloadHeader& hdr,
++      const unsigned char* node_ptr,
++      const unsigned char* leaf_ptr,
++      size_t unpacked_bytes)
++    {
++      using BVH = BVHN<N>;
++      using NodeRef = typename BVH::NodeRef;
++      using AABBNode = typename BVH::AABBNode;
++      static_assert(sizeof(NodeRef) == sizeof(uint64_t), "64-bit Embree NodeRef required.");
++
++      if (!std::isfinite(hdr.bounds_lower[0]) || !std::isfinite(hdr.bounds_lower[1]) ||
++          !std::isfinite(hdr.bounds_lower[2]) || !std::isfinite(hdr.bounds_upper[0]) ||
++          !std::isfinite(hdr.bounds_upper[1]) || !std::isfinite(hdr.bounds_upper[2])) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++      }
++      if (hdr.bounds_lower[0] > hdr.bounds_upper[0] ||
++          hdr.bounds_lower[1] > hdr.bounds_upper[1] ||
++          hdr.bounds_lower[2] > hdr.bounds_upper[2]) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++      }
++
++      // 1. Validate every internal/leaf reference and leaf primitive slot BEFORE mutating scene.
++      std::vector<uint8_t> leaf_visited(static_cast<size_t>(hdr.leaf_block_count), 0u);
++      auto validate_ref = [&](uint64_t reloc_ref, uint64_t parent_idx, bool is_root) -> RTCExAccelArchiveStatus {
++        if (reloc_ref == 0ull) {
++          return is_root ? RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT : RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++        }
++        if ((reloc_ref & kRelocLeafFlag) != 0ull) {
++          const uint64_t num_blocks = (reloc_ref >> kRelocBlockCountShift) & kRelocBlockCountMask;
++          const uint64_t leaf_idx = reloc_ref & kRelocIndexMask;
++          if (num_blocks == 0ull || num_blocks > BVH::maxLeafBlocks ||
++              leaf_idx >= hdr.leaf_block_count ||
++              num_blocks > (hdr.leaf_block_count - leaf_idx)) {
++            return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++          }
++          for (uint64_t k = 0ull; k < num_blocks; ++k) {
++            const uint64_t block_id = leaf_idx + k;
++            if (leaf_visited[static_cast<size_t>(block_id)] != 0u) {
++              return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++            }
++            leaf_visited[static_cast<size_t>(block_id)] = 1u;
++            Prim prim_copy;
++            std::memcpy(&prim_copy, leaf_ptr + static_cast<size_t>(block_id) * sizeof(Prim), sizeof(Prim));
++            if (!validate_leaf_block(prim_copy, hdr.vertex_count, hdr.triangle_count, hdr.vertex_stride_bytes)) {
++              return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++            }
++          }
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++        }
++        const uint64_t child_idx = reloc_ref - 1ull;
++        if (child_idx >= hdr.node_count) {
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++        }
++        if (is_root) {
++          if (child_idx != 0ull) {
++            return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++          }
++        } else if (child_idx <= parent_idx) {
++          return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++        }
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++      };
++
++      const auto root_check = validate_ref(hdr.root_encoded_ref, 0ull, true);
++      if (root_check != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++        return root_check;
++      }
++
++      vector_t<AABBNode, aligned_allocator<AABBNode, 32>> local_nodes(static_cast<size_t>(hdr.node_count));
++      for (uint64_t i = 0ull; i < hdr.node_count; ++i) {
++        std::memcpy(
++          &local_nodes[static_cast<size_t>(i)],
++          node_ptr + static_cast<size_t>(i) * sizeof(AABBNode),
++          sizeof(AABBNode));
++        for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
++          const uint64_t reloc = static_cast<uint64_t>(local_nodes[static_cast<size_t>(i)].children[c].ptr);
++          const auto child_check = validate_ref(reloc, i, false);
++          if (child_check != RTC_EX_ACCEL_ARCHIVE_STATUS_OK) {
++            return child_check;
++          }
++        }
++      }
++
++      // 2. Allocate BVH nodes and leaf blocks using bounded per-item FastAllocator calls.
++      BVH* bvh = new BVH(prim_type_for_kind(hdr.prim_kind), scene);
++      const size_t est_bytes = unpacked_bytes > 0u ? unpacked_bytes : sizeof(AABBNode);
++      bvh->alloc.init_estimate(est_bytes);
++
++      std::vector<AABBNode*> allocated_nodes(static_cast<size_t>(hdr.node_count), nullptr);
++      {
++        auto cached = bvh->alloc.getCachedAllocator();
++        for (uint64_t i = 0ull; i < hdr.node_count; ++i) {
++          auto* dst_node = static_cast<AABBNode*>(cached.malloc0(sizeof(AABBNode), NodeRef::byteNodeAlignment));
++          *dst_node = local_nodes[static_cast<size_t>(i)];
++          allocated_nodes[static_cast<size_t>(i)] = dst_node;
++        }
++
++        auto materialize_ref = [&](uint64_t reloc_ref) -> NodeRef {
++          if (reloc_ref == 0ull) {
++            return NodeRef(BVH::emptyNode);
++          }
++          if ((reloc_ref & kRelocLeafFlag) != 0ull) {
++            const size_t num_blocks = static_cast<size_t>((reloc_ref >> kRelocBlockCountShift) & kRelocBlockCountMask);
++            const size_t leaf_idx = static_cast<size_t>(reloc_ref & kRelocIndexMask);
++            char* dst_leaf = static_cast<char*>(cached.malloc1(num_blocks * sizeof(Prim), NodeRef::byteAlignment));
++            std::memcpy(dst_leaf, leaf_ptr + leaf_idx * sizeof(Prim), num_blocks * sizeof(Prim));
++            return BVH::encodeLeaf(dst_leaf, num_blocks);
++          }
++          const size_t child_idx = static_cast<size_t>(reloc_ref - 1ull);
++          return BVH::encodeNode(allocated_nodes[child_idx]);
++        };
++
++        for (uint64_t i = 0ull; i < hdr.node_count; ++i) {
++          AABBNode* dst_node = allocated_nodes[static_cast<size_t>(i)];
++          for (size_t c = 0; c < static_cast<size_t>(N); ++c) {
++            const uint64_t reloc = static_cast<uint64_t>(local_nodes[static_cast<size_t>(i)].children[c].ptr);
++            dst_node->children[c] = materialize_ref(reloc);
++          }
++        }
++
++        const BBox3fa bvh_bounds(
++          Vec3fa(hdr.bounds_lower[0], hdr.bounds_lower[1], hdr.bounds_lower[2]),
++          Vec3fa(hdr.bounds_upper[0], hdr.bounds_upper[1], hdr.bounds_upper[2]));
++        const NodeRef root_ref = materialize_ref(hdr.root_encoded_ref);
++        bvh->set(root_ref, LBBox3fa(bvh_bounds), static_cast<size_t>(hdr.num_primitives_in_bvh));
++        bvh->numVertices = mesh->numVertices();
++      }
++      bvh->cleanup();
++
++      Accel::Intersectors intersectors = select_triangle_intersectors<N>(
++        scene->device, bvh, hdr.prim_kind, hdr.intersect_variant);
++      if (!intersectors.intersector1) {
++        delete bvh;
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++      }
++
++      BVHArchiveHelper::finalize_imported_scene(scene, mesh, bvh, intersectors);
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++    }
++
++    template<int N>
++    RTCExAccelArchiveStatus import_bvhn_dispatch(
++      Scene* scene,
++      TriangleMesh* mesh,
++      const EmbreeStaticTriangleBVHPayloadHeader& hdr,
++      const unsigned char* payload_ptr,
++      size_t payload_bytes,
++      size_t* out_unpacked_bytes)
++    {
++      using AABBNode = typename BVHN<N>::AABBNode;
++      if (hdr.node_struct_bytes != static_cast<uint32_t>(sizeof(AABBNode))) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_CONFIG;
++      }
++      const size_t expected_prim_bytes = prim_struct_bytes_for_kind(hdr.prim_kind);
++      if (expected_prim_bytes == 0u || hdr.prim_struct_bytes != static_cast<uint32_t>(expected_prim_bytes)) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_CONFIG;
++      }
++
++      uint64_t node_bytes_u64 = 0ull;
++      uint64_t leaf_bytes_u64 = 0ull;
++      uint64_t unpacked_u64 = 0ull;
++      if (!checked_mul_add(hdr.node_count, sizeof(AABBNode), 0ull, node_bytes_u64) ||
++          !checked_mul_add(hdr.leaf_block_count, expected_prim_bytes, 0ull, leaf_bytes_u64) ||
++          !checked_mul_add(1ull, node_bytes_u64, leaf_bytes_u64, unpacked_u64) ||
++          unpacked_u64 != static_cast<uint64_t>(payload_bytes)) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++      }
++
++      if (out_unpacked_bytes != nullptr) {
++        *out_unpacked_bytes = static_cast<size_t>(unpacked_u64);
++      }
++
++      const unsigned char* node_ptr = payload_ptr;
++      const unsigned char* leaf_ptr = payload_ptr + static_cast<size_t>(node_bytes_u64);
++
++      switch (hdr.prim_kind) {
++      case kPrimKindTriangle4:
++        return import_typed_bvh<N, Triangle4>(scene, mesh, hdr, node_ptr, leaf_ptr, static_cast<size_t>(unpacked_u64));
++      case kPrimKindTriangle4v:
++        return import_typed_bvh<N, Triangle4v>(scene, mesh, hdr, node_ptr, leaf_ptr, static_cast<size_t>(unpacked_u64));
++      case kPrimKindTriangle4i:
++        return import_typed_bvh<N, Triangle4i>(scene, mesh, hdr, node_ptr, leaf_ptr, static_cast<size_t>(unpacked_u64));
++      default:
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++      }
++    }
++  } // namespace
++
++#if defined(EMBREE_LOWEST_ISA)
++  RTCExAccelArchiveStatus BVHArchiveHelper::query_config(
++    Device* device,
++    RTCExStaticTriangleBVHArchiveConfig* out_config)
++  {
++    if (device == nullptr || out_config == nullptr) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT;
++    }
++    std::memset(out_config, 0, sizeof(RTCExStaticTriangleBVHArchiveConfig));
++    out_config->struct_size = static_cast<unsigned int>(sizeof(RTCExStaticTriangleBVHArchiveConfig));
++    out_config->archive_abi_version = kArchiveAbiVersion;
++    out_config->embree_version_number = RTC_VERSION;
++    out_config->build_config_flags = current_build_config_flags();
++    out_config->enabled_cpu_features = static_cast<unsigned int>(device->enabled_cpu_features);
++    out_config->supports_static_triangle_bvh = 1u;
++    out_config->supports_bvh4 = 1u;
++#if defined(EMBREE_TARGET_SIMD8)
++    out_config->supports_bvh8 = (device->canUseAVX() && device->bvh8_factory != nullptr) ? 1u : 0u;
++#else
++    out_config->supports_bvh8 = 0u;
++#endif
++    return RTC_EX_ACCEL_ARCHIVE_STATUS_OK;
++  }
++
++  void BVHArchiveHelper::finalize_imported_scene(
++    Scene* scene,
++    TriangleMesh* mesh,
++    AccelData* bvh_data,
++    const Accel::Intersectors& intersectors)
++  {
++    mesh->preCommit();
++
++    GeometryCounts counts;
++    mesh->addElementsToCount(counts);
++    counts.numFilterFunctions += static_cast<int>(mesh->hasArgumentFilterFunctions());
++    counts.numFilterFunctions += static_cast<int>(mesh->hasGeometryFilterFunctions());
++
++    scene->world = counts;
++    scene->maxTimeSegments = 1u;
++    scene->enabled_geometry_types = scene->world.enabledGeometryTypesMask();
++
++    scene->accels_init();
++    Accel::Intersectors isecs = intersectors;
++    AccelInstance* inst = new AccelInstance(bvh_data, nullptr, isecs);
++    inst->bounds = bvh_data->bounds;
++    scene->accels_add(inst);
++    scene->accels_select(scene->hasFilterFunction());
++
++    scene->type = inst->type;
++    scene->bounds = inst->bounds;
++    scene->intersectors = inst->intersectors;
++
++    mesh->postCommit();
++    if (scene->vertices.size() < 1u) {
++      scene->vertices.resize(1u);
++    }
++    if (scene->geometryModCounters_.size() < 1u) {
++      scene->geometryModCounters_.resize(1u);
++    }
++    scene->vertices[0] = mesh->getCompactVertexArray();
++    scene->geometryModCounters_[0] = mesh->getModCounter();
++    scene->flags_modified = true;
++    scene->setModified(false);
++  }
++
++  RTCExAccelArchiveStatus BVHArchiveHelper::export_bvh4(
++    Scene* scene,
++    AccelInstance* inst,
++    BVH4* bvh,
++    TriangleMesh* mesh,
++    uint32_t ivariant,
++    void* out_buffer,
++    size_t buffer_capacity,
++    size_t* out_written_size,
++    size_t* out_unpacked_bytes)
++  {
++    return export_bvhn_dispatch<4>(
++      scene, inst, bvh, mesh, ivariant, out_buffer, buffer_capacity, out_written_size, out_unpacked_bytes);
++  }
++
++  RTCExAccelArchiveStatus BVHArchiveHelper::import_bvh4(
++    Scene* scene,
++    TriangleMesh* mesh,
++    const EmbreeStaticTriangleBVHPayloadHeader& hdr,
++    const unsigned char* payload_ptr,
++    size_t payload_bytes,
++    size_t* out_unpacked_bytes)
++  {
++    return import_bvhn_dispatch<4>(scene, mesh, hdr, payload_ptr, payload_bytes, out_unpacked_bytes);
++  }
++
++  RTCExAccelArchiveStatus BVHArchiveHelper::export_static_triangle_bvh(
++    Scene* scene,
++    void* out_buffer,
++    size_t buffer_capacity,
++    size_t* out_written_size,
++    size_t* out_unpacked_bytes)
++  {
++    if (scene == nullptr || (out_written_size == nullptr && out_buffer == nullptr)) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT;
++    }
++
++    Lock<MutexSys> build_lock(scene->buildMutex);
++
++    if (scene->isModified() || scene->isDynamicAccel() || scene->getMaxTimeSegments() != 1u) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    if (scene->geometries.empty() || scene->geometries[0] == null || !scene->geometries[0]->isEnabled()) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    for (size_t i = 1u; i < scene->geometries.size(); ++i) {
++      if (scene->geometries[i] != null) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++      }
++    }
++    Geometry* base_geom = scene->geometries[0].ptr;
++    if (base_geom->getType() != Geometry::GTY_TRIANGLE_MESH || base_geom->numTimeSteps != 1u) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    auto* mesh = static_cast<TriangleMesh*>(base_geom);
++    if (mesh->numPrimitives == 0u || mesh->numVertices() == 0u ||
++        mesh->vertices0.getStride() < 12u || (mesh->vertices0.getStride() % 4u) != 0u) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++
++    if (scene->accels.size() != 1u || scene->accels[0] == nullptr ||
++        scene->accels[0]->type != AccelData::TY_ACCEL_INSTANCE) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    auto* inst = static_cast<AccelInstance*>(scene->accels[0]);
++    const char* isec1_name = inst->intersectors.intersector1.name;
++    if (isec1_name == nullptr) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    if (std::strstr(isec1_name, "Woop") != nullptr) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    const uint32_t ivariant = (std::strstr(isec1_name, "Pluecker") != nullptr)
++      ? kIvariantRobust
++      : kIvariantFast;
++
++    AccelData* accel_data = inst->getAccel();
++    if (accel_data == nullptr) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    if (accel_data->type == AccelData::TY_BVH4) {
++      return export_bvh4(
++        scene,
++        inst,
++        static_cast<BVH4*>(accel_data),
++        mesh,
++        ivariant,
++        out_buffer,
++        buffer_capacity,
++        out_written_size,
++        out_unpacked_bytes);
++    }
++#if defined(EMBREE_TARGET_SIMD8)
++    if (accel_data->type == AccelData::TY_BVH8) {
++      return export_bvh8(
++        scene,
++        inst,
++        static_cast<BVH8*>(accel_data),
++        mesh,
++        ivariant,
++        out_buffer,
++        buffer_capacity,
++        out_written_size,
++        out_unpacked_bytes);
++    }
++#endif
++    return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++  }
++
++  RTCExAccelArchiveStatus BVHArchiveHelper::import_static_triangle_bvh(
++    Scene* scene,
++    const void* in_buffer,
++    size_t buffer_size,
++    size_t* out_unpacked_bytes)
++  {
++    if (scene == nullptr || in_buffer == nullptr) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT;
++    }
++    if (buffer_size < sizeof(EmbreeStaticTriangleBVHPayloadHeader)) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++    }
++
++    EmbreeStaticTriangleBVHPayloadHeader hdr{};
++    std::memcpy(&hdr, in_buffer, sizeof(hdr));
++    if (hdr.magic != kArchiveMagic || hdr.format_version != kArchiveAbiVersion) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_CORRUPT;
++    }
++    if (hdr.embree_version_number != RTC_VERSION ||
++        hdr.build_config_flags != current_build_config_flags()) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_CONFIG;
++    }
++
++    Lock<MutexSys> build_lock(scene->buildMutex);
++
++    if ((static_cast<uint32_t>(scene->device->enabled_cpu_features) & hdr.required_isa_mask) != hdr.required_isa_mask) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_ISA;
++    }
++    if (scene->isDynamicAccel() ||
++        hdr.scene_flags != static_cast<uint32_t>(scene->scene_flags) ||
++        hdr.quality_flags != static_cast<uint32_t>(scene->quality_flags)) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_CONFIG;
++    }
++    if (!is_supported_triangle_prim_and_ivariant(hdr.prim_kind, hdr.intersect_variant)) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++
++    if (scene->geometries.empty() || scene->geometries[0] == null || !scene->geometries[0]->isEnabled()) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    for (size_t i = 1u; i < scene->geometries.size(); ++i) {
++      if (scene->geometries[i] != null) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++      }
++    }
++    Geometry* base_geom = scene->geometries[0].ptr;
++    if (base_geom->getType() != Geometry::GTY_TRIANGLE_MESH || base_geom->numTimeSteps != 1u) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++    }
++    auto* mesh = static_cast<TriangleMesh*>(base_geom);
++    if (mesh->vertices0.getPtr() == nullptr || mesh->triangles.getPtr() == nullptr ||
++        mesh->numPrimitives == 0u || mesh->numVertices() == 0u ||
++        mesh->vertices0.getStride() < 12u || (mesh->vertices0.getStride() % 4u) != 0u) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT;
++    }
++    if (static_cast<uint64_t>(mesh->numVertices()) != hdr.vertex_count ||
++        static_cast<uint64_t>(mesh->numPrimitives) != hdr.triangle_count ||
++        static_cast<uint64_t>(mesh->vertices0.getStride()) != hdr.vertex_stride_bytes) {
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_CONFIG;
++    }
++
++    const unsigned char* payload_ptr = static_cast<const unsigned char*>(in_buffer) + sizeof(hdr);
++    const size_t payload_bytes = buffer_size - sizeof(hdr);
++
++    if (hdr.branching_factor == 4u) {
++      return import_bvh4(scene, mesh, hdr, payload_ptr, payload_bytes, out_unpacked_bytes);
++    }
++#if defined(EMBREE_TARGET_SIMD8)
++    if (hdr.branching_factor == 8u) {
++      if (!scene->device->canUseAVX() || scene->device->bvh8_factory == nullptr) {
++        return RTC_EX_ACCEL_ARCHIVE_STATUS_INCOMPATIBLE_ISA;
++      }
++      return import_bvh8(scene, mesh, hdr, payload_ptr, payload_bytes, out_unpacked_bytes);
++    }
++#endif
++    return RTC_EX_ACCEL_ARCHIVE_STATUS_UNSUPPORTED_LAYOUT;
++  }
++#endif // EMBREE_LOWEST_ISA
++
++#if defined(__AVX__) && !defined(EMBREE_LOWEST_ISA) && defined(EMBREE_TARGET_SIMD8)
++  RTCExAccelArchiveStatus BVHArchiveHelper::export_bvh8(
++    Scene* scene,
++    AccelInstance* inst,
++    BVH8* bvh,
++    TriangleMesh* mesh,
++    uint32_t ivariant,
++    void* out_buffer,
++    size_t buffer_capacity,
++    size_t* out_written_size,
++    size_t* out_unpacked_bytes)
++  {
++    return export_bvhn_dispatch<8>(
++      scene, inst, bvh, mesh, ivariant, out_buffer, buffer_capacity, out_written_size, out_unpacked_bytes);
++  }
++
++  RTCExAccelArchiveStatus BVHArchiveHelper::import_bvh8(
++    Scene* scene,
++    TriangleMesh* mesh,
++    const EmbreeStaticTriangleBVHPayloadHeader& hdr,
++    const unsigned char* payload_ptr,
++    size_t payload_bytes,
++    size_t* out_unpacked_bytes)
++  {
++    return import_bvhn_dispatch<8>(scene, mesh, hdr, payload_ptr, payload_bytes, out_unpacked_bytes);
++  }
++#endif
++}
+diff --git a/kernels/bvh/bvh_accel_archive.h b/kernels/bvh/bvh_accel_archive.h
+new file mode 100644
+index 0000000..3f8e7db
+--- /dev/null
++++ b/kernels/bvh/bvh_accel_archive.h
+@@ -0,0 +1,112 @@
++// Copyright 2009-2021 Intel Corporation
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include "bvh.h"
++#include "../../include/embree4/rtcore.h"
++
++#include <cstdint>
++
++namespace embree
++{
++  class Device;
++  class Scene;
++  class AccelInstance;
++  struct TriangleMesh;
++
++  namespace bvh_archive_detail
++  {
++    struct EmbreeStaticTriangleBVHPayloadHeader {
++      uint32_t magic;
++      uint32_t format_version;
++      uint32_t embree_version_number;
++      uint32_t build_config_flags;
++      uint32_t required_isa_mask;
++      uint32_t branching_factor;
++      uint32_t prim_kind;
++      uint32_t intersect_variant;
++      uint32_t scene_flags;
++      uint32_t quality_flags;
++      uint32_t node_struct_bytes;
++      uint32_t prim_struct_bytes;
++      uint64_t vertex_stride_bytes;
++      uint64_t vertex_count;
++      uint64_t triangle_count;
++      uint64_t num_primitives_in_bvh;
++      uint64_t node_count;
++      uint64_t leaf_block_count;
++      uint64_t root_encoded_ref;
++      float bounds_lower[4];
++      float bounds_upper[4];
++    };
++
++    static_assert(sizeof(EmbreeStaticTriangleBVHPayloadHeader) == 136u);
++  }
++
++  struct BVHArchiveHelper
++  {
++    static RTCExAccelArchiveStatus query_config(
++      Device* device,
++      RTCExStaticTriangleBVHArchiveConfig* out_config);
++
++    static RTCExAccelArchiveStatus export_static_triangle_bvh(
++      Scene* scene,
++      void* out_buffer,
++      size_t buffer_capacity,
++      size_t* out_written_size,
++      size_t* out_unpacked_bytes);
++
++    static RTCExAccelArchiveStatus import_static_triangle_bvh(
++      Scene* scene,
++      const void* in_buffer,
++      size_t buffer_size,
++      size_t* out_unpacked_bytes);
++
++    static void finalize_imported_scene(
++      Scene* scene,
++      TriangleMesh* mesh,
++      AccelData* bvh_data,
++      const Accel::Intersectors& intersectors);
++
++    static RTCExAccelArchiveStatus export_bvh4(
++      Scene* scene,
++      AccelInstance* inst,
++      BVH4* bvh,
++      TriangleMesh* mesh,
++      uint32_t ivariant,
++      void* out_buffer,
++      size_t buffer_capacity,
++      size_t* out_written_size,
++      size_t* out_unpacked_bytes);
++
++    static RTCExAccelArchiveStatus import_bvh4(
++      Scene* scene,
++      TriangleMesh* mesh,
++      const bvh_archive_detail::EmbreeStaticTriangleBVHPayloadHeader& hdr,
++      const unsigned char* payload_ptr,
++      size_t payload_bytes,
++      size_t* out_unpacked_bytes);
++
++#if defined(EMBREE_TARGET_SIMD8)
++    static RTCExAccelArchiveStatus export_bvh8(
++      Scene* scene,
++      AccelInstance* inst,
++      BVH8* bvh,
++      TriangleMesh* mesh,
++      uint32_t ivariant,
++      void* out_buffer,
++      size_t buffer_capacity,
++      size_t* out_written_size,
++      size_t* out_unpacked_bytes);
++
++    static RTCExAccelArchiveStatus import_bvh8(
++      Scene* scene,
++      TriangleMesh* mesh,
++      const bvh_archive_detail::EmbreeStaticTriangleBVHPayloadHeader& hdr,
++      const unsigned char* payload_ptr,
++      size_t payload_bytes,
++      size_t* out_unpacked_bytes);
++#endif
++  };
++}
+diff --git a/kernels/common/accelinstance.h b/kernels/common/accelinstance.h
+index c63ef99..8ba997d 100644
+--- a/kernels/common/accelinstance.h
++++ b/kernels/common/accelinstance.h
+@@ -34,6 +34,8 @@ namespace embree
+       if (builder) builder->clear();
+     }
+ 
++    AccelData* getAccel() const { return accel.get(); }
++
+   private:
+     std::unique_ptr<AccelData> accel;
+     std::unique_ptr<Builder> builder;
+diff --git a/kernels/common/rtcore.cpp b/kernels/common/rtcore.cpp
+index 5f8ec82..4d9d4f1 100644
+--- a/kernels/common/rtcore.cpp
++++ b/kernels/common/rtcore.cpp
+@@ -8,6 +8,7 @@
+ #include "scene.h"
+ #include "context.h"
+ #include "../geometry/filter.h"
++#include "../bvh/bvh_accel_archive.h"
+ #include "../../include/embree4/rtcore_ray.h"
+ using namespace embree;
+ 
+@@ -2348,5 +2349,52 @@ RTC_API void rtcSetGeometryTransform(RTCGeometry hgeometry, unsigned int timeSte
+     return nullptr;
+   }
+ 
++  RTC_API RTCExAccelArchiveStatus rtcExQueryStaticTriangleBVHArchiveConfig(
++    RTCDevice hdevice, struct RTCExStaticTriangleBVHArchiveConfig* out_config)
++  {
++    Device* device = (Device*) hdevice;
++    RTC_CATCH_BEGIN;
++    RTC_TRACE(rtcExQueryStaticTriangleBVHArchiveConfig);
++    if (device == nullptr || out_config == nullptr)
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT;
++    return BVHArchiveHelper::query_config(device, out_config);
++    RTC_CATCH_END(device);
++    return RTC_EX_ACCEL_ARCHIVE_STATUS_INTERNAL_ERROR;
++  }
++
++  RTC_API RTCExAccelArchiveStatus rtcExExportStaticTriangleBVH(
++    RTCScene hscene,
++    void* out_buffer,
++    size_t buffer_capacity,
++    size_t* out_written_size,
++    size_t* out_unpacked_bytes)
++  {
++    Scene* scene = (Scene*) hscene;
++    RTC_CATCH_BEGIN;
++    RTC_TRACE(rtcExExportStaticTriangleBVH);
++    if (scene == nullptr)
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT;
++    return BVHArchiveHelper::export_static_triangle_bvh(
++      scene, out_buffer, buffer_capacity, out_written_size, out_unpacked_bytes);
++    RTC_CATCH_END2(scene);
++    return RTC_EX_ACCEL_ARCHIVE_STATUS_INTERNAL_ERROR;
++  }
++
++  RTC_API RTCExAccelArchiveStatus rtcExImportStaticTriangleBVH(
++    RTCScene hscene,
++    const void* in_buffer,
++    size_t buffer_size,
++    size_t* out_unpacked_bytes)
++  {
++    Scene* scene = (Scene*) hscene;
++    RTC_CATCH_BEGIN;
++    RTC_TRACE(rtcExImportStaticTriangleBVH);
++    if (scene == nullptr)
++      return RTC_EX_ACCEL_ARCHIVE_STATUS_INVALID_ARGUMENT;
++    return BVHArchiveHelper::import_static_triangle_bvh(
++      scene, in_buffer, buffer_size, out_unpacked_bytes);
++    RTC_CATCH_END2(scene);
++    return RTC_EX_ACCEL_ARCHIVE_STATUS_INTERNAL_ERROR;
++  }
+ 
+ RTC_NAMESPACE_END
+diff --git a/kernels/common/scene.h b/kernels/common/scene.h
+index 9ac1dd5..38fdbe1 100644
+--- a/kernels/common/scene.h
++++ b/kernels/common/scene.h
+@@ -149,6 +149,8 @@ namespace embree
+     /*! Scene destruction */
+     ~Scene () noexcept;
+ 
++    friend struct BVHArchiveHelper;
++
+   private:
+     
+     /*! class is non-copyable */
