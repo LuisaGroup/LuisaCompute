@@ -31,11 +31,14 @@ luisa::unique_ptr<luisa::BinaryStream> read_binary_io(CacheType type, luisa::Bin
         case CacheType::Cache:
             return binIo->read_shader_cache(name);
         case CacheType::Internal: {
+            if (auto cached = binIo->read_internal_shader(name)) {
+                return cached;
+            }
             auto internal_data = hlsl::CodegenUtility::ReadInternalHLSLFile(name);
             if (!internal_data.empty()) {
                 return luisa::make_unique<StringViewBinaryStream>(internal_data);
             }
-            return binIo->read_internal_shader(name);
+            return {};
         }
     }
     return luisa::unique_ptr<luisa::BinaryStream>{};
@@ -208,7 +211,7 @@ ComputeShader *ComputeShader::compile_compute(
             return result;
         }
         if (cacheType == CacheType::Internal) [[unlikely]] {
-            LUISA_WARNING("Cached DXIL {} is invalid!", fileName);
+            LUISA_VERBOSE("Cached internal DXIL {} is missing or outdated; recompiling.", fileName);
             result = compile_new_compute(true, pso_name);
 #ifndef NDEBUG
 // TODO save

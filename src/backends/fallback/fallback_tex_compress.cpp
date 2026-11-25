@@ -58,26 +58,30 @@ struct BC7EncodeConfig {
     int channels;
 };
 
-[[nodiscard]] auto make_bc7_encode_config() noexcept {
+[[nodiscard]] auto make_bc7_encode_config(float alpha_importance) noexcept {
     BC7EncodeConfig config{};
-    config.channels = 3;
+    const bool use_alpha = alpha_importance > 0.f;
+    config.channels = use_alpha ? 4 : 3;
 
     int moreRefine = 2;
     // mode02
-    config.mode_selection[0] = true;
-    config.skip_mode2 = false;
+    config.mode_selection[0] = !use_alpha;
+    config.skip_mode2 = use_alpha;
 
     config.refineIterations[0] = 2 + moreRefine;
     config.refineIterations[2] = 2 + moreRefine;
 
-    // mode13
+    // mode13 (and mode7 when alpha is enabled, matching ISPC GetProfile_alpha_slow)
     config.mode_selection[1] = true;
     config.fastSkipTreshold_mode1 = 64;
     config.fastSkipTreshold_mode3 = 64;
-    config.fastSkipTreshold_mode7 = 0;
+    config.fastSkipTreshold_mode7 = use_alpha ? 64 : 0;
 
     config.refineIterations[1] = 2 + moreRefine;
     config.refineIterations[3] = 2 + moreRefine;
+    if (use_alpha) {
+        config.refineIterations[7] = 2 + moreRefine;
+    }
 
     // mode45
     config.mode_selection[2] = true;
@@ -128,8 +132,30 @@ template<typename T>
         auto y_begin = scanline * scanline_height;
         auto dst = memory + y_begin * padded_w;
         for (auto y = y_begin; y < y_begin + scanline_height; y++) {
-            for (auto x = 0u; x < size.x; x++) {
-                *(dst++) = view.template read2d<T>(luisa::min(make_uint2(x, y), size - 1u));
+            for (auto x = 0u; x < padded_w; x++) {
+                auto coord = luisa::min(make_uint2(x, y), size - 1u);
+                if constexpr (std::is_same_v<T, uint8_t>) {
+                    const auto storage = view.storage();
+                    if (storage == PixelStorage::BYTE1 || storage == PixelStorage::BYTE2 ||
+                        storage == PixelStorage::BYTE4 || storage == PixelStorage::BYTE4_SRGB) {
+                        auto px = view.template read2d<uint8_t>(coord);
+                        if (storage == PixelStorage::BYTE1 || storage == PixelStorage::BYTE2) {
+                            px.w = 255u;
+                        }
+                        *(dst++) = px;
+                    } else {
+                        const auto f = view.template read2d<float>(coord);
+                        *(dst++) = make_ubyte4(
+                            detail::float_to_scalar<uint8_t>(f.x),
+                            detail::float_to_scalar<uint8_t>(f.y),
+                            detail::float_to_scalar<uint8_t>(f.z),
+                            pixel_storage_channel_count(storage) < 4u
+                                ? static_cast<uint8_t>(255u)
+                                : detail::float_to_scalar<uint8_t>(f.w));
+                    }
+                } else {
+                    *(dst++) = view.template read2d<T>(coord);
+                }
             }
         }
     });
@@ -245,18 +271,34 @@ public:
 public:
     Result check_builtin_shader() noexcept override { return TexCompressExt::Result::Success; }
     Result compress_bc6h(Stream &stream, const ImageView<float> &src, const BufferView<uint> &result) noexcept override {
+        const auto size = src.size();
+        const auto required_bytes =
+            static_cast<size_t>((size.x + 3u) / 4u) * ((size.y + 3u) / 4u) * sizeof(uint4);
+        if (result.size_bytes() < required_bytes) {
+            LUISA_WARNING("FallbackTexCompressExt::compress_bc6h: output buffer too small ({} < {}).",
+                          result.size_bytes(), required_bytes);
+            return Result::Failed;
+        }
         auto queue = reinterpret_cast<FallbackStream *>(stream.handle())->queue();
-        auto dst = reinterpret_cast<FallbackBuffer *>(result.handle())->data();
+        auto dst = reinterpret_cast<FallbackBuffer *>(result.handle())->data() + result.offset_bytes();
         auto surface = create_rgba_surface<luisa::half>(*queue, src);
         run_bc_encode_shader(_bc6h_encode_blocks, *queue, surface, dst, make_bc6h_encode_config());
         queue->enqueue([p = surface.ptr] { luisa::deallocate_with_allocator(p); });
         return Result::Success;
     }
     Result compress_bc7(Stream &stream, const ImageView<float> &src, const BufferView<uint> &result, float alpha_importance) noexcept override {
+        const auto size = src.size();
+        const auto required_bytes =
+            static_cast<size_t>((size.x + 3u) / 4u) * ((size.y + 3u) / 4u) * sizeof(uint4);
+        if (result.size_bytes() < required_bytes) {
+            LUISA_WARNING("FallbackTexCompressExt::compress_bc7: output buffer too small ({} < {}).",
+                          result.size_bytes(), required_bytes);
+            return Result::Failed;
+        }
         auto queue = reinterpret_cast<FallbackStream *>(stream.handle())->queue();
-        auto dst = reinterpret_cast<FallbackBuffer *>(result.handle())->data();
+        auto dst = reinterpret_cast<FallbackBuffer *>(result.handle())->data() + result.offset_bytes();
         auto surface = create_rgba_surface<uint8_t>(*queue, src);
-        run_bc_encode_shader(_bc7_encode_blocks, *queue, surface, dst, make_bc7_encode_config());
+        run_bc_encode_shader(_bc7_encode_blocks, *queue, surface, dst, make_bc7_encode_config(alpha_importance));
         queue->enqueue([p = surface.ptr] { luisa::deallocate_with_allocator(p); });
         return Result::Success;
     }

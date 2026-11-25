@@ -2115,14 +2115,14 @@ void LCCmdBuffer::CompressBC(
         uint g_num_total_blocks;
         float g_alpha_weight;
     };
-    uint width = rt->Width() >> level;
-    uint height = rt->Height() >> level;
-    uint x_blocks = std::max<uint>(1, (width + 3) >> 2);
-    uint y_blocks = std::max<uint>(1, (height + 3) >> 2);
+    uint width = std::max<uint>(1u, rt->Width() >> level);
+    uint height = std::max<uint>(1u, rt->Height() >> level);
+    uint x_blocks = std::max<uint>(1u, (width + 3u) >> 2u);
+    uint y_blocks = std::max<uint>(1u, (height + 3u) >> 2u);
     uint num_blocks = x_blocks * y_blocks;
     uint num_total_blocks = num_blocks;
     static constexpr size_t BLOCK_SIZE = 16;
-    if (result.size_bytes() != BLOCK_SIZE * num_blocks) [[unlikely]] {
+    if (result.size_bytes() < BLOCK_SIZE * num_blocks) [[unlikely]] {
         LUISA_ERROR("Texture compress output buffer incorrect size!");
     }
     DefaultBuffer back_buffer(
@@ -2134,15 +2134,15 @@ void LCCmdBuffer::CompressBC(
     BufferView outBuffer{
         out_buffer_ptr,
         result.offset_bytes(),
-        result.size_bytes()};
+        BLOCK_SIZE * num_blocks};
 
     constexpr uint MAX_BLOCK_BATCH = 1024u * 32u;
     // Keep command lists bounded for large textures.
     constexpr uint MAX_BATCH = MAX_BLOCK_BATCH;
-    auto batch_num = static_cast<int>((num_total_blocks + MAX_BATCH - 1) / MAX_BATCH);
+    auto batch_num = (num_total_blocks + MAX_BATCH - 1u) / MAX_BATCH;
     uint start_block_id = 0;
-    for (int batch = 0; batch < batch_num; batch++) {
-        auto target = static_cast<int>((batch + 1) * MAX_BATCH);
+    for (uint batch = 0; batch < batch_num; batch++) {
+        auto target = (batch + 1u) * MAX_BATCH;
         auto alloc = queue.create_allocator(max_alloc);
         {
             std::lock_guard lck{mtx};

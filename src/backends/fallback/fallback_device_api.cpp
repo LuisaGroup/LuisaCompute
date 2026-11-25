@@ -159,18 +159,46 @@ void luisa_fallback_dump_api_profile_if_enabled() noexcept {
 }
 
 void luisa_bc7_read(const FallbackTextureView *tex, uint x, uint y, float4 &out) noexcept {
-    auto block_pos = make_uint2(x / 4, y / 4);
-    auto block_per_row = tex->size2d().x / 4;
+    auto size = tex->size2d();
+    if (size.x == 0u || size.y == 0u) {
+        out = {};
+        return;
+    }
+    auto clamp_coord = [](auto v, uint dim) noexcept -> uint {
+        if constexpr (std::is_signed_v<decltype(v)>) {
+            return v <= 0 ? 0u : luisa::min(static_cast<uint>(v), dim - 1u);
+        } else {
+            return luisa::min(static_cast<uint>(v), dim - 1u);
+        }
+    };
+    auto ux = clamp_coord(x, size.x);
+    auto uy = clamp_coord(y, size.y);
+    auto block_pos = make_uint2(ux / 4u, uy / 4u);
+    auto block_per_row = (size.x + 3u) / 4u;
     const bc::BC7Block *bc_block = reinterpret_cast<const bc::BC7Block *>(tex->data()) +
                                    (block_pos.x + block_pos.y * block_per_row);
-    bc_block->Decode(x % 4, y % 4, reinterpret_cast<float *>(&out));
+    bc_block->Decode(ux % 4u, uy % 4u, reinterpret_cast<float *>(&out));
 }
 
 void luisa_bc6h_read(const FallbackTextureView *tex, int x, int y, float4 &out) noexcept {
-    auto block_pos = make_uint2(x / 4, y / 4);
-    auto block_per_row = tex->size2d().x / 4;
+    auto size = tex->size2d();
+    if (size.x == 0u || size.y == 0u) {
+        out = {};
+        return;
+    }
+    auto clamp_coord = [](auto v, uint dim) noexcept -> uint {
+        if constexpr (std::is_signed_v<decltype(v)>) {
+            return v <= 0 ? 0u : luisa::min(static_cast<uint>(v), dim - 1u);
+        } else {
+            return luisa::min(static_cast<uint>(v), dim - 1u);
+        }
+    };
+    auto ux = clamp_coord(x, size.x);
+    auto uy = clamp_coord(y, size.y);
+    auto block_pos = make_uint2(ux / 4u, uy / 4u);
+    auto block_per_row = (size.x + 3u) / 4u;
     const bc::BC6HBlock *bc_block = reinterpret_cast<const bc::BC6HBlock *>(tex->data()) + (block_pos.x + block_pos.y * block_per_row);
-    bc_block->Decode(false, x % 4, y % 4, reinterpret_cast<float *>(&out));
+    bc_block->Decode(false, ux % 4u, uy % 4u, reinterpret_cast<float *>(&out));
 }
 
 [[nodiscard]] int4 luisa_fallback_texture2d_read_int(void *texture_data, uint64_t texture_data_extra, uint x, uint y) noexcept {

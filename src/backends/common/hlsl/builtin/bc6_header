@@ -97,6 +97,15 @@ float3 half2float(uint3 color_h );
 void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint partition_index );
 void block_package( inout uint4 block, int2x3 endPoint, uint mode_type );
 
+float4 LoadInputClamped(uint x, uint y)
+{
+ uint tex_w = 0, tex_h = 0, mip_levels = 0;
+ g_Input.GetDimensions(g_mip_level, tex_w, tex_h, mip_levels);
+ uint cx = min(x, max(tex_w, 1u) - 1u);
+ uint cy = min(y, max(tex_h, 1u) - 1u);
+ return g_Input.Load(uint3(cx, cy, g_mip_level));
+}
+
 void swap(inout int3 lhs, inout int3 rhs)
 {
  int3 tmp = lhs;

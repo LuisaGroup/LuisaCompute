@@ -178,7 +178,7 @@ TexCompressExt::Result MetalTexCompressExt::compress_bc7(Stream &stream, const I
     auto err2_buffer_alloc = NS::TransferPtr(_device->handle()->newBuffer(total_block_count * sizeof(uint4), MTL::ResourceStorageModePrivate));
     auto err2_buffer = err2_buffer_alloc.get();
     auto err2_buffer_offset = static_cast<size_t>(0u);
-    LUISA_DEBUG_ASSERT(result.size_bytes() >= err1_buffer->length(), "Output buffer too small for BC7 compression.");
+    LUISA_DEBUG_ASSERT(result.size_bytes() >= err2_buffer->length(), "Output buffer too small for BC7 compression.");
     BCEncode_Config config{.g_tex_width = src.size().x,
                            .g_num_block_x = blocks.x,
                            .g_format = metal_texture_compress_format_bc7_unorm,
