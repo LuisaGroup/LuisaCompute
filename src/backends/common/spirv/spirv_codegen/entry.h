@@ -206,8 +206,25 @@ private:
     struct RayQueryState {
         spv::Id initial_ray{spv::NoResult};
         spv::Id proceed_state{spv::NoResult};
+        spv::Id cached_t_max{spv::NoResult};
+        spv::Id cached_t_max_valid{spv::NoResult};
     };
     luisa::unordered_map<spv::Id, RayQueryState> _ray_query_states;
+    struct DirectBufferMetadataCacheEntry {
+        spv::Id buffer{spv::NoResult};
+        uint32_t field{0u};
+        uint32_t target_width{0u};
+        spv::Id value{spv::NoResult};
+    };
+    struct DirectBufferElementBiasCacheEntry {
+        spv::Id buffer{spv::NoResult};
+        uint64_t element_stride{0u};
+        uint32_t target_width{0u};
+        spv::Id value{spv::NoResult};
+    };
+    spv::Block *_hoist_block{nullptr};
+    luisa::vector<DirectBufferMetadataCacheEntry> _cached_direct_buffer_metadata;
+    luisa::vector<DirectBufferElementBiasCacheEntry> _cached_direct_buffer_element_bias;
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
     SpirvFunctionArgumentAnalysisMap _function_argument_usage;
     SpirvUniqueResourceOriginMap
@@ -367,6 +384,9 @@ private:
     [[nodiscard]] spv::Id _load_direct_buffer_metadata(
         spv::Id buffer, StorageBufferMetadataField field,
         spv::Id target_type) noexcept;
+    [[nodiscard]] spv::Id _load_direct_buffer_element_bias(
+        spv::Id buffer, uint64_t element_stride,
+        spv::Id address_type) noexcept;
     [[nodiscard]] spv::Id _load_bindless_buffer_metadata(
         spv::Id bindless_array, spv::Id slot_index,
         StorageBufferMetadataField field,
@@ -381,6 +401,7 @@ private:
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
     void _emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept;
     void _emit_ray_query_object_write_inst(const xir::RayQueryObjectWriteInst *inst) noexcept;
+    [[nodiscard]] spv::Id _emit_ray_query_current_t_max(spv::Id rq_obj) noexcept;
     void _emit_ray_query_loop_inst(const xir::RayQueryLoopInst *inst) noexcept;
     void _emit_ray_query_dispatch_inst(const xir::RayQueryDispatchInst *inst) noexcept;
     [[nodiscard]] static bool _is_ray_query_type(const Type *type) noexcept;

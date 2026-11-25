@@ -7583,10 +7583,10 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                        disassembly, "RayQueryTerminateKHR") == 1u);
             expect(count_spirv_opcode(
                        disassembly,
-                       "RayQueryGetWorldRayOriginKHR") == 2u);
+                       "RayQueryGetWorldRayOriginKHR") == 0u);
             expect(count_spirv_opcode(
                        disassembly,
-                       "RayQueryGetWorldRayDirectionKHR") == 2u);
+                       "RayQueryGetWorldRayDirectionKHR") == 0u);
         }
     };
 

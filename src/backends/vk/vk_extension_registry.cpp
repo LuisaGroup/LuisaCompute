@@ -411,15 +411,15 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
                       &VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT::rayTracingInvocationReorder>,
      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV},
     {OptionalExtension::OPACITY_MICROMAP,
-     VK_KHR_OPACITY_MICROMAP_EXTENSION_NAME,
-     VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+     VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
+     VK_KHR_OPACITY_MICROMAP_EXTENSION_NAME, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
      requested_opacity_micromap,
-     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR,
-     make_feature_of<VkPhysicalDeviceOpacityMicromapFeaturesKHR,
-                     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR>,
-     check_single_bit<VkPhysicalDeviceOpacityMicromapFeaturesKHR,
-                      &VkPhysicalDeviceOpacityMicromapFeaturesKHR::micromap>,
-     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT},
+     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT,
+     make_feature_of<VkPhysicalDeviceOpacityMicromapFeaturesEXT,
+                     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT>,
+     check_single_bit<VkPhysicalDeviceOpacityMicromapFeaturesEXT,
+                      &VkPhysicalDeviceOpacityMicromapFeaturesEXT::micromap>,
+     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR},
     {OptionalExtension::CUSTOM_RESOLVE,
      VK_EXT_CUSTOM_RESOLVE_EXTENSION_NAME, nullptr, nullptr,
      requested_custom_resolve,
@@ -732,9 +732,9 @@ void OptionalExtensionRegistry::select(
                     matched_name = desc.name;
                     break;
                 }
-                if (optional_extension_detail::name_matches(name, desc.alias_name)) {
+                if (matched_name == nullptr &&
+                    optional_extension_detail::name_matches(name, desc.alias_name)) {
                     matched_name = desc.alias_name;
-                    break;
                 }
             }
         }

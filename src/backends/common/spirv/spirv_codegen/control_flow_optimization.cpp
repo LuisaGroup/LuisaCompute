@@ -13,8 +13,14 @@
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/break.h>
+#include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/switch.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 
 #include "structural_closure.h"
 
@@ -149,9 +155,11 @@ struct IntegralTypeBounds {
                nullptr;
 }
 
-// The instruction must be provably safe to duplicate and speculative: no
-// memory, no synchronization, no resource access, no convergence-sensitive
-// operation and no call. Anything else keeps the loop at MaskNone.
+// The instruction must be safe to duplicate or hint for unrolling: no
+// synchronization/subgroup convergence-sensitive ops, no allocas, no calls,
+// no atomics, no diagnostics. Ordinary arithmetic, memory/resource/ray-query
+// accesses, and internal structured control flow stay eligible within the
+// checked expanded-instruction budget.
 [[nodiscard]] bool payload_is_duplicable(const xir::Instruction *instruction) noexcept {
     if (instruction == nullptr) { return false; }
     switch (instruction->derived_instruction_tag()) {
@@ -159,12 +167,26 @@ struct IntegralTypeBounds {
         case xir::DerivedInstructionTag::CAST:
         case xir::DerivedInstructionTag::PHI:
         case xir::DerivedInstructionTag::BRANCH:
+        case xir::DerivedInstructionTag::CONDITIONAL_BRANCH:
+        case xir::DerivedInstructionTag::IF:
+        case xir::DerivedInstructionTag::SWITCH:
+        case xir::DerivedInstructionTag::LOOP:
+        case xir::DerivedInstructionTag::SIMPLE_LOOP:
+        case xir::DerivedInstructionTag::BREAK:
+        case xir::DerivedInstructionTag::CONTINUE:
+        case xir::DerivedInstructionTag::GEP:
+        case xir::DerivedInstructionTag::LOAD:
+        case xir::DerivedInstructionTag::STORE:
+        case xir::DerivedInstructionTag::RESOURCE_QUERY:
+        case xir::DerivedInstructionTag::RESOURCE_READ:
+        case xir::DerivedInstructionTag::RESOURCE_WRITE:
+        case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+        case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
             return true;
         default:
-            // ALLOCA, LOAD, STORE, GEP, ATOMIC, THREAD_GROUP (barrier,
-            // subgroup, split barrier), RESOURCE_QUERY/READ/WRITE, RAY_QUERY*,
-            // CALL, PRINT, CLOCK, ASSERT, and every nested control-flow
-            // construct stay rejected.
+            // ALLOCA, ATOMIC, THREAD_GROUP (barrier, subgroup, split barrier),
+            // CALL, OUTLINE, PRINT, CLOCK, ASSERT, RETURN, UNREACHABLE stay
+            // rejected.
             return false;
     }
 }
@@ -178,6 +200,104 @@ struct IntegralTypeBounds {
         if (!payload_is_duplicable(instruction)) { return false; }
     }
     return true;
+}
+
+// Collect all blocks belonging to the loop body between `body` and `update`.
+// Rejects early exits to `merge`, jumps back to `prepare`, returns/unreachables,
+// and any branch/break/continue targeting outside the loop body.
+[[nodiscard]] bool collect_loop_body_blocks(
+    const xir::LoopInst *loop,
+    luisa::vector<const xir::BasicBlock *> &out_blocks) noexcept {
+    auto *prepare = loop->prepare_block();
+    auto *body = loop->body_block();
+    auto *update = loop->update_block();
+    auto *merge = loop->merge_block();
+    luisa::unordered_set<const xir::BasicBlock *> visited;
+    luisa::vector<const xir::BasicBlock *> worklist;
+    auto enqueue = [&](const xir::BasicBlock *target) noexcept -> bool {
+        if (target == nullptr || target == merge || target == prepare) {
+            return false;
+        }
+        if (target == update) { return true; }
+        if (visited.emplace(target).second) {
+            worklist.emplace_back(target);
+        }
+        return true;
+    };
+    if (!enqueue(body)) { return false; }
+    while (!worklist.empty()) {
+        auto *bb = worklist.back();
+        worklist.pop_back();
+        out_blocks.emplace_back(bb);
+        auto *term = bb->terminator();
+        if (term == nullptr) { return false; }
+        switch (term->derived_instruction_tag()) {
+            case xir::DerivedInstructionTag::BRANCH: {
+                auto *br = static_cast<const xir::BranchInst *>(term);
+                if (!enqueue(br->target_block())) { return false; }
+                break;
+            }
+            case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: {
+                auto *cbr = static_cast<const xir::ConditionalBranchInst *>(term);
+                if (!enqueue(cbr->true_block()) || !enqueue(cbr->false_block())) {
+                    return false;
+                }
+                break;
+            }
+            case xir::DerivedInstructionTag::IF: {
+                auto *if_inst = static_cast<const xir::IfInst *>(term);
+                if (!enqueue(if_inst->true_block()) ||
+                    !enqueue(if_inst->false_block()) ||
+                    !enqueue(if_inst->merge_block())) {
+                    return false;
+                }
+                break;
+            }
+            case xir::DerivedInstructionTag::SWITCH: {
+                auto *sw = static_cast<const xir::SwitchInst *>(term);
+                if (!enqueue(sw->default_block()) || !enqueue(sw->merge_block())) {
+                    return false;
+                }
+                for (auto i = 0u; i < sw->case_count(); ++i) {
+                    if (!enqueue(sw->case_block(i))) { return false; }
+                }
+                break;
+            }
+            case xir::DerivedInstructionTag::LOOP: {
+                auto *inner = static_cast<const xir::LoopInst *>(term);
+                if (!enqueue(inner->prepare_block()) ||
+                    !enqueue(inner->body_block()) ||
+                    !enqueue(inner->update_block()) ||
+                    !enqueue(inner->merge_block())) {
+                    return false;
+                }
+                break;
+            }
+            case xir::DerivedInstructionTag::SIMPLE_LOOP: {
+                auto *inner = static_cast<const xir::SimpleLoopInst *>(term);
+                if (!enqueue(inner->body_block()) ||
+                    !enqueue(inner->merge_block())) {
+                    return false;
+                }
+                break;
+            }
+            case xir::DerivedInstructionTag::BREAK: {
+                auto *brk = static_cast<const xir::BreakInst *>(term);
+                // Only breaks targeting an inner loop's merge block stay inside
+                // the outer loop; breaking to outer `merge` is rejected by enqueue.
+                if (!enqueue(brk->target_block())) { return false; }
+                break;
+            }
+            case xir::DerivedInstructionTag::CONTINUE: {
+                auto *cont = static_cast<const xir::ContinueInst *>(term);
+                if (!enqueue(cont->target_block())) { return false; }
+                break;
+            }
+            default:
+                return false;
+        }
+    }
+    return !out_blocks.empty();
 }
 
 [[nodiscard]] size_t block_instruction_count(const xir::BasicBlock *block) noexcept {
@@ -247,15 +367,9 @@ SpirvLoopControlDecision plan_spirv_loop_control(
         condition_branch->false_block() != merge) {
         return reject("noncanonical loop prepare targets");
     }
-    auto *body_terminator = body->terminator();
-    if (body_terminator == nullptr ||
-        body_terminator->derived_instruction_tag() !=
-            xir::DerivedInstructionTag::BRANCH) {
-        return reject("loop body has an early exit or nested construct");
-    }
-    if (static_cast<const xir::BranchInst *>(body_terminator)->target_block() !=
-        update) {
-        return reject("loop body does not branch to its update block");
+    luisa::vector<const xir::BasicBlock *> body_blocks;
+    if (!collect_loop_body_blocks(loop, body_blocks)) {
+        return reject("loop body has an early exit or unsupported control flow");
     }
     auto *update_terminator = update->terminator();
     if (update_terminator == nullptr ||
@@ -465,17 +579,22 @@ SpirvLoopControlDecision plan_spirv_loop_control(
         return reject("induction variable can wrap before loop exit");
     }
 
-    // No payload may be duplicated unless it is pure value arithmetic.
+    // No payload may be duplicated unless every instruction in the loop region
+    // is safe to duplicate/hint.
     if (!block_payload_is_duplicable(prepare, prepare_terminator) ||
-        !block_payload_is_duplicable(body, body_terminator) ||
         !block_payload_is_duplicable(update, update_terminator)) {
         return reject("loop payload is not safe to duplicate");
     }
+    auto body_instructions = block_instruction_count(prepare) +
+                             block_instruction_count(update);
+    for (auto *bb : body_blocks) {
+        if (!block_payload_is_duplicable(bb, nullptr)) {
+            return reject("loop payload is not safe to duplicate");
+        }
+        body_instructions += block_instruction_count(bb);
+    }
 
     // The expanded body is the checked code-size cost of the decision.
-    auto body_instructions = block_instruction_count(prepare) +
-                             block_instruction_count(body) +
-                             block_instruction_count(update);
     auto budget = static_cast<uint64_t>(body_instructions) * trip_count;
     if (budget > options.max_expanded_instructions) {
         return reject("unrolled loop exceeds the code-size budget");

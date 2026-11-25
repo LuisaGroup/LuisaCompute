@@ -79,6 +79,52 @@ struct FastMathFmaPlan {
     return plan && plan.multiply == inst;
 }
 
+// Returns the bitmask of top-level struct member indices extracted from a
+// ray-query read instruction. Returns ~0u conservatively if any use is not a
+// constant-index ArithmeticOp::EXTRACT (e.g. aggregate pass-through or store).
+[[nodiscard]] uint32_t ray_query_read_used_fields(
+    const xir::RayQueryObjectReadInst *inst) noexcept {
+    if (inst == nullptr) { return ~0u; }
+    uint32_t mask = 0u;
+    for (auto *use : inst->use_list()) {
+        auto *user = use->user();
+        if (user == nullptr || !user->isa<xir::ArithmeticInst>()) {
+            return ~0u;
+        }
+        auto *arith = static_cast<const xir::ArithmeticInst *>(user);
+        if (arith->op() != xir::ArithmeticOp::EXTRACT ||
+            arith->operand_count() < 2u ||
+            arith->operand(0u) != inst) {
+            return ~0u;
+        }
+        auto *idx_val = arith->operand(1u);
+        if (!idx_val->isa<xir::Constant>()) {
+            return ~0u;
+        }
+        auto *c = static_cast<const xir::Constant *>(idx_val);
+        auto *idx_type = c->type();
+        uint64_t idx = 0u;
+        if (idx_type->is_int32()) {
+            auto v = c->as<int32_t>();
+            if (v < 0) { return ~0u; }
+            idx = static_cast<uint64_t>(v);
+        } else if (idx_type->is_uint32()) {
+            idx = c->as<uint32_t>();
+        } else if (idx_type->is_int64()) {
+            auto v = c->as<int64_t>();
+            if (v < 0) { return ~0u; }
+            idx = static_cast<uint64_t>(v);
+        } else if (idx_type->is_uint64()) {
+            idx = c->as<uint64_t>();
+        } else {
+            return ~0u;
+        }
+        if (idx >= 32u) { return ~0u; }
+        mask |= (1u << static_cast<uint32_t>(idx));
+    }
+    return mask;
+}
+
 }// namespace
 
 std::vector<spv::Id>
@@ -2719,16 +2765,8 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                 auto address_type = _builder.getScalarTypeWidth(index_type) == 64u ?
                                         _builder.makeUintType(64) :
                                         _builder.makeUintType(32);
-                auto bias = _load_direct_buffer_metadata(
-                    base, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
-                    address_type);
-                auto stride = base_xir_type->element()->size();
-                auto stride_id = _builder.getScalarTypeWidth(address_type) == 64u ?
-                                     _builder.makeUint64Constant(stride) :
-                                     _builder.makeUintConstant(
-                                         static_cast<uint32_t>(stride));
-                auto element_bias = _builder.createBinOp(
-                    spv::Op::OpUDiv, address_type, bias, stride_id);
+                auto element_bias = _load_direct_buffer_element_bias(
+                    base, base_xir_type->element()->size(), address_type);
                 idx_ids[1] = _builder.createBinOp(
                     spv::Op::OpIAdd, address_type,
                     _ensure_type(idx_ids[1], address_type), element_bias);
@@ -3656,6 +3694,14 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
                 spv::NoPrecision, spv::StorageClass::Function,
                 _builder.makeBoolType(), "rq_proceed_state");
             _builder.createStore(_builder.makeBoolConstant(false), proceed_state);
+            auto cached_t_max = _builder.createVariable(
+                spv::NoPrecision, spv::StorageClass::Function,
+                float_type, "rq_cached_tmax");
+            _builder.createStore(ray_t_max, cached_t_max);
+            auto cached_t_max_valid = _builder.createVariable(
+                spv::NoPrecision, spv::StorageClass::Function,
+                _builder.makeBoolType(), "rq_cached_tmax_valid");
+            _builder.createStore(_builder.makeBoolConstant(true), cached_t_max_valid);
             auto is_query_all = inst->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL;
             auto ray_flags = _builder.makeUintConstant(
                 is_query_all ?
@@ -3665,7 +3711,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             _builder.createNoResultOp(spv::Op::OpRayQueryInitializeKHR, std::vector<spv::Id>{
                                                                             rq_var, accel, ray_flags, mask, ray_origin, ray_t_min, ray_dir, ray_t_max});
             auto [_, inserted] = _ray_query_states.emplace(
-                rq_var, RayQueryState{ray, proceed_state});
+                rq_var, RayQueryState{ray, proceed_state, cached_t_max, cached_t_max_valid});
             LUISA_ASSERT(inserted,
                          "SPIR-V ray-query initialization state was registered twice.");
             id = rq_var;
@@ -3869,6 +3915,16 @@ spv::Id SpirvCodegenEntry::_load_direct_buffer_metadata(
     LUISA_ASSERT(target_width == 32u || target_width == 64u,
                  "SPIR-V direct buffer metadata target must be uint32 or uint64.");
 
+    const auto field_id = static_cast<uint32_t>(field);
+    if (_hoist_block != nullptr) {
+        for (const auto &entry : _cached_direct_buffer_metadata) {
+            if (entry.buffer == buffer && entry.field == field_id &&
+                entry.target_width == target_width) {
+                return entry.value;
+            }
+        }
+    }
+
     constexpr auto words_per_record =
         sizeof(StorageBufferMetadata) / sizeof(uint32_t);
     auto word = _buffer_metadata_offset / sizeof(uint32_t) +
@@ -3877,6 +3933,11 @@ spv::Id SpirvCodegenEntry::_load_direct_buffer_metadata(
                     sizeof(uint32_t);
     LUISA_ASSERT(word <= std::numeric_limits<uint32_t>::max() - 1u,
                  "SPIR-V direct buffer metadata word offset {} exceeds uint32.", word);
+
+    auto *saved_block = _builder.getBuildPoint();
+    if (_hoist_block != nullptr) {
+        _builder.setBuildPoint(_hoist_block);
+    }
     auto load_word = [&](size_t index) noexcept {
         auto ptr = _create_access_chain(
             spv::StorageClass::StorageBuffer, _argument_buffer_id,
@@ -3884,15 +3945,74 @@ spv::Id SpirvCodegenEntry::_load_direct_buffer_metadata(
              _builder.makeUintConstant(static_cast<uint32_t>(index))});
         return _builder.createLoad(ptr, spv::NoPrecision);
     };
+    spv::Id result = spv::NoResult;
     auto low = load_word(word);
-    if (target_width == 32u) { return low; }
-    auto high = load_word(word + 1u);
-    low = _builder.createUnaryOp(spv::Op::OpUConvert, target_type, low);
-    high = _builder.createUnaryOp(spv::Op::OpUConvert, target_type, high);
-    high = _builder.createBinOp(
-        spv::Op::OpShiftLeftLogical, target_type, high,
-        _builder.makeUint64Constant(32u));
-    return _builder.createBinOp(spv::Op::OpBitwiseOr, target_type, low, high);
+    if (target_width == 32u) {
+        result = low;
+    } else {
+        auto high = load_word(word + 1u);
+        low = _builder.createUnaryOp(spv::Op::OpUConvert, target_type, low);
+        high = _builder.createUnaryOp(spv::Op::OpUConvert, target_type, high);
+        high = _builder.createBinOp(
+            spv::Op::OpShiftLeftLogical, target_type, high,
+            _builder.makeUint64Constant(32u));
+        result = _builder.createBinOp(spv::Op::OpBitwiseOr, target_type, low, high);
+    }
+    if (_hoist_block != nullptr) {
+        _builder.setBuildPoint(saved_block);
+        _cached_direct_buffer_metadata.push_back(
+            {buffer, field_id, static_cast<uint32_t>(target_width), result});
+    }
+    return result;
+}
+
+spv::Id SpirvCodegenEntry::_load_direct_buffer_element_bias(
+    spv::Id buffer, uint64_t element_stride,
+    spv::Id address_type) noexcept {
+    LUISA_ASSERT(element_stride > 0u,
+                 "SPIR-V typed direct buffer element stride must be non-zero.");
+    auto target_width = _builder.getScalarTypeWidth(address_type);
+    if (_hoist_block != nullptr) {
+        for (const auto &entry : _cached_direct_buffer_element_bias) {
+            if (entry.buffer == buffer &&
+                entry.element_stride == element_stride &&
+                entry.target_width == target_width) {
+                return entry.value;
+            }
+        }
+    }
+    auto bias = _load_direct_buffer_metadata(
+        buffer, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
+        address_type);
+    auto *saved_block = _builder.getBuildPoint();
+    if (_hoist_block != nullptr) {
+        _builder.setBuildPoint(_hoist_block);
+    }
+    spv::Id element_bias = bias;
+    if (element_stride != 1u) {
+        if ((element_stride & (element_stride - 1u)) == 0u) {
+            uint32_t shift = 0u;
+            for (auto s = element_stride; s > 1u; s >>= 1u) { ++shift; }
+            auto shift_id = target_width == 64u ?
+                                _builder.makeUint64Constant(shift) :
+                                _builder.makeUintConstant(shift);
+            element_bias = _builder.createBinOp(
+                spv::Op::OpShiftRightLogical, address_type, bias, shift_id);
+        } else {
+            auto stride_id = target_width == 64u ?
+                                 _builder.makeUint64Constant(element_stride) :
+                                 _builder.makeUintConstant(
+                                     static_cast<uint32_t>(element_stride));
+            element_bias = _builder.createBinOp(
+                spv::Op::OpUDiv, address_type, bias, stride_id);
+        }
+    }
+    if (_hoist_block != nullptr) {
+        _builder.setBuildPoint(saved_block);
+        _cached_direct_buffer_element_bias.push_back(
+            {buffer, element_stride, static_cast<uint32_t>(target_width), element_bias});
+    }
+    return element_bias;
 }
 
 spv::Id SpirvCodegenEntry::_load_bindless_buffer_metadata(
@@ -4193,15 +4313,8 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
             auto address_type = _builder.getScalarTypeWidth(index_type) == 64u ?
                                     _builder.makeUintType(64) :
                                     _builder.makeUintType(32);
-            auto bias = _load_direct_buffer_metadata(
-                buffer, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
-                address_type);
-            auto element_bias = _builder.createBinOp(
-                spv::Op::OpUDiv, address_type, bias,
-                _builder.getScalarTypeWidth(address_type) == 64u ?
-                    _builder.makeUint64Constant(buffer_type->element()->size()) :
-                    _builder.makeUintConstant(
-                        static_cast<uint32_t>(buffer_type->element()->size())));
+            auto element_bias = _load_direct_buffer_element_bias(
+                buffer, buffer_type->element()->size(), address_type);
             index = _builder.createBinOp(
                 spv::Op::OpIAdd, address_type,
                 _ensure_type(index, address_type), element_bias);
@@ -4507,15 +4620,8 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
             auto address_type = _builder.getScalarTypeWidth(index_type) == 64u ?
                                     _builder.makeUintType(64) :
                                     _builder.makeUintType(32);
-            auto bias = _load_direct_buffer_metadata(
-                buffer, StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
-                address_type);
-            auto element_bias = _builder.createBinOp(
-                spv::Op::OpUDiv, address_type, bias,
-                _builder.getScalarTypeWidth(address_type) == 64u ?
-                    _builder.makeUint64Constant(buffer_type->element()->size()) :
-                    _builder.makeUintConstant(
-                        static_cast<uint32_t>(buffer_type->element()->size())));
+            auto element_bias = _load_direct_buffer_element_bias(
+                buffer, buffer_type->element()->size(), address_type);
             index = _builder.createBinOp(
                 spv::Op::OpIAdd, address_type,
                 _ensure_type(index, address_type), element_bias);
@@ -5914,7 +6020,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                     --expected_parameter_count;
                 } else if (callable_arg->is_reference() &&
                            _is_ray_query_type(callable_arg->type())) {
-                    expected_parameter_count += 2u;
+                    expected_parameter_count += 4u;
                 }
             }
             auto callee_requires_dispatch_metadata =
@@ -5958,6 +6064,8 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                         auto &state = _ray_query_state(arg_val);
                         args.emplace_back(state.initial_ray);
                         args.emplace_back(state.proceed_state);
+                        args.emplace_back(state.cached_t_max);
+                        args.emplace_back(state.cached_t_max_valid);
                     }
                 }
                 ++idx;
@@ -6258,184 +6366,243 @@ void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatc
         "lower_ray_query_to_loop must run before codegen.");
 }
 
+spv::Id SpirvCodegenEntry::_emit_ray_query_current_t_max(spv::Id rq_obj) noexcept {
+    auto &state = _ray_query_state(rq_obj);
+    auto float_type = _builder.makeFloatType(32);
+    auto uint_type = _builder.makeUintType(32);
+    auto bool_type = _builder.makeBoolType();
+
+    auto is_valid = _builder.createLoad(state.cached_t_max_valid, spv::NoPrecision);
+    auto need_refresh = _builder.createUnaryOp(spv::Op::OpLogicalNot, bool_type, is_valid);
+
+    auto *refresh_block = _create_physical_block();
+    auto *merge_block = _create_physical_block();
+    auto refresh_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+    refresh_merge->reserveOperands(2u);
+    refresh_merge->addIdOperand(merge_block->getId());
+    refresh_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+    _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(refresh_merge)));
+    _builder.createConditionalBranch(need_refresh, refresh_block, merge_block);
+
+    _set_current_tail(refresh_block);
+    auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
+    auto committed_type = _builder.createOp(
+        spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
+        std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+    auto has_committed = _builder.createBinOp(
+        spv::Op::OpINotEqual, bool_type, committed_type,
+        _builder.makeUintConstant(0u));
+
+    // SPV_KHR_ray_query makes committed IntersectionT undefined while
+    // the committed type is None. Keep it out of that dynamic path;
+    // OpSelect would still evaluate the invalid instruction eagerly.
+    // Unconditionally storing initial_ray.t_max here makes cached_t_max dead
+    // across Proceed(), so ssa-rewrite needs no loop-carried Phi for it.
+    auto initial_t_max = _builder.createCompositeExtract(
+        state.initial_ray, float_type, 3u);
+    _builder.createStore(initial_t_max, state.cached_t_max);
+    auto *committed_block = _create_physical_block();
+    auto *committed_merge_block = _create_physical_block();
+    auto committed_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+    committed_merge->reserveOperands(2u);
+    committed_merge->addIdOperand(committed_merge_block->getId());
+    committed_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+    _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(committed_merge)));
+    _builder.createConditionalBranch(has_committed, committed_block, committed_merge_block);
+
+    _set_current_tail(committed_block);
+    auto committed_t_max = _builder.createOp(
+        spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+        std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+    _builder.createStore(committed_t_max, state.cached_t_max);
+    _builder.createBranch(false, committed_merge_block);
+
+    _set_current_tail(committed_merge_block);
+    _builder.createStore(_builder.makeBoolConstant(true), state.cached_t_max_valid);
+    _builder.createBranch(false, merge_block);
+
+    _set_current_tail(merge_block);
+    return _builder.createLoad(state.cached_t_max, spv::NoPrecision);
+}
+
 void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept {
     auto rq_obj = _emit_value(inst->operand(0));
     auto type = _convert_type(inst->type(), Usage::READ);
     auto float_type = _builder.makeFloatType(32);
     auto uint_type = _builder.makeUintType(32);
-    auto int_type = _builder.makeIntType(32);
     auto bool_type = _builder.makeBoolType();
     auto vec2_type = _builder.makeVectorType(float_type, 2);
     auto vec3_type = _builder.makeVectorType(float_type, 3);
+    auto used_fields = ray_query_read_used_fields(inst);
     spv::Id id = spv::NoResult;
     switch (inst->op()) {
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: {
             auto &state = _ray_query_state(rq_obj);
-            auto origin = _builder.createOp(spv::Op::OpRayQueryGetWorldRayOriginKHR, vec3_type, std::vector<spv::Id>{rq_obj});
-            auto dir = _builder.createOp(spv::Op::OpRayQueryGetWorldRayDirectionKHR, vec3_type, std::vector<spv::Id>{rq_obj});
-            auto t_min = _builder.createOp(spv::Op::OpRayQueryGetRayTMinKHR, float_type, std::vector<spv::Id>{rq_obj});
-            auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
-            auto committed_type = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-            auto has_committed = _builder.createBinOp(
-                spv::Op::OpINotEqual, bool_type, committed_type,
-                _builder.makeUintConstant(0u));
-            auto initial_t_max = _builder.createCompositeExtract(
-                state.initial_ray, float_type, 3u);
-            auto t_max_var = _builder.createVariable(
-                spv::NoPrecision, spv::StorageClass::Function,
-                float_type, "rq_world_ray_tmax");
-            _builder.createStore(initial_t_max, t_max_var);
-
-            // SPV_KHR_ray_query makes committed IntersectionT undefined while
-            // the committed type is None. Keep it out of that dynamic path;
-            // OpSelect would still evaluate the invalid instruction eagerly.
-            auto *committed_block = _create_physical_block();
-            auto *merge_block = _create_physical_block();
-            auto selection_merge = luisa::make_unique<spv::Instruction>(
-                spv::Op::OpSelectionMerge);
-            selection_merge->reserveOperands(2u);
-            selection_merge->addIdOperand(merge_block->getId());
-            selection_merge->addImmediateOperand(
-                spv::SelectionControlMask::MaskNone);
-            _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
-            _builder.createConditionalBranch(
-                has_committed, committed_block, merge_block);
-
-            _set_current_tail(committed_block);
-            auto committed_t_max = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-            _builder.createStore(committed_t_max, t_max_var);
-            _builder.createBranch(false, merge_block);
-
-            _set_current_tail(merge_block);
-            auto t_max = _builder.createLoad(t_max_var, spv::NoPrecision);
-            auto ray_type = inst->type();
-            auto origin_array_type = _convert_type(ray_type->members()[0], Usage::READ);
-            auto dir_array_type = _convert_type(ray_type->members()[2], Usage::READ);
-            auto origin_arr = _builder.createCompositeConstruct(origin_array_type, {_builder.createCompositeExtract(origin, float_type, 0),
-                                                                                    _builder.createCompositeExtract(origin, float_type, 1),
-                                                                                    _builder.createCompositeExtract(origin, float_type, 2)});
-            auto dir_arr = _builder.createCompositeConstruct(dir_array_type, {_builder.createCompositeExtract(dir, float_type, 0),
-                                                                              _builder.createCompositeExtract(dir, float_type, 1),
-                                                                              _builder.createCompositeExtract(dir, float_type, 2)});
-            id = _builder.createCompositeConstruct(type, {origin_arr, t_min, dir_arr, t_max});
+            const bool need_t_max = (used_fields & (1u << 3u)) != 0u;
+            if (!need_t_max && _builder.getTypeId(state.initial_ray) == type) {
+                id = state.initial_ray;
+            } else {
+                auto t_max = need_t_max ?
+                                 _emit_ray_query_current_t_max(rq_obj) :
+                                 _builder.createCompositeExtract(state.initial_ray, float_type, 3u);
+                if (_builder.getTypeId(state.initial_ray) == type) {
+                    id = _builder.createCompositeInsert(t_max, state.initial_ray, type, 3u);
+                } else {
+                    auto ray_type = inst->type();
+                    auto origin_array_type = _convert_type(ray_type->members()[0], Usage::READ);
+                    auto dir_array_type = _convert_type(ray_type->members()[2], Usage::READ);
+                    auto origin_arr = _builder.createCompositeExtract(state.initial_ray, origin_array_type, 0u);
+                    auto t_min = _builder.createCompositeExtract(state.initial_ray, float_type, 1u);
+                    auto dir_arr = _builder.createCompositeExtract(state.initial_ray, dir_array_type, 2u);
+                    id = _builder.createCompositeConstruct(type, {origin_arr, t_min, dir_arr, t_max});
+                }
+            }
             break;
         }
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: {
             auto &state = _ray_query_state(rq_obj);
             auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
-            auto origin = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionObjectRayOriginKHR,
-                vec3_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
-            auto dir = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionObjectRayDirectionKHR,
-                vec3_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
-            auto t_min = _builder.createOp(
-                spv::Op::OpRayQueryGetRayTMinKHR, float_type,
-                std::vector<spv::Id>{rq_obj});
-            auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
-            auto committed_type = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-            auto has_committed = _builder.createBinOp(
-                spv::Op::OpINotEqual, bool_type, committed_type,
-                _builder.makeUintConstant(0u));
-            auto initial_t_max = _builder.createCompositeExtract(
-                state.initial_ray, float_type, 3u);
-            auto t_max_var = _builder.createVariable(
-                spv::NoPrecision, spv::StorageClass::Function,
-                float_type, "rq_object_ray_tmax");
-            _builder.createStore(initial_t_max, t_max_var);
-
-            // IntersectionT is undefined while the committed type is None.
-            // Branch before reading it; OpSelect would evaluate both arms.
-            auto *committed_block = _create_physical_block();
-            auto *merge_block = _create_physical_block();
-            auto selection_merge = luisa::make_unique<spv::Instruction>(
-                spv::Op::OpSelectionMerge);
-            selection_merge->reserveOperands(2u);
-            selection_merge->addIdOperand(merge_block->getId());
-            selection_merge->addImmediateOperand(
-                spv::SelectionControlMask::MaskNone);
-            _builder.getBuildPoint()->addInstruction(
-                to_std_unique_ptr(std::move(selection_merge)));
-            _builder.createConditionalBranch(
-                has_committed, committed_block, merge_block);
-
-            _set_current_tail(committed_block);
-            auto committed_t_max = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-            _builder.createStore(committed_t_max, t_max_var);
-            _builder.createBranch(false, merge_block);
-
-            _set_current_tail(merge_block);
-            auto t_max = _builder.createLoad(t_max_var, spv::NoPrecision);
             auto ray_type = inst->type();
-            auto origin_array_type = _convert_type(
-                ray_type->members()[0], Usage::READ);
-            auto dir_array_type = _convert_type(
-                ray_type->members()[2], Usage::READ);
-            auto origin_arr = _builder.createCompositeConstruct(
-                origin_array_type,
-                {_builder.createCompositeExtract(origin, float_type, 0),
-                 _builder.createCompositeExtract(origin, float_type, 1),
-                 _builder.createCompositeExtract(origin, float_type, 2)});
-            auto dir_arr = _builder.createCompositeConstruct(
-                dir_array_type,
-                {_builder.createCompositeExtract(dir, float_type, 0),
-                 _builder.createCompositeExtract(dir, float_type, 1),
-                 _builder.createCompositeExtract(dir, float_type, 2)});
+            auto origin_array_type = _convert_type(ray_type->members()[0], Usage::READ);
+            auto dir_array_type = _convert_type(ray_type->members()[2], Usage::READ);
+            auto zero_f = _builder.makeFloatConstant(0.0f);
+            spv::Id origin_arr = spv::NoResult;
+            if ((used_fields & (1u << 0u)) != 0u) {
+                auto origin = _builder.createOp(
+                    spv::Op::OpRayQueryGetIntersectionObjectRayOriginKHR,
+                    vec3_type,
+                    std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+                origin_arr = _builder.createCompositeConstruct(
+                    origin_array_type,
+                    {_builder.createCompositeExtract(origin, float_type, 0),
+                     _builder.createCompositeExtract(origin, float_type, 1),
+                     _builder.createCompositeExtract(origin, float_type, 2)});
+            } else {
+                origin_arr = _builder.createCompositeConstruct(origin_array_type, {zero_f, zero_f, zero_f});
+            }
+            auto t_min = _builder.createCompositeExtract(state.initial_ray, float_type, 1u);
+            spv::Id dir_arr = spv::NoResult;
+            if ((used_fields & (1u << 2u)) != 0u) {
+                auto dir = _builder.createOp(
+                    spv::Op::OpRayQueryGetIntersectionObjectRayDirectionKHR,
+                    vec3_type,
+                    std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+                dir_arr = _builder.createCompositeConstruct(
+                    dir_array_type,
+                    {_builder.createCompositeExtract(dir, float_type, 0),
+                     _builder.createCompositeExtract(dir, float_type, 1),
+                     _builder.createCompositeExtract(dir, float_type, 2)});
+            } else {
+                dir_arr = _builder.createCompositeConstruct(dir_array_type, {zero_f, zero_f, zero_f});
+            }
+            auto t_max = (used_fields & (1u << 3u)) != 0u ?
+                             _emit_ray_query_current_t_max(rq_obj) :
+                             zero_f;
             id = _builder.createCompositeConstruct(
                 type, {origin_arr, t_min, dir_arr, t_max});
             break;
         }
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: {
             auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
-            auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
-                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
-            auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
-                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
-            auto bary = _builder.createOp(spv::Op::OpRayQueryGetIntersectionBarycentricsKHR, vec2_type,
-                                          std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
-            auto ray_t = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
-                                           std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto zero_u = _builder.makeUintConstant(0u);
+            auto zero_f = _builder.makeFloatConstant(0.0f);
+            auto inst_idx = (used_fields & (1u << 0u)) != 0u ?
+                                _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}}) :
+                                zero_u;
+            auto prim_idx = (used_fields & (1u << 1u)) != 0u ?
+                                _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}}) :
+                                zero_u;
+            auto bary = (used_fields & (1u << 2u)) != 0u ?
+                            _builder.createOp(spv::Op::OpRayQueryGetIntersectionBarycentricsKHR, vec2_type,
+                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}}) :
+                            _builder.createCompositeConstruct(vec2_type, {zero_f, zero_f});
+            auto ray_t = (used_fields & (1u << 3u)) != 0u ?
+                             _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                               std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}}) :
+                             zero_f;
             id = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, bary, ray_t});
             break;
         }
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: {
             auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
-            auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
-                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
-            auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
-                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto zero_u = _builder.makeUintConstant(0u);
+            auto inst_idx = (used_fields & (1u << 0u)) != 0u ?
+                                _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}}) :
+                                zero_u;
+            auto prim_idx = (used_fields & (1u << 1u)) != 0u ?
+                                _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}}) :
+                                zero_u;
             id = _builder.createCompositeConstruct(type, {inst_idx, prim_idx});
             break;
         }
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: {
+            auto zero_f = _builder.makeFloatConstant(0.0f);
+            auto invalid_u = _builder.makeUintConstant(0xFFFFFFFFu);
+            auto miss_bary = _builder.createCompositeConstruct(vec2_type, {zero_f, zero_f});
+            if (used_fields == 0u) {
+                id = _builder.createCompositeConstruct(
+                    type, {invalid_u, invalid_u, miss_bary, _builder.makeUintConstant(0u), zero_f});
+                break;
+            }
             auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
             auto committed_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
                                                     std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+            const bool need_inst = (used_fields & (1u << 0u)) != 0u;
+            const bool need_prim = (used_fields & (1u << 1u)) != 0u;
+            const bool need_bary = (used_fields & (1u << 2u)) != 0u;
+            const bool need_t = (used_fields & (1u << 4u)) != 0u;
+            if (!need_inst && !need_prim && !need_bary && !need_t) {
+                // Only hit_type is consumed (e.g. hit->miss() / is_surface() / is_procedural()).
+                // OpRayQueryGetIntersectionTypeKHR(Committed) yields 0=None, 1=Triangle, 2=Generated,
+                // which matches CommittedHit::hit_type directly with zero control flow.
+                id = _builder.createCompositeConstruct(
+                    type, {invalid_u, invalid_u, miss_bary, committed_type, zero_f});
+                break;
+            }
+            auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "committed_hit");
+            auto miss_result = _builder.createCompositeConstruct(
+                type, {invalid_u, invalid_u, miss_bary, _builder.makeUintConstant(0u), zero_f});
+            _builder.createStore(miss_result, result_var);
+            if (!need_bary) {
+                // Without barycentrics, triangle and procedural committed hits read the exact
+                // same subset of {inst, prim, t} and both pass committed_type as hit_type.
+                auto has_hit = _builder.createBinOp(
+                    spv::Op::OpINotEqual, bool_type, committed_type, _builder.makeUintConstant(0u));
+                auto *hit_block = _create_physical_block();
+                auto *merge_block = _create_physical_block();
+                auto selection_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+                selection_merge->reserveOperands(2u);
+                selection_merge->addIdOperand(merge_block->getId());
+                selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+                _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
+                _builder.createConditionalBranch(has_hit, hit_block, merge_block);
+                _set_current_tail(hit_block);
+                auto inst_idx = need_inst ?
+                                    _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
+                                                      std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                    invalid_u;
+                auto prim_idx = need_prim ?
+                                    _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
+                                                      std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                    invalid_u;
+                auto ray_t = need_t ?
+                                 _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                                   std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                 zero_f;
+                auto hit = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, miss_bary, committed_type, ray_t});
+                _builder.createStore(hit, result_var);
+                _builder.createBranch(false, merge_block);
+                _set_current_tail(merge_block);
+                id = _builder.createLoad(result_var, spv::NoPrecision);
+                break;
+            }
             auto *tri_block = _create_physical_block();
             auto *proc_block = _create_physical_block();
             auto *merge_block = _create_physical_block();
-            auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "committed_hit");
-            auto miss_bary = _builder.createCompositeConstruct(
-                vec2_type,
-                {_builder.makeFloatConstant(0.0f), _builder.makeFloatConstant(0.0f)});
-            auto miss_result = _builder.createCompositeConstruct(
-                type,
-                {_builder.makeUintConstant(0xFFFFFFFFu),
-                 _builder.makeUintConstant(0xFFFFFFFFu),
-                 miss_bary,
-                 _builder.makeUintConstant(0u),
-                 _builder.makeFloatConstant(0.0f)});
-            _builder.createStore(miss_result, result_var);
             auto selection_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
             selection_merge->reserveOperands(2);
             selection_merge->addIdOperand(merge_block->getId());
@@ -6455,28 +6622,39 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             proc_block->addPredecessor(_builder.getBuildPoint());
             _set_current_tail(tri_block);
             {
-                auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
-                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-                auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
-                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                auto inst_idx = need_inst ?
+                                    _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
+                                                      std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                    invalid_u;
+                auto prim_idx = need_prim ?
+                                    _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
+                                                      std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                    invalid_u;
                 auto bary = _builder.createOp(spv::Op::OpRayQueryGetIntersectionBarycentricsKHR, vec2_type,
                                               std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-                auto ray_t = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
-                                               std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                auto ray_t = need_t ?
+                                 _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                                   std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                 zero_f;
                 auto hit = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, bary, _builder.makeUintConstant(1u), ray_t});
                 _builder.createStore(hit, result_var);
             }
             _builder.createBranch(false, merge_block);
             _set_current_tail(proc_block);
             {
-                auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
-                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-                auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
-                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-                auto ray_t = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
-                                               std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-                auto zero_bary = _builder.createCompositeConstruct(vec2_type, {_builder.makeFloatConstant(0.0f), _builder.makeFloatConstant(0.0f)});
-                auto hit = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, zero_bary, _builder.makeUintConstant(2u), ray_t});
+                auto inst_idx = need_inst ?
+                                    _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
+                                                      std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                    invalid_u;
+                auto prim_idx = need_prim ?
+                                    _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, uint_type,
+                                                      std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                    invalid_u;
+                auto ray_t = need_t ?
+                                 _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                                   std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}}) :
+                                 zero_f;
+                auto hit = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, miss_bary, _builder.makeUintConstant(2u), ray_t});
                 _builder.createStore(hit, result_var);
             }
             _builder.createBranch(false, merge_block);
@@ -6516,6 +6694,9 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
     switch (inst->op()) {
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE:
             _builder.createNoResultOp(spv::Op::OpRayQueryConfirmIntersectionKHR, {rq_obj});
+            _builder.createStore(
+                _builder.makeBoolConstant(false),
+                _ray_query_state(rq_obj).cached_t_max_valid);
             break;
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL: {
             LUISA_DEBUG_ASSERT(inst->operand_count() == 2);
@@ -6525,59 +6706,15 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
             // intersection is created, and both the interval and any previously
             // committed hit stay exactly as they were. Vulkan has no rejecting
             // form of OpRayQueryGenerateIntersectionKHR - its t "must be in the
-            // interval [RayTmin, RayTmax]" and the result is undefined otherwise
-            // (on hardware that accepted such a t, the rejected candidate showed
-            // up as a committed procedural hit at the attempted distance, and an
-            // infinite one produced an infinite hit distance). The range test is
-            // therefore emitted here; unordered comparisons reject NaN as well.
+            // interval [RayTmin, RayTmax]" and the result is undefined otherwise.
+            // The range test is therefore emitted here; ordered comparisons reject
+            // NaN as well.
+            auto &state = _ray_query_state(rq_obj);
             auto float_type = _builder.makeFloatType(32);
-            auto uint_type = _builder.makeUintType(32);
             auto bool_type = _builder.makeBoolType();
-            auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
-            auto committed_type = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-            auto has_committed = _builder.createBinOp(
-                spv::Op::OpINotEqual, bool_type, committed_type,
-                _builder.makeUintConstant(0u));
-            auto t_min = _builder.createOp(
-                spv::Op::OpRayQueryGetRayTMinKHR, float_type,
-                std::vector<spv::Id>{rq_obj});
-            // The current upper bound is the T of the committed intersection, or
-            // the query's initial Tmax while nothing is committed. Deriving it
-            // from the committed hit (instead of OpRayQueryGetRayTMaxKHR) keeps
-            // the bound consistent with what `candidate.ray()->t_max()` reports
-            // in this backend.
-            auto initial_t_max = _builder.createCompositeExtract(
-                _ray_query_state(rq_obj).initial_ray, float_type, 3u);
-            auto t_max_var = _builder.createVariable(
-                spv::NoPrecision, spv::StorageClass::Function,
-                float_type, "rq_commit_tmax");
-            _builder.createStore(initial_t_max, t_max_var);
-            // IntersectionT is undefined while the committed type is None, so the
-            // read sits inside its own selection rather than behind OpSelect.
-            auto *committed_block = _create_physical_block();
-            auto *bounds_block = _create_physical_block();
-            auto committed_merge = luisa::make_unique<spv::Instruction>(
-                spv::Op::OpSelectionMerge);
-            committed_merge->reserveOperands(2u);
-            committed_merge->addIdOperand(bounds_block->getId());
-            committed_merge->addImmediateOperand(
-                spv::SelectionControlMask::MaskNone);
-            _builder.getBuildPoint()->addInstruction(
-                to_std_unique_ptr(std::move(committed_merge)));
-            _builder.createConditionalBranch(
-                has_committed, committed_block, bounds_block);
-
-            _set_current_tail(committed_block);
-            auto committed_t_max = _builder.createOp(
-                spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
-                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
-            _builder.createStore(committed_t_max, t_max_var);
-            _builder.createBranch(false, bounds_block);
-
-            _set_current_tail(bounds_block);
-            auto t_max = _builder.createLoad(t_max_var, spv::NoPrecision);
+            auto t_min = _builder.createCompositeExtract(
+                state.initial_ray, float_type, 1u);
+            auto t_max = _emit_ray_query_current_t_max(rq_obj);
             auto above_min = _builder.createBinOp(
                 spv::Op::OpFOrdGreaterThanEqual, bool_type, dist, t_min);
             auto below_max = _builder.createBinOp(
@@ -6601,6 +6738,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
             _set_current_tail(commit_block);
             _builder.createNoResultOp(
                 spv::Op::OpRayQueryGenerateIntersectionKHR, {rq_obj, dist});
+            _builder.createStore(dist, state.cached_t_max);
             _builder.createBranch(false, merge_block);
 
             _set_current_tail(merge_block);
@@ -6613,9 +6751,10 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
                 _ray_query_state(rq_obj).proceed_state);
             break;
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED: {
+            auto &state = _ray_query_state(rq_obj);
             auto proceed_result = _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), std::vector<spv::Id>{rq_obj});
-            _builder.createStore(
-                proceed_result, _ray_query_state(rq_obj).proceed_state);
+            _builder.createStore(proceed_result, state.proceed_state);
+            _builder.createStore(_builder.makeBoolConstant(false), state.cached_t_max_valid);
             break;
         }
     }

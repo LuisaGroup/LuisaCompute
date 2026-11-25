@@ -452,7 +452,10 @@ end)
 -- source/compiler opt-in of whoever measures, not a supported build configuration,
 -- which is why there is no option/define for it here.
 test_proj("benchmark_vk_shader_compile", "benchmark/benchmark_vk_shader_compile.cpp")
--- Plan P5.1: ordered batch compilation of compute shaders through
+-- `benchmark_procedural_ray_query <dx|cuda|vk> [--rounds N] [--width W] [--height H]
+  --  [--workload zoo|many|shadow|bounce]` reports ms and Mray/s per workload.
+  test_proj("benchmark_procedural_ray_query", "benchmark/benchmark_procedural_ray_query.cpp")
+  -- Plan P5.1: ordered batch compilation of compute shaders through
 -- VulkanShaderCompileExt (run with `xmake run test_vk_shader_compile_pool vk`).
 test_proj("test_vk_shader_compile_pool", "unit/runtime/test_vk_shader_compile_pool.cpp")
 
@@ -847,6 +850,7 @@ test_proj("test_function_debugger", "integration/runtime/test_function_debugger.
   test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)
   test_proj("test_dstorage", "integration/runtime/test_dstorage.cpp")
 test_proj("test_procedural_callable", "integration/runtime/test_procedural_callable.cpp")
+  test_proj("test_procedural_sampling", "integration/runtime/test_procedural_sampling.cpp")
 test_proj("test_rtx", "integration/runtime/test_rtx.cpp", false, function()
     -- `--fallback-rtx` forces the software BVH through the backend's
     -- DeviceConfigExt; the defines gate the matching config-ext includes.

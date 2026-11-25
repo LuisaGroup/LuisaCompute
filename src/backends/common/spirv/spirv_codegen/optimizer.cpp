@@ -281,6 +281,8 @@ void register_compute_passes(spvtools::Optimizer &optimizer,
                   spvtools::CreateAggressiveDCEPass());
     register_pass(optimizer, report, "block-merge",
                   spvtools::CreateBlockMergePass());
+    register_pass(optimizer, report, "licm",
+                  spvtools::CreateLoopInvariantCodeMotionPass());
     register_pass(optimizer, report, "redundancy-elimination",
                   spvtools::CreateRedundancyEliminationPass());
     register_pass(optimizer, report, "dead-branch-elim",
@@ -289,6 +291,8 @@ void register_compute_passes(spvtools::Optimizer &optimizer,
                   spvtools::CreateBlockMergePass());
     register_pass(optimizer, report, "simplification",
                   spvtools::CreateSimplificationPass());
+    register_pass(optimizer, report, "cfg-cleanup",
+                  spvtools::CreateCFGCleanupPass());
     // Bounded value-level and cleanup tail.
     register_pass(optimizer, report, "strength-reduction",
                   spvtools::CreateStrengthReductionPass());

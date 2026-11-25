@@ -460,10 +460,12 @@ constexpr std::string_view compute_suffix_after_unroll[] = {
     "reduce-load-size",
     "adce",
     "block-merge",
+    "licm",
     "redundancy-elimination",
     "dead-branch-elim",
     "block-merge",
     "simplification",
+    "cfg-cleanup",
     "strength-reduction",
     "boolean-simplify",
 };
@@ -1802,5 +1804,102 @@ int main(int argc, char *argv[]) {
             expect(options.level ==
                    std::numeric_limits<int>::max());
         }
+    };
+
+    "spirv_compute_licm_hoists_pure_math_and_guards_conditional_loads"_test = [] {
+        ScopedDefaultOptimizerEnvironment defaults;
+        // Loop with a loop-invariant OpFDiv inside a conditional block (safe to
+        // hoist) and a loop-invariant NonWritable OpLoad inside the same
+        // conditional block (must NOT be hoisted out of the branch).
+        constexpr auto licm_module = R"(
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main" %buf %ro_buf
+OpExecutionMode %main LocalSize 1 1 1
+OpDecorate %block Block
+OpMemberDecorate %block 0 Offset 0
+OpMemberDecorate %block 1 Offset 4
+OpMemberDecorate %block 2 Offset 8
+OpDecorate %buf DescriptorSet 0
+OpDecorate %buf Binding 0
+OpDecorate %ro_block Block
+OpMemberDecorate %ro_block 0 Offset 0
+OpDecorate %ro_buf DescriptorSet 0
+OpDecorate %ro_buf Binding 1
+OpDecorate %ro_buf NonWritable
+%void = OpTypeVoid
+%bool = OpTypeBool
+%uint = OpTypeInt 32 0
+%float = OpTypeFloat 32
+%function = OpTypeFunction %void
+%block = OpTypeStruct %uint %float %float
+%block_ptr = OpTypePointer StorageBuffer %block
+%uint_ptr = OpTypePointer StorageBuffer %uint
+%float_ptr = OpTypePointer StorageBuffer %float
+%buf = OpVariable %block_ptr StorageBuffer
+%ro_block = OpTypeStruct %float
+%ro_block_ptr = OpTypePointer StorageBuffer %ro_block
+%ro_buf = OpVariable %ro_block_ptr StorageBuffer
+%zero = OpConstant %uint 0
+%one = OpConstant %uint 1
+%two = OpConstant %uint 2
+%fzero = OpConstant %float 0
+%fone = OpConstant %float 1
+%main = OpFunction %void None %function
+%entry = OpLabel
+%n_ptr = OpAccessChain %uint_ptr %buf %zero
+%n = OpLoad %uint %n_ptr
+%d_ptr = OpAccessChain %float_ptr %buf %one
+%d = OpLoad %float %d_ptr
+%out_ptr = OpAccessChain %float_ptr %buf %two
+%ro_ptr = OpAccessChain %float_ptr %ro_buf %zero
+OpBranch %header
+%header = OpLabel
+%i = OpPhi %uint %zero %entry %next %cont
+%acc = OpPhi %float %fzero %entry %acc_next %cont
+%cond = OpULessThan %bool %i %n
+OpLoopMerge %merge %cont None
+OpBranchConditional %cond %body %merge
+%body = OpLabel
+%take = OpUGreaterThan %bool %i %zero
+OpSelectionMerge %if_merge None
+OpBranchConditional %take %then %if_merge
+%then = OpLabel
+%inv = OpFDiv %float %fone %d
+%ro_val = OpLoad %float %ro_ptr
+%term = OpFMul %float %inv %ro_val
+%added = OpFAdd %float %acc %term
+OpBranch %if_merge
+%if_merge = OpLabel
+%acc_next = OpPhi %float %acc %body %added %then
+OpBranch %cont
+%cont = OpLabel
+%next = OpIAdd %uint %i %one
+OpBranch %header
+%merge = OpLabel
+OpStore %out_ptr %acc
+OpReturn
+OpFunctionEnd
+)";
+        auto words = assemble_test_module(licm_module);
+        auto report = lc::spirv::optimize_spirv(
+            words, {.level = 2, .preset = "compute", .enable_fast_math = false});
+        expect_optimizer_report_ok(report);
+        expect(validates(words));
+        auto text = disassemble(words);
+        auto loop_merge_pos = text.find("OpLoopMerge");
+        auto fdiv_pos = text.find("OpFDiv");
+        auto cond_branch_pos = text.find("OpSelectionMerge");
+        expect(loop_merge_pos != std::string::npos);
+        expect(fdiv_pos != std::string::npos && fdiv_pos < loop_merge_pos)
+            << "loop-invariant OpFDiv must hoist before OpLoopMerge:\n"
+            << text;
+        // The conditional NonWritable OpLoad must remain after OpSelectionMerge.
+        auto ro_load_pos = text.rfind("OpLoad");
+        expect(cond_branch_pos != std::string::npos &&
+               ro_load_pos != std::string::npos &&
+               ro_load_pos > cond_branch_pos)
+            << "conditional OpLoad must not be speculatively hoisted out of branch:\n"
+            << text;
     };
 }

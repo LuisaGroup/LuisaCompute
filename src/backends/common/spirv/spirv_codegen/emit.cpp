@@ -1160,6 +1160,9 @@ void SpirvCodegenEntry::_reset_function_codegen_state() noexcept {
     _deferred_phis.clear();
     _deferred_phi_incomings_by_predecessor.clear();
     _ray_query_states.clear();
+    _hoist_block = nullptr;
+    _cached_direct_buffer_metadata.clear();
+    _cached_direct_buffer_element_bias.clear();
     _dispatch_metadata = {};
 }
 
@@ -1320,24 +1323,30 @@ void SpirvCodegenEntry::_emit_kernel(
                 _builder.makeBoolConstant(false));
         }
 
-        // Create return block and body block
+        // Create return block, prologue hoist block, and body block
         auto return_block = _create_physical_block(&function);
+        auto hoist_block = _create_physical_block(&function);
         auto body_block = _create_physical_block(&function);
 
         // Selection merge
         auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
         selection_merge->reserveOperands(2);
-        selection_merge->addIdOperand(body_block->getId());
+        selection_merge->addIdOperand(hoist_block->getId());
         selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
   metadata_merge->addInstruction(
       std::unique_ptr<spv::Instruction>(selection_merge));
 
         // Branch conditional
-        _builder.createConditionalBranch(cmp, return_block, body_block);
+        _builder.createConditionalBranch(cmp, return_block, hoist_block);
 
         // Return block
         _builder.setBuildPoint(return_block);
         _builder.makeReturn(false);
+
+        // Prologue hoist block receives kernel-invariant metadata loads / UDivs
+        // emitted lazily during function block emission, then falls straight
+        // into body_block (merged away by spirv-opt block-merge).
+        _hoist_block = hoist_block;
 
         // Body block
         _builder.setBuildPoint(body_block);
@@ -1354,6 +1363,12 @@ void SpirvCodegenEntry::_emit_kernel(
     _emit_function_blocks(kernel);
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.makeReturn(false);
+    }
+    if (_hoist_block != nullptr) {
+        auto *body_entry = _xir_block_entry(kernel->body_block());
+        _builder.setBuildPoint(_hoist_block);
+        _builder.createBranch(false, body_entry);
+        _hoist_block = nullptr;
     }
     _builder.leaveFunction();
     // A ray-query module may traverse a micromapped acceleration structure, and the
@@ -1489,10 +1504,15 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
             param_types.emplace_back(_builder.makePointer(spv::StorageClass::Function, type));
             if (_is_ray_query_type(arg->type())) {
                 // OpTypeRayQueryKHR is opaque and exposes no initialized TMax.
-                // Carry the immutable initialization ray and mutable proceed
-                // state beside the query pointer across callable boundaries.
+                // Carry the immutable initialization ray, mutable proceed state,
+                // and cached current t_max / validity flag beside the query
+                // pointer across callable boundaries.
                 param_types.emplace_back(
                     _convert_type(_ray_query_initial_ray_type(), Usage::READ));
+                param_types.emplace_back(_builder.makePointer(
+                    spv::StorageClass::Function, _builder.makeBoolType()));
+                param_types.emplace_back(_builder.makePointer(
+                    spv::StorageClass::Function, _builder.makeFloatType(32)));
                 param_types.emplace_back(_builder.makePointer(
                     spv::StorageClass::Function, _builder.makeBoolType()));
             }
@@ -1525,8 +1545,10 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         if (arg->is_reference() && _is_ray_query_type(arg->type())) {
             auto initial_ray = func->getParamId(i++);
             auto proceed_state = func->getParamId(i++);
+            auto cached_t_max = func->getParamId(i++);
+            auto cached_t_max_valid = func->getParamId(i++);
             auto [_, inserted] = _ray_query_states.emplace(
-                param_id, RayQueryState{initial_ray, proceed_state});
+                param_id, RayQueryState{initial_ray, proceed_state, cached_t_max, cached_t_max_valid});
             LUISA_ASSERT(inserted,
                          "SPIR-V callable ray-query parameter state was registered twice.");
         }

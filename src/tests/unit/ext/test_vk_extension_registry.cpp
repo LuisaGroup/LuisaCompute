@@ -743,4 +743,26 @@ int main(int argc, char *argv[]) {
         expect(registry.requested(OptionalExtension::ROBUSTNESS2));
 #endif
     };
+
+    "vk_optional_extension_prefers_ext_opacity_micromap_regardless_of_driver_order"_test = [] {
+        AllEnabledConfig config;
+        // Driver lists KHR before EXT: primary EXT spelling must still win.
+        auto supported = names({
+            VK_KHR_OPACITY_MICROMAP_EXTENSION_NAME,
+            VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME});
+        OptionalExtensionRegistry registry;
+        select_names(registry, supported, config, false);
+        auto *feat = static_cast<VkPhysicalDeviceOpacityMicromapFeaturesEXT *>(
+            find_feature(registry.feature_query_chain(),
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT));
+        expect(feat != nullptr);
+        feat->micromap = VK_TRUE;
+        registry.note_enabled_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        registry.resolve();
+        auto const &state = registry.state(OptionalExtension::OPACITY_MICROMAP);
+        expect(state.enabled);
+        expect(luisa::string_view{state.name} ==
+               luisa::string_view{VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME})
+            << "EXT spelling must take precedence over KHR alias when both are supported";
+    };
 }

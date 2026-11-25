@@ -2951,4 +2951,33 @@ int main(int argc, char *argv[]) {
             expect(eq(d.trip_count, 3u));
         }
     };
+
+    "spirv_loop_control_accepts_internal_if_within_budget"_test = [] {
+        using Options = lc::spirv::ControlFlowOptimizationPlan::Options;
+        auto fixture = create_counted_loop(4u);
+        auto *body = fixture->loop->body_block();
+        auto *update = fixture->loop->update_block();
+        body->terminator()->remove_self();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                            {fixture->induction,
+                             fixture->module.create_constant_zero(
+                                 Type::of<uint32_t>())});
+        auto *if_inst = b.if_(cond);
+        auto *then_block = if_inst->create_true_block();
+        auto *else_block = if_inst->create_false_block();
+        auto *if_merge = if_inst->create_merge_block();
+        b.set_insertion_point(then_block);
+        b.br(if_merge);
+        b.set_insertion_point(else_block);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        b.br(update);
+        expect(xir_verify_module(&fixture->module).succeeded());
+        auto decision = lc::spirv::plan_spirv_loop_control(
+            fixture->loop, Options{});
+        expect(decision.unroll()) << decision.reason;
+        expect(eq(decision.trip_count, 4u));
+    };
 }

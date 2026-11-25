@@ -518,6 +518,8 @@ luisa_compute_add_test(benchmark_part2_verify benchmark/benchmark_part2_verify.c
 # source/compiler opt-in of whoever measures, not a supported build configuration,
 # which is why there is no option/define for it here.
 luisa_compute_add_test(benchmark_vk_shader_compile benchmark/benchmark_vk_shader_compile.cpp)
+# benchmark_procedural_ray_query <dx|cuda|vk> [--rounds N] [--width W] [--height H] [--workload name]
+luisa_compute_add_test(benchmark_procedural_ray_query benchmark/benchmark_procedural_ray_query.cpp)
 # Plan P5.1: ordered batch shader compilation (worker pool, per-request tickets,
 # serial publication). Needs a GPU device, so it is not CTest-registered.
 luisa_compute_add_test(test_vk_shader_compile_pool unit/runtime/test_vk_shader_compile_pool.cpp)
@@ -1808,6 +1810,7 @@ luisa_compute_add_test(test_function_debugger integration/runtime/test_function_
 luisa_compute_add_test(test_dstorage_decompression  integration/runtime/test_dstorage_decompression.cpp)
 luisa_compute_add_test(test_dstorage integration/runtime/test_dstorage.cpp LABELS "integration;integration_runtime")
 luisa_compute_add_test(test_procedural_callable      integration/runtime/test_procedural_callable.cpp)
+luisa_compute_add_test(test_procedural_sampling integration/runtime/test_procedural_sampling.cpp)
 if (TARGET luisa-compute-backend-metal4)
     add_test(NAME test_metal4_procedural_callable
             COMMAND test_procedural_callable metal4 --spp 4)
