@@ -556,14 +556,15 @@ public:
     template<typename T>
     [[nodiscard]] inline Vector<T, 4u> read2d(uint2 xy) const noexcept {
         if (_out_of_bounds(xy)) [[unlikely]] { return {}; }
+        const auto pixel_storage = storage();
         if constexpr (std::is_same_v<T, float>) {
-            if (is_block_compressed(_storage)) {
+            if (is_block_compressed(pixel_storage)) {
                 float4 out{};
-                bc::decode_bc_pixel(_storage, _data, _width, _height, xy.x, xy.y, &out.x);
+                bc::decode_bc_pixel(pixel_storage, _data, _width, _height, xy.x, xy.y, &out.x);
                 return out;
             }
         }
-        return detail::read_pixel<T>(_storage, _pixel2d(xy));
+        return detail::read_pixel<T>(pixel_storage, _pixel2d(xy));
     }
 
     template<typename T>

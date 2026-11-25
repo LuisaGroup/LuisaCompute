@@ -5,6 +5,7 @@ _config_project({
     batch_size = 0
 })
 add_deps("lc-dsl")
+add_cxxflags("/bigobj", {tools = "cl"})
 add_headerfiles("../../include/luisa/coro/**.h")
 add_files("**.cpp", "schedulers/**.cpp")
 add_defines("LUISA_CORO_EXPORT_DLL", {
