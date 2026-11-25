@@ -183,6 +183,8 @@ private:
         // parameters. Other values retain their compact context field index.
         const xir::Argument *root_resource{nullptr};
         unsigned context_field{0u};
+        bool is_local_ptr{false};
+        bool staged_inline{false};
     };
     struct RayQueryKernelResource {
         llvm::Constant *pointer;
@@ -195,6 +197,8 @@ private:
         llvm::StructType *context_type;
         llvm::SmallVector<RayQueryCapture> captures;
         bool hardware_result;
+        bool direct_payload{false};
+        bool query_is_local_ptr{false};
     };
     std::vector<RayQueryPipeline> _ray_query_pipelines;
     std::vector<llvm::CallInst *> _ray_query_trace_calls;

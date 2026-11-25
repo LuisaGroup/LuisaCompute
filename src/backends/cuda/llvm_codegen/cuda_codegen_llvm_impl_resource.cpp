@@ -962,10 +962,12 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
                                       "call ($0,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31), _optix_hitobject_traverse, ($32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80);",
                                       llvm_asm->getConstraintString(), true);
     }
-    // The payload can contain pointers to mutable traversal state and captures.
-    // OptiX invokes hit programs that access that memory before returning.
-    llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
-                                    (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
+    if (payload_type == OPTIX_PAYLOAD_TYPE_ID_1) {
+        // The payload can contain pointers to mutable traversal state and captures.
+        // OptiX invokes hit programs that access that memory before returning.
+        llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
+                                        (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
+    }
     auto call = b.CreateCall(llvm_asm, args);
     if (payload_type == OPTIX_PAYLOAD_TYPE_ID_1) {
         _ray_query_trace_calls.emplace_back(call);
