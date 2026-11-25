@@ -201,11 +201,11 @@ ScheduleEmitter::_bindless_buffer_lanes(
     auto stride = byte_address ? 1u : result->type->size();
     auto *offsets = _bindless_access_offsets(
         buffer, index, stride, result->type->size());
-    if (_width == 8u &&
+    if ((_width == 4u || _width == 8u) &&
         !result->type->is_scalar() &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_AOS_TRANSPOSE_GATHER")) {
-        if (auto *transposed = _gather_aos_chunked_w8(
+        if (auto *transposed = _gather_aos_chunked(
                 buffer.data, offsets, result->type)) {
             return transposed;
         }

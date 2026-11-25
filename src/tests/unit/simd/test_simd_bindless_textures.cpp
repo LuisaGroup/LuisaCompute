@@ -52,6 +52,12 @@ void expect_close(float4 actual, float4 expected,
                   const char *description) noexcept {
     auto delta = abs(actual - expected);
     auto error = std::max({delta.x, delta.y, delta.z, delta.w});
+    if (error > 1.0e-6f) {
+        std::cerr << description << ": actual=(" << actual.x << "," << actual.y
+                  << "," << actual.z << "," << actual.w << ") expected=("
+                  << expected.x << "," << expected.y << "," << expected.z
+                  << "," << expected.w << ")\n";
+    }
     expect(static_cast<bool>(error <= 1.0e-6f))
         << description << ", max error " << error;
 }
@@ -680,5 +686,57 @@ int main(int argc, char *argv[]) {
                 byte_host[gid * 2u], byte_host[gid * 2u + 1u],
                 "SIMD IR-native BYTE1 texture sample mismatch");
         }
+
+        // Regression test for non-power-of-two width (3x2 FLOAT4) mid-texel
+        // sampling (u=0.5, v=0.0): normalized +/- 0.5/3 loses 1 ULP on width=3
+        // and wrongly wraps to texel x=0 instead of x=1.
+        constexpr std::array<float4, 6u> npot_pixels{
+            make_float4(0.08f, 0.18f, 0.28f, 0.35f),
+            make_float4(0.42f, 0.52f, 0.62f, 0.75f),
+            make_float4(0.86f, 0.96f, 0.16f, 0.25f),
+            make_float4(0.24f, 0.34f, 0.44f, 0.55f),
+            make_float4(0.68f, 0.78f, 0.88f, 0.95f),
+            make_float4(0.14f, 0.24f, 0.34f, 0.45f),
+        };
+        auto npot_image = device.create_image<float>(
+            PixelStorage::FLOAT4, make_uint2(3u, 2u));
+        auto npot_bindless = device.create_bindless_array(3u);
+        npot_bindless.emplace_on_update(
+            0u, npot_image, Sampler::linear_point_repeat());
+        npot_bindless.emplace_on_update(
+            1u, npot_image, Sampler::linear_point_edge());
+        npot_bindless.emplace_on_update(
+            2u, npot_image, Sampler::linear_point_mirror());
+        auto npot_output = device.create_buffer<float4>(6u);
+        Kernel1D npot_kernel = [width](
+                                   BindlessVar array,
+                                   BufferVar<float4> result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto gid = dispatch_x();
+            $if(gid < 3u) {
+                result.write(gid, array.tex2d(gid).sample(make_float2(0.5f, 0.0f)));
+                result.write(gid + 3u, array.tex2d(0u).sample(make_float2(0.5f, 0.0f)));
+            };
+        };
+        auto npot_shader = device.compile(npot_kernel);
+        std::array<float4, 6u> npot_host{};
+        stream << npot_image.copy_from(luisa::span{npot_pixels})
+               << npot_bindless.update()
+               << npot_shader(npot_bindless, npot_output).dispatch(3u)
+               << npot_output.copy_to(luisa::span{npot_host})
+               << synchronize();
+        expect_close(
+            npot_host[0u], make_float4(0.55f, 0.65f, 0.75f, 0.85f),
+            "SIMD 3x2 REPEAT mid-texel mismatch");
+        expect_close(
+            npot_host[1u], make_float4(0.42f, 0.52f, 0.62f, 0.75f),
+            "SIMD 3x2 EDGE mid-texel mismatch");
+        expect_close(
+            npot_host[2u], make_float4(0.42f, 0.52f, 0.62f, 0.75f),
+            "SIMD 3x2 MIRROR mid-texel mismatch");
+        expect_close(
+            npot_host[3u], make_float4(0.55f, 0.65f, 0.75f, 0.85f),
+            "SIMD 3x2 uniform-slot REPEAT mid-texel mismatch");
     }
 }

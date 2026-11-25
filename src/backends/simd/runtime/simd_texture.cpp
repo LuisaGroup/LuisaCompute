@@ -104,11 +104,10 @@ struct LinearCoordinate {
 template<Address Mode>
 [[nodiscard]] LUISA_FORCE_INLINE LinearCoordinate
 texture_coordinate_linear_precomputed(
-    float uv, float size, float half_inverse_size) noexcept {
+    float uv, float size, float) noexcept {
     constexpr auto invalid_coordinate = 65536u;
-    if (!(size > 0.0f) || !std::isfinite(size) ||
-        !std::isfinite(uv) || !std::isfinite(half_inverse_size)) {
-        return {65536u, 65536u, 0.0f};
+    if (!(size > 0.0f) || !std::isfinite(size) || !std::isfinite(uv)) {
+        return {invalid_coordinate, invalid_coordinate, 0.0f};
     }
     if constexpr (Mode == Address::ZERO) {
         auto position = uv * size - 0.5f;
@@ -123,27 +122,42 @@ texture_coordinate_linear_precomputed(
                        invalid_coordinate;
         };
         return {encode(lower), encode(upper), position - lower};
-    }
-    auto a = texture_coordinate_point_unchecked<Mode>(
-        uv - half_inverse_size, size);
-    auto b = texture_coordinate_point_unchecked<Mode>(
-        uv + half_inverse_size, size);
-    if constexpr (Mode == Address::MIRROR) {
-        auto lo = std::min(a, b);
-        auto hi = std::max(a, b);
-        auto hi_i = static_cast<uint32_t>(hi);
+    } else if constexpr (Mode == Address::REPEAT) {
+        auto f = uv - fast_floor_f32(uv);
+        if (!(f >= 0.0f && f < 1.0f)) { f = 0.0f; }
+        auto px = f * size - 0.5f;
+        auto fl = fast_floor_f32(px);
+        auto t = px - fl;
+        auto i0 = static_cast<int32_t>(fl);
+        auto i1 = i0 + 1;
+        auto isize = static_cast<int32_t>(size);
+        auto w0 = i0 < 0 ? (isize - 1) : (i0 >= isize ? (isize - 1) : i0);
+        auto w1 = i1 < 0 ? 0 : (i1 >= isize ? 0 : i1);
+        return {static_cast<uint32_t>(w0), static_cast<uint32_t>(w1), t};
+    } else {
+        auto folded = uv;
+        if constexpr (Mode == Address::MIRROR) {
+            auto raw_a = std::fabs(uv);
+            auto a = raw_a - fast_floor_f32(raw_a * 0.5f) * 2.0f;
+            if (!(a >= 0.0f && a < 2.0f)) { a = 0.0f; }
+            folded = a < 1.0f ? a : (2.0f - a);
+        }
+        auto px = folded * size - 0.5f;
+        auto isize = static_cast<uint32_t>(size);
+        if (px <= 0.0f) {
+            return {0u, 0u, 0.0f};
+        }
+        if (px >= size - 1.0f) {
+            return {isize - 1u, isize - 1u, 0.0f};
+        }
+        auto fl = fast_floor_f32(px);
+        auto i0 = static_cast<uint32_t>(fl);
         return {
-            static_cast<uint32_t>(lo),
-            hi_i,
-            hi - static_cast<float>(hi_i),
+            std::min(i0, isize - 1u),
+            std::min(i0 + 1u, isize - 1u),
+            px - fl,
         };
     }
-    auto b_i = static_cast<uint32_t>(b);
-    return {
-        static_cast<uint32_t>(a),
-        b_i,
-        b - static_cast<float>(b_i),
-    };
 }
 
 template<Address Mode>
