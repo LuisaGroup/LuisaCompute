@@ -51,7 +51,7 @@ luisa::string luisa_compute_cuda_llvm_encode_optix_ir(
     }
     LUISA_ASSERT(cuda_arch != 0u && cuda_arch <= 0xffffu / 10u,
                  "CUDA architecture is outside the OptiX IR container's scalar range.");
-    auto scalar_fields_end = enable_fast_math ? 48u : 44u;
+    auto scalar_fields_end = enable_fast_math ? 60u : 48u;
     auto payload_offset = scalar_fields_end + 4u;
     LUISA_ASSERT(bitcode.size() <= std::numeric_limits<size_t>::max() - payload_offset,
                  "OptiX IR container size overflow.");
@@ -79,12 +79,23 @@ luisa::string luisa_compute_cuda_llvm_encode_optix_ir(
     append_u16(2u);
     append_u16(0u);
     append_u16(3u);
-    append_u16(0u);// The host LLVM pipeline has already optimized the module.
+    append_u16(3u);
     if (enable_fast_math) {
-        // NVRTC --ftz=true changes only this container scalar, leaving
-        // its bitcode identical. OptiX consumes this option separately
-        // from upstream LLVM denormal function attributes.
+        // Match `nvcc -O3 --use_fast_math` container scalars:
+        // (13, 1) -ftz=true, (14, 1) -prec-sqrt=false,
+        // (15, 1) -fmad=true, (18, 2) -prec-div=false.
         append_u16(13u);
+        append_u16(1u);
+        append_u16(14u);
+        append_u16(1u);
+        append_u16(15u);
+        append_u16(1u);
+        append_u16(18u);
+        append_u16(2u);
+    } else {
+        // Match `nvcc -O3 -fmad=false` container scalars:
+        // keep FMA/fast-div disabled with (18, 1).
+        append_u16(18u);
         append_u16(1u);
     }
     append_u16(99u);

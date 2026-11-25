@@ -1053,6 +1053,134 @@ template<typename T>
     return lc_texture_read(tex, lc_make_uint3(p));
 }
 
+[[nodiscard]] __device__ inline lc_int lc_sample_address_coord(lc_int i, lc_int dim, lc_uint address, bool &oob) noexcept {
+    switch (address) {
+        case 0u: {// EDGE
+            return i < 0 ? 0 : (i >= dim ? dim - 1 : i);
+        }
+        case 1u: {// REPEAT
+            auto r = i % dim;
+            return r < 0 ? r + dim : r;
+        }
+        case 2u: {// MIRROR
+            if (dim <= 1) { return 0; }
+            auto period = dim * 2;
+            auto m = i % period;
+            if (m < 0) { m += period; }
+            return m < dim ? m : (period - 1 - m);
+        }
+        default: {// ZERO
+            if (i < 0 || i >= dim) { oob = true; }
+            return i;
+        }
+    }
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_surf2d_read_addressed(LCSurface surf, lc_int2 p, lc_int2 dim, lc_uint address) noexcept {
+    bool oob = false;
+    auto x = lc_sample_address_coord(p.x, dim.x, address, oob);
+    auto y = lc_sample_address_coord(p.y, dim.y, address, oob);
+    if (oob) { return lc_make_float4(0.f, 0.f, 0.f, 0.f); }
+    return lc_surf2d_read<float>(surf, lc_make_uint2(static_cast<lc_uint>(x), static_cast<lc_uint>(y)));
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_surf3d_read_addressed(LCSurface surf, lc_int3 p, lc_int3 dim, lc_uint address) noexcept {
+    bool oob = false;
+    auto x = lc_sample_address_coord(p.x, dim.x, address, oob);
+    auto y = lc_sample_address_coord(p.y, dim.y, address, oob);
+    auto z = lc_sample_address_coord(p.z, dim.z, address, oob);
+    if (oob) { return lc_make_float4(0.f, 0.f, 0.f, 0.f); }
+    return lc_surf3d_read<float>(surf, lc_make_uint3(static_cast<lc_uint>(x), static_cast<lc_uint>(y), static_cast<lc_uint>(z)));
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample2d(LCTexture2D<T> tex, lc_float2 uv, lc_uint filter, lc_uint address) noexcept {
+    auto udim = lc_texture_size(tex);
+    auto dim = lc_make_int2(static_cast<lc_int>(udim.x), static_cast<lc_int>(udim.y));
+    if (filter == 0u) {
+        auto ix = static_cast<lc_int>(floorf(uv.x * static_cast<float>(dim.x)));
+        auto iy = static_cast<lc_int>(floorf(uv.y * static_cast<float>(dim.y)));
+        return lc_surf2d_read_addressed<T>(tex.surface, lc_make_int2(ix, iy), dim, address);
+    }
+    auto fx_coord = uv.x * static_cast<float>(dim.x) - 0.5f;
+    auto fy_coord = uv.y * static_cast<float>(dim.y) - 0.5f;
+    auto ix0 = static_cast<lc_int>(floorf(fx_coord));
+    auto iy0 = static_cast<lc_int>(floorf(fy_coord));
+    auto wx = fx_coord - static_cast<float>(ix0);
+    auto wy = fy_coord - static_cast<float>(iy0);
+    auto c00 = lc_surf2d_read_addressed<T>(tex.surface, lc_make_int2(ix0, iy0), dim, address);
+    auto c10 = lc_surf2d_read_addressed<T>(tex.surface, lc_make_int2(ix0 + 1, iy0), dim, address);
+    auto c01 = lc_surf2d_read_addressed<T>(tex.surface, lc_make_int2(ix0, iy0 + 1), dim, address);
+    auto c11 = lc_surf2d_read_addressed<T>(tex.surface, lc_make_int2(ix0 + 1, iy0 + 1), dim, address);
+    auto row0 = lc_lerp(c00, c10, wx);
+    auto row1 = lc_lerp(c01, c11, wx);
+    return lc_lerp(row0, row1, wy);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample2d_level(LCTexture2D<T> tex, lc_float2 uv, float, lc_uint filter, lc_uint address) noexcept {
+    return lc_texture_sample2d(tex, uv, filter, address);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample2d_grad(LCTexture2D<T> tex, lc_float2 uv, lc_float2, lc_float2, lc_uint filter, lc_uint address) noexcept {
+    return lc_texture_sample2d(tex, uv, filter, address);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample2d_grad_level(LCTexture2D<T> tex, lc_float2 uv, lc_float2, lc_float2, float, lc_uint filter, lc_uint address) noexcept {
+    return lc_texture_sample2d(tex, uv, filter, address);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample3d(LCTexture3D<T> tex, lc_float3 uvw, lc_uint filter, lc_uint address) noexcept {
+    auto udim = lc_texture_size(tex);
+    auto dim = lc_make_int3(static_cast<lc_int>(udim.x), static_cast<lc_int>(udim.y), static_cast<lc_int>(udim.z));
+    if (filter == 0u) {
+        auto ix = static_cast<lc_int>(floorf(uvw.x * static_cast<float>(dim.x)));
+        auto iy = static_cast<lc_int>(floorf(uvw.y * static_cast<float>(dim.y)));
+        auto iz = static_cast<lc_int>(floorf(uvw.z * static_cast<float>(dim.z)));
+        return lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix, iy, iz), dim, address);
+    }
+    auto fx_coord = uvw.x * static_cast<float>(dim.x) - 0.5f;
+    auto fy_coord = uvw.y * static_cast<float>(dim.y) - 0.5f;
+    auto fz_coord = uvw.z * static_cast<float>(dim.z) - 0.5f;
+    auto ix0 = static_cast<lc_int>(floorf(fx_coord));
+    auto iy0 = static_cast<lc_int>(floorf(fy_coord));
+    auto iz0 = static_cast<lc_int>(floorf(fz_coord));
+    auto wx = fx_coord - static_cast<float>(ix0);
+    auto wy = fy_coord - static_cast<float>(iy0);
+    auto wz = fz_coord - static_cast<float>(iz0);
+    auto c000 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0, iy0, iz0), dim, address);
+    auto c100 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0 + 1, iy0, iz0), dim, address);
+    auto c010 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0, iy0 + 1, iz0), dim, address);
+    auto c110 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0 + 1, iy0 + 1, iz0), dim, address);
+    auto c001 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0, iy0, iz0 + 1), dim, address);
+    auto c101 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0 + 1, iy0, iz0 + 1), dim, address);
+    auto c011 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0, iy0 + 1, iz0 + 1), dim, address);
+    auto c111 = lc_surf3d_read_addressed<T>(tex.surface, lc_make_int3(ix0 + 1, iy0 + 1, iz0 + 1), dim, address);
+    auto z0 = lc_lerp(lc_lerp(c000, c100, wx), lc_lerp(c010, c110, wx), wy);
+    auto z1 = lc_lerp(lc_lerp(c001, c101, wx), lc_lerp(c011, c111, wx), wy);
+    return lc_lerp(z0, z1, wz);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample3d_level(LCTexture3D<T> tex, lc_float3 uvw, float, lc_uint filter, lc_uint address) noexcept {
+    return lc_texture_sample3d(tex, uvw, filter, address);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample3d_grad(LCTexture3D<T> tex, lc_float3 uvw, lc_float3, lc_float3, lc_uint filter, lc_uint address) noexcept {
+    return lc_texture_sample3d(tex, uvw, filter, address);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline lc_float4 lc_texture_sample3d_grad_level(LCTexture3D<T> tex, lc_float3 uvw, lc_float3, lc_float3, float, lc_uint filter, lc_uint address) noexcept {
+    return lc_texture_sample3d(tex, uvw, filter, address);
+}
+
 template<typename T, typename V>
 __device__ void lc_texture_write(LCTexture2D<T> tex, lc_int2 p, V value) noexcept {
     lc_texture_write(tex, lc_make_uint2(p), value);
@@ -1149,9 +1277,25 @@ __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint ind
     *reinterpret_cast<const T *>(buffer + offset) = value;
 }
 
-[[nodiscard]] __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
+[[nodiscard]] __device__ inline unsigned long long lc_bindless_texture_handle2d_sampler(
+    LCBindlessArray array, lc_uint index, lc_uint filter, lc_uint address) noexcept {
     lc_assume(__isGlobal(array.slots));
-    auto t = array.slots[index].tex2d;
+    const auto *tables = reinterpret_cast<const unsigned long long *const *>(array.slots + array.capacity);
+    const auto *table = tables[index];
+    lc_assume(__isGlobal(table));
+    return table[((filter & 3u) << 2u) | (address & 3u)];
+}
+
+[[nodiscard]] __device__ inline unsigned long long lc_bindless_texture_handle3d_sampler(
+    LCBindlessArray array, lc_uint index, lc_uint filter, lc_uint address) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    const auto *tables = reinterpret_cast<const unsigned long long *const *>(array.slots + array.capacity) + array.capacity;
+    const auto *table = tables[index];
+    lc_assume(__isGlobal(table));
+    return table[((filter & 3u) << 2u) | (address & 3u)];
+}
+
+[[nodiscard]] __device__ inline auto lc_tex2d_sample_handle(unsigned long long t, lc_float2 p) noexcept {
     auto v = lc_make_float4();
     asm("tex.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -1159,9 +1303,7 @@ __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint ind
     return v;
 }
 
-[[nodiscard]] __device__ auto lc_bindless_texture_sample3d(LCBindlessArray array, lc_uint index, lc_float3 p) noexcept {
-    lc_assume(__isGlobal(array.slots));
-    auto t = array.slots[index].tex3d;
+[[nodiscard]] __device__ inline auto lc_tex3d_sample_handle(unsigned long long t, lc_float3 p) noexcept {
     auto v = lc_make_float4();
     asm("tex.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -1169,9 +1311,7 @@ __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint ind
     return v;
 }
 
-[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_level(LCBindlessArray array, lc_uint index, lc_float2 p, float level) noexcept {
-    lc_assume(__isGlobal(array.slots));
-    auto t = array.slots[index].tex2d;
+[[nodiscard]] __device__ inline auto lc_tex2d_sample_level_handle(unsigned long long t, lc_float2 p, float level) noexcept {
     auto v = lc_make_float4();
     asm("tex.level.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], %7;"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -1179,9 +1319,7 @@ __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint ind
     return v;
 }
 
-[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_level(LCBindlessArray array, lc_uint index, lc_float3 p, float level) noexcept {
-    lc_assume(__isGlobal(array.slots));
-    auto t = array.slots[index].tex3d;
+[[nodiscard]] __device__ inline auto lc_tex3d_sample_level_handle(unsigned long long t, lc_float3 p, float level) noexcept {
     auto v = lc_make_float4();
     asm("tex.level.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], %9;"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -1189,9 +1327,7 @@ __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint ind
     return v;
 }
 
-[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_grad(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy) noexcept {
-    lc_assume(__isGlobal(array.slots));
-    auto t = array.slots[index].tex2d;
+[[nodiscard]] __device__ inline auto lc_tex2d_sample_grad_handle(unsigned long long t, lc_float2 p, lc_float2 dx, lc_float2 dy) noexcept {
     auto v = lc_make_float4();
     asm("tex.grad.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], {%7, %8}, {%9, %10};"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -1199,16 +1335,84 @@ __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_uint ind
     return v;
 }
 
-[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_grad(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy) noexcept {
-    lc_assume(__isGlobal(array.slots));
-    auto t = array.slots[index].tex3d;
+[[nodiscard]] __device__ inline auto lc_tex3d_sample_grad_handle(unsigned long long t, lc_float3 p, lc_float3 dx, lc_float3 dy) noexcept {
     auto v = lc_make_float4();
-    asm("tex.grad.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], {%9, %10, %11, %12}, {%13, %14, %15, 16};"
+    asm("tex.grad.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], {%9, %10, %11, %12}, {%13, %14, %15, %16};"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
         : "l"(t), "f"(p.x), "f"(p.y), "f"(p.z), "f"(0.f),
           "f"(dx.x), "f"(dx.y), "f"(dx.z), "f"(0.f),
           "f"(dy.x), "f"(dy.y), "f"(dy.z), "f"(0.f));
     return v;
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return lc_tex2d_sample_handle(array.slots[index].tex2d, p);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d(LCBindlessArray array, lc_uint index, lc_float3 p) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return lc_tex3d_sample_handle(array.slots[index].tex3d, p);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_level(LCBindlessArray array, lc_uint index, lc_float2 p, float level) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return lc_tex2d_sample_level_handle(array.slots[index].tex2d, p, level);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_level(LCBindlessArray array, lc_uint index, lc_float3 p, float level) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return lc_tex3d_sample_level_handle(array.slots[index].tex3d, p, level);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_grad(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return lc_tex2d_sample_grad_handle(array.slots[index].tex2d, p, dx, dy);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_grad(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return lc_tex3d_sample_grad_handle(array.slots[index].tex3d, p, dx, dy);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_grad_level(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy, float) noexcept {
+    return lc_bindless_texture_sample2d_grad(array, index, p, dx, dy);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_grad_level(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy, float) noexcept {
+    return lc_bindless_texture_sample3d_grad(array, index, p, dx, dy);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_sampler(LCBindlessArray array, lc_uint index, lc_float2 p, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex2d_sample_handle(lc_bindless_texture_handle2d_sampler(array, index, filter, address), p);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_sampler(LCBindlessArray array, lc_uint index, lc_float3 p, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex3d_sample_handle(lc_bindless_texture_handle3d_sampler(array, index, filter, address), p);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_level_sampler(LCBindlessArray array, lc_uint index, lc_float2 p, float level, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex2d_sample_level_handle(lc_bindless_texture_handle2d_sampler(array, index, filter, address), p, level);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_level_sampler(LCBindlessArray array, lc_uint index, lc_float3 p, float level, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex3d_sample_level_handle(lc_bindless_texture_handle3d_sampler(array, index, filter, address), p, level);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_grad_sampler(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex2d_sample_grad_handle(lc_bindless_texture_handle2d_sampler(array, index, filter, address), p, dx, dy);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_grad_sampler(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex3d_sample_grad_handle(lc_bindless_texture_handle3d_sampler(array, index, filter, address), p, dx, dy);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample2d_grad_level_sampler(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy, float, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex2d_sample_grad_handle(lc_bindless_texture_handle2d_sampler(array, index, filter, address), p, dx, dy);
+}
+
+[[nodiscard]] __device__ auto lc_bindless_texture_sample3d_grad_level_sampler(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy, float, lc_uint filter, lc_uint address) noexcept {
+    return lc_tex3d_sample_grad_handle(lc_bindless_texture_handle3d_sampler(array, index, filter, address), p, dx, dy);
 }
 
 [[nodiscard]] __device__ auto lc_bindless_texture_size2d(LCBindlessArray array, lc_uint index) noexcept {

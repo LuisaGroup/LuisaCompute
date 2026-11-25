@@ -36,15 +36,22 @@ public:
     };
 
 private:
+    static constexpr size_t sampler_variant_count = 16u;
+    struct SamplerTable {
+        CUdeviceptr device_ptr{0ull};
+        std::array<CUtexObject, sampler_variant_count> objects{};
+    };
+
+    CUDADevice *_device{nullptr};
     CUdeviceptr _handle{};
-    luisa::vector<CUtexObject> _tex2d_slots;
-    luisa::vector<CUtexObject> _tex3d_slots;
+    luisa::vector<SamplerTable> _tex2d_slots;
+    luisa::vector<SamplerTable> _tex3d_slots;
     ResourceTracker _texture_tracker;
     luisa::string _name;
     spin_mutex _mutex;
 
 public:
-    explicit CUDABindlessArray(size_t capacity) noexcept;
+    CUDABindlessArray(CUDADevice *device, size_t capacity) noexcept;
     ~CUDABindlessArray() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     void update(CUDACommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;

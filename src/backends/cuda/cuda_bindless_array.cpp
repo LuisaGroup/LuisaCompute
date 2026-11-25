@@ -17,10 +17,16 @@ namespace {
 // boundary instead of relying on identical C++ struct layouts.
 struct alignas(16) DeviceBindlessSlotModification {
     using Operation = BindlessArrayUpdateCommand::Operation;
-    using Texture = BindlessArrayUpdateCommand::ModifiedTexture;
     struct Buffer {
         uint64_t handle;
         size_t size_bytes;
+        Operation op;
+        uint32_t _padding;
+    };
+    struct Texture {
+        uint64_t handle;
+        uint64_t sampler_table;
+        uint32_t payload_index;
         Operation op;
     };
     size_t slot;
@@ -29,23 +35,36 @@ struct alignas(16) DeviceBindlessSlotModification {
     Texture tex3d;
 };
 static_assert(sizeof(DeviceBindlessSlotModification::Buffer) == 24u);
-static_assert(sizeof(DeviceBindlessSlotModification::Texture) == 16u);
-static_assert(sizeof(DeviceBindlessSlotModification) == 64u);
+static_assert(sizeof(DeviceBindlessSlotModification::Texture) == 24u);
+static_assert(sizeof(DeviceBindlessSlotModification) == 80u);
 
 }// namespace
 
-CUDABindlessArray::CUDABindlessArray(size_t capacity) noexcept
-    : _texture_tracker{capacity} {
-    LUISA_CHECK_CUDA(cuMemAlloc(&_handle, capacity * sizeof(Slot)));
-    _tex2d_slots.resize(capacity, 0ull);
-    _tex3d_slots.resize(capacity, 0ull);
+CUDABindlessArray::CUDABindlessArray(CUDADevice *device, size_t capacity) noexcept
+    : _device{device}, _texture_tracker{capacity} {
+    const auto total_bytes =
+        capacity * (sizeof(Slot) + 2u * sizeof(uint64_t));
+    if (total_bytes > 0u) {
+        LUISA_CHECK_CUDA(cuMemAlloc(&_handle, total_bytes));
+        LUISA_CHECK_CUDA(cuMemsetD8(_handle, 0u, total_bytes));
+    }
+    _tex2d_slots.resize(capacity);
+    _tex3d_slots.resize(capacity);
 }
 
 CUDABindlessArray::~CUDABindlessArray() noexcept {
-    LUISA_CHECK_CUDA(cuMemFree(_handle));
+    if (_handle) { LUISA_CHECK_CUDA(cuMemFree(_handle)); }
     _texture_tracker.traverse([](auto tex) noexcept {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
     });
+    if (_device != nullptr) {
+        for (auto &table : _tex2d_slots) {
+            _device->deallocate_sampler_table(table.device_ptr);
+        }
+        for (auto &table : _tex3d_slots) {
+            _device->deallocate_sampler_table(table.device_ptr);
+        }
+    }
 }
 
 [[nodiscard]] static auto cuda_texture_descriptor(Sampler sampler) noexcept {
@@ -131,14 +150,55 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
     auto mods = cmd->steal_modifications();
     luisa::vector<DeviceBindlessSlotModification> device_mods;
     device_mods.reserve(mods.size());
+    luisa::vector<uint64_t> sampler_payloads;
+    luisa::vector<CUdeviceptr> retired_sampler_tables;
+    auto update_texture_slot = [&](const Mod::Texture &src,
+                                   SamplerTable &dst_slot,
+                                   DeviceBindlessSlotModification::Texture &dst_mod) noexcept {
+        dst_mod.op = src.op;
+        if (src.op == Mod::Operation::NONE) {
+            return;
+        }
+        if (dst_slot.device_ptr != 0ull) {
+            for (auto t : dst_slot.objects) {
+                if (t) { _texture_tracker.release(t); }
+            }
+            retired_sampler_tables.emplace_back(dst_slot.device_ptr);
+            dst_slot = {};
+        }
+        if (src.op == Mod::Operation::EMPLACE) {
+            SamplerTable table{};
+            table.device_ptr = _device->allocate_sampler_table();
+            const auto payload_index =
+                static_cast<uint32_t>(sampler_payloads.size() / sampler_variant_count);
+            for (auto f = 0u; f < 4u; ++f) {
+                for (auto a = 0u; a < 4u; ++a) {
+                    const Sampler s{
+                        static_cast<Sampler::Filter>(f),
+                        static_cast<Sampler::Address>(a)};
+                    const auto t = create_cuda_texture_object(src.handle, s);
+                    const auto code = (f << 2u) | a;
+                    table.objects[code] = t;
+                    _texture_tracker.retain(t);
+                    sampler_payloads.emplace_back(t);
+                }
+            }
+            dst_mod.handle = table.objects[src.sampler.code()];
+            dst_mod.sampler_table = table.device_ptr;
+            dst_mod.payload_index = payload_index;
+            dst_slot = table;
+        } else {
+            dst_mod.handle = 0ull;
+            dst_mod.sampler_table = 0ull;
+            dst_mod.payload_index = 0u;
+        }
+    };
     for (auto &m : mods) {
-        device_mods.emplace_back(DeviceBindlessSlotModification{
-            .slot = m.slot,
-            .buffer = DeviceBindlessSlotModification::Buffer{
-                m.buffer.handle, m.buffer.size_bytes, m.buffer.op},
-            .tex2d = m.tex2d,
-            .tex3d = m.tex3d});
-        auto &device_mod = device_mods.back();
+        DeviceBindlessSlotModification device_mod{};
+        device_mod.slot = m.slot;
+        device_mod.buffer.handle = m.buffer.handle;
+        device_mod.buffer.size_bytes = m.buffer.size_bytes;
+        device_mod.buffer.op = m.buffer.op;
         // process buffer
         if (m.buffer.op == Mod::Operation::EMPLACE) {
             auto buffer = reinterpret_cast<const CUDABuffer *>(m.buffer.handle);
@@ -160,55 +220,42 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
             device_mod.buffer.handle = address;
             device_mod.buffer.size_bytes = size;
         }
-        // process tex2d
-        if (m.tex2d.op == Mod::Operation::EMPLACE) {
-            if (auto t = _tex2d_slots[m.slot]) { _texture_tracker.release(t); }
-            auto t = create_cuda_texture_object(m.tex2d.handle, m.tex2d.sampler);
-            device_mod.tex2d.handle = t;
-            _tex2d_slots[m.slot] = t;
-            _texture_tracker.retain(t);
-        } else if (m.tex2d.op == Mod::Operation::REMOVE) {
-            if (auto t = _tex2d_slots[m.slot]) { _texture_tracker.release(t); }
-            _tex2d_slots[m.slot] = 0ull;
-        }
-        // process tex3d
-        if (m.tex3d.op == Mod::Operation::EMPLACE) {
-            if (auto t = _tex3d_slots[m.slot]) { _texture_tracker.release(t); }
-            auto t = create_cuda_texture_object(m.tex3d.handle, m.tex3d.sampler);
-            device_mod.tex3d.handle = t;
-            _tex3d_slots[m.slot] = t;
-            _texture_tracker.retain(t);
-        } else if (m.tex3d.op == Mod::Operation::REMOVE) {
-            if (auto t = _tex3d_slots[m.slot]) { _texture_tracker.release(t); }
-            _tex3d_slots[m.slot] = 0ull;
-        }
+        update_texture_slot(m.tex2d, _tex2d_slots[m.slot], device_mod.tex2d);
+        update_texture_slot(m.tex3d, _tex3d_slots[m.slot], device_mod.tex3d);
+        device_mods.emplace_back(device_mod);
     }
     _texture_tracker.commit([](auto tex) noexcept {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
     });
+    for (auto ptr : retired_sampler_tables) {
+        _device->deallocate_sampler_table(ptr);
+    }
     auto cuda_stream = encoder.stream()->handle();
-    auto update_buffer = 0ull;
-    LUISA_CHECK_CUDA(cuMemAllocAsync(
-        &update_buffer,
-        device_mods.size() * sizeof(DeviceBindlessSlotModification),
-        cuda_stream));
-    auto size_bytes =
-        device_mods.size() * sizeof(DeviceBindlessSlotModification);
-    encoder.with_upload_buffer(size_bytes, [&](auto host_update_buffer) noexcept {
-        std::memcpy(
-            host_update_buffer->address(), device_mods.data(), size_bytes);
+    const auto mods_bytes = device_mods.size() * sizeof(DeviceBindlessSlotModification);
+    const auto payloads_bytes = sampler_payloads.size() * sizeof(uint64_t);
+    const auto total_upload_bytes = mods_bytes + payloads_bytes;
+    auto upload_buffer = 0ull;
+    LUISA_CHECK_CUDA(cuMemAllocAsync(&upload_buffer, total_upload_bytes, cuda_stream));
+    encoder.with_upload_buffer(total_upload_bytes, [&](auto host_upload_buffer) noexcept {
+        auto *dst = static_cast<std::byte *>(host_upload_buffer->address());
+        std::memcpy(dst, device_mods.data(), mods_bytes);
+        if (payloads_bytes != 0u) {
+            std::memcpy(dst + mods_bytes, sampler_payloads.data(), payloads_bytes);
+        }
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            update_buffer, host_update_buffer->address(),
-            size_bytes, cuda_stream));
+            upload_buffer, host_upload_buffer->address(),
+            total_upload_bytes, cuda_stream));
     });
     auto update_kernel = encoder.stream()->device()->bindless_array_update_function();
+    auto capacity = static_cast<uint64_t>(_tex2d_slots.size());
+    auto payloads_ptr = payloads_bytes != 0u ? (upload_buffer + mods_bytes) : 0ull;
     auto n = static_cast<uint32_t>(mods.size());
-    std::array<void *, 3u> args{&_handle, &update_buffer, &n};
+    std::array<void *, 5u> args{&_handle, &capacity, &upload_buffer, &payloads_ptr, &n};
     LUISA_CHECK_CUDA(cuLaunchKernel(
         update_kernel,
         (n + 255u) / 256u, 1u, 1u, 256u, 1u, 1u,
         0u, cuda_stream, args.data(), nullptr));
-    LUISA_CHECK_CUDA(cuMemFreeAsync(update_buffer, cuda_stream));
+    LUISA_CHECK_CUDA(cuMemFreeAsync(upload_buffer, cuda_stream));
 
     if (!_name.empty()) { nvtxRangePop(); }
 }

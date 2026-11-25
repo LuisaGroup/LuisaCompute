@@ -1604,7 +1604,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         }
     };
     check_builtin_call_valid(expr->op(), expr->type(), args);
-    switch (expr->op()) {
+    switch (canonical_bindless_resource_call(expr->op())) {
         case CallOp::PACK: _scratch << "lc_pack_to"; break;
         case CallOp::UNPACK: {
             _scratch << "lc_unpack_from<";
@@ -1746,11 +1746,27 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: LUISA_NOT_IMPLEMENTED(); break;// TODO
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: _scratch << "lc_bindless_texture_sample2d_grad_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "lc_bindless_texture_sample3d"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample3d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: LUISA_NOT_IMPLEMENTED(); break;// TODO
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: _scratch << "lc_bindless_texture_sample3d_grad_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER: _scratch << "lc_bindless_texture_sample2d_sampler"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER: _scratch << "lc_bindless_texture_sample2d_level_sampler"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER: _scratch << "lc_bindless_texture_sample2d_grad_sampler"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER: _scratch << "lc_bindless_texture_sample2d_grad_level_sampler"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: _scratch << "lc_bindless_texture_sample3d_sampler"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: _scratch << "lc_bindless_texture_sample3d_level_sampler"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: _scratch << "lc_bindless_texture_sample3d_grad_sampler"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: _scratch << "lc_bindless_texture_sample3d_grad_level_sampler"; break;
+        case CallOp::TEXTURE2D_SAMPLE: _scratch << "lc_texture_sample2d"; break;
+        case CallOp::TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_texture_sample2d_level"; break;
+        case CallOp::TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_texture_sample2d_grad"; break;
+        case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL: _scratch << "lc_texture_sample2d_grad_level"; break;
+        case CallOp::TEXTURE3D_SAMPLE: _scratch << "lc_texture_sample3d"; break;
+        case CallOp::TEXTURE3D_SAMPLE_LEVEL: _scratch << "lc_texture_sample3d_level"; break;
+        case CallOp::TEXTURE3D_SAMPLE_GRAD: _scratch << "lc_texture_sample3d_grad"; break;
+        case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: _scratch << "lc_texture_sample3d_grad_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "lc_bindless_texture_read2d"; break;
         case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "lc_bindless_texture_read3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "lc_bindless_texture_read2d_level"; break;
@@ -2058,25 +2074,6 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE:
             LUISA_NOT_IMPLEMENTED(
                 "Inline ray-query proceed operations require XIR pipeline lowering before CUDA AST codegen.");
-        case CallOp::TEXTURE2D_SAMPLE: [[fallthrough]];
-        case CallOp::TEXTURE2D_SAMPLE_LEVEL: [[fallthrough]];
-        case CallOp::TEXTURE2D_SAMPLE_GRAD: [[fallthrough]];
-        case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL: [[fallthrough]];
-        case CallOp::TEXTURE3D_SAMPLE: [[fallthrough]];
-        case CallOp::TEXTURE3D_SAMPLE_LEVEL: [[fallthrough]];
-        case CallOp::TEXTURE3D_SAMPLE_GRAD: [[fallthrough]];
-        case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER:
-            LUISA_NOT_IMPLEMENTED(
-                "Explicit-sampler texture sampling is not implemented in the "
-                "CUDA AST codegen yet.");
         case CallOp::ASYNC_COPY: {
             // Emit: lc_pipeline_memcpy_async(&dst, (void*)src, num * elem_bytes)
             // AST args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]

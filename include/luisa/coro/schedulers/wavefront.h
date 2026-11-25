@@ -262,6 +262,7 @@ private:
     uint _queue_count{0u};
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
+    uint _initialized_frame_capacity{0u};
     uint _identity_initialized_count{0u};
     uint _deterministic_entry_target{0u};
     bool _has_hint_sort{false};
@@ -1987,11 +1988,22 @@ private:
             flush_pending();
             return;
         }
-        pending_commands << _initialize_shader(
-                                _config.thread_count,
-                                _active_frame_capacity,
-                                _resume_index)
-                                .dispatch(_active_frame_capacity);
+        const auto skip_initialize =
+            _config.frame_buffer_compaction &&
+            _config.incremental_continuation_counts &&
+            _active_frame_capacity <= _initialized_frame_capacity;
+        if (!skip_initialize) {
+            pending_commands << _initialize_shader(
+                                    _config.thread_count,
+                                    _active_frame_capacity,
+                                    _resume_index)
+                                    .dispatch(_active_frame_capacity);
+            if (_config.frame_buffer_compaction &&
+                _config.incremental_continuation_counts) {
+                _initialized_frame_capacity =
+                    std::max(_initialized_frame_capacity, _active_frame_capacity);
+            }
+        }
         _used_frame_count = 0u;
 
         auto nc = _resume_kernels.size();
