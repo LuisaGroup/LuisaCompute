@@ -592,4 +592,75 @@ hlsl::CompileResult compile_hlsl_compute_to_spirv(
     return result;
 }
 
+vstd::MD5 hlsl_module_cache_md5(
+    vstd::string_view source,
+    bool denorm_preserve, bool denorm_flush) noexcept {
+    auto policy = luisa::format(
+        ";luisa-vk-hlsl-artifact-v2;denorm-preserve={};denorm-flush={}",
+        denorm_preserve ? 1 : 0, denorm_flush ? 1 : 0);
+    auto bytes = std::vector<uint8_t>{};
+    bytes.reserve(source.size() + policy.size());
+    bytes.insert(bytes.end(),
+                 reinterpret_cast<const uint8_t *>(source.data()),
+                 reinterpret_cast<const uint8_t *>(source.data()) + source.size());
+    bytes.insert(bytes.end(),
+                 reinterpret_cast<const uint8_t *>(policy.data()),
+                 reinterpret_cast<const uint8_t *>(policy.data()) + policy.size());
+    return vstd::MD5{vstd::span<uint8_t const>{bytes.data(), bytes.size()}};
+}
+
+size_t strip_unsupported_denorm_modes(
+    std::vector<uint32_t> &words,
+    bool keep_preserve, bool keep_flush) noexcept {
+    constexpr uint32_t kSpvMagic = 0x07230203u;
+    constexpr uint32_t kOpExecutionMode = 16u;
+    constexpr uint32_t kOpCapability = 17u;
+    constexpr uint32_t kExecutionModeDenormPreserve = 4459u;
+    constexpr uint32_t kExecutionModeDenormFlushToZero = 4460u;
+    constexpr uint32_t kCapabilityDenormPreserve = 4464u;
+    constexpr uint32_t kCapabilityDenormFlushToZero = 4465u;
+    if (words.size() < 5u || words[0] != kSpvMagic) { return 0u; }
+    auto removed = size_t{0u};
+    auto out = std::vector<uint32_t>{};
+    out.reserve(words.size());
+    out.insert(out.end(), words.begin(), words.begin() + 5);
+    auto kept = [&](uint32_t capability_or_mode) noexcept {
+        switch (capability_or_mode) {
+            case kCapabilityDenormPreserve:
+            case kExecutionModeDenormPreserve: return keep_preserve;
+            case kCapabilityDenormFlushToZero:
+            case kExecutionModeDenormFlushToZero: return keep_flush;
+            default: return true;
+        }
+    };
+    for (auto i = size_t{5u}; i < words.size();) {
+        auto word = words[i];
+        auto opcode = word & 0xffffu;
+        auto word_count = word >> 16u;
+        if (word_count == 0u || i + word_count > words.size()) {
+            // Malformed tail: keep the remaining words verbatim; the module is
+            // validated by SPIRV-Tools before it is used.
+            out.insert(out.end(), words.begin() + i, words.end());
+            break;
+        }
+        auto drop = false;
+        // OpCapability %capability
+        if (opcode == kOpCapability && word_count == 2u) {
+            drop = !kept(words[i + 1u]);
+        } else if (opcode == kOpExecutionMode && word_count >= 3u &&
+                   (words[i + 2u] == kExecutionModeDenormPreserve ||
+                    words[i + 2u] == kExecutionModeDenormFlushToZero)) {
+            drop = !kept(words[i + 2u]);
+        }
+        if (drop) {
+            ++removed;
+        } else {
+            out.insert(out.end(), words.begin() + i, words.begin() + i + word_count);
+        }
+        i += word_count;
+    }
+    words = std::move(out);
+    return removed;
+}
+
 }// namespace lc::vk

@@ -1103,11 +1103,18 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             }
             break;
         case xir::ArithmeticOp::BINARY_MOD:
-            // Gate exact software remainder on strict math (`!_enable_fast_math`),
-            // matching HLSL codegen: fast-math shaders use native `OpFRem`.
-            if (!_enable_fast_math && elem->is_float32()) {
+            // The floating remainder is always the exact C `fmod`, in fast-math
+            // mode too. `OpFRem` looks like the natural native choice, but its
+            // result is not the C remainder on every driver: NVIDIA lowers it to
+            // a reciprocal-multiply range reduction whose quotient loses all
+            // precision once |x / y| is large, so e.g. `65504 % 6.28125` came back
+            // as 28.25 and `6.6e215 % 3e79` as -inf. There is no cheaper *correct*
+            // instruction, and a remainder that silently returns a wrong residue
+            // is worse than the software reduction (`test_hip_fmod` pins this
+            // down for float16/32/64 in both modes).
+            if (elem->is_float32()) {
                 id = exact_float32_fmod(operand(0), operand(1), type);
-            } else if (!_enable_fast_math && elem->is_float16()) {
+            } else if (elem->is_float16()) {
                 // A binary16 value is exactly representable in binary32, and
                 // so is the exact remainder of two of them, so the exact
                 // binary32 reduction below is exact for binary16 as well and
@@ -1123,7 +1130,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         _ensure_type(operand(1), float32_type),
                         float32_type),
                     type);
-            } else if (!_enable_fast_math && elem->is_float64()) {
+            } else if (elem->is_float64()) {
                 id = exact_float64_fmod(operand(0), operand(1));
             } else if (is_float) {
                 id = binary(spv::Op::OpFRem);
@@ -3172,9 +3179,18 @@ SpirvCodegenEntry::_load_bindless_buffer_binding(
     auto slot_index = _ensure_type(_emit_value(slot), uint_type);
     auto nonuniform = _bindless_index_is_nonuniform(slot, access);
     _require_storage_buffer_array_indexing(nonuniform);
-    auto descriptor_index = _load_bindless_slot_word(
+    // The descriptor index lives in the *metadata* record, not in the slot
+    // record of the indices buffer: that record is 3 words for a MULTIPLE array,
+    // 4 for a BUFFER_ONLY one and 1 for a texture-only one, so a single shader
+    // access could not serve them all. Reading the index from the metadata makes
+    // typed and untyped buffer access - and every array kind - share one layout.
+    auto descriptor_index = _load_bindless_buffer_metadata(
         bindless_array, slot_index,
-        access.typed ? 4u : 3u, 0u, nonuniform);
+        StorageBufferMetadataField::TYPED_DESCRIPTOR_INDEX,
+        uint_type);
+    if (nonuniform) {
+        _builder.addDecoration(descriptor_index, spv::Decoration::NonUniformEXT);
+    }
     LUISA_ASSERT(_buffer_heap_id != spv::NoResult,
                  "SPIR-V buffer heap not bound.");
     auto buffer = _create_access_chain(
@@ -3957,16 +3973,12 @@ spv::Id SpirvCodegenEntry::_add_bindless_buffer_bias(
                             _builder.makeUintType(64) :
                             _builder.makeUintType(32);
     byte_offset = _ensure_type(byte_offset, address_type);
-    auto bias = access.typed ?
-                    _ensure_type(
-                        _load_bindless_slot_word(
-                            bindless_array, slot_index,
-                            4u, 1u, false),
-                        address_type) :
-                    _load_bindless_buffer_metadata(
-                        bindless_array, slot_index,
-                        StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
-                        address_type);
+    // Typed and untyped buffer access bind the same storage-buffer descriptor,
+    // so both take the byte bias from the same metadata record.
+    auto bias = _load_bindless_buffer_metadata(
+        bindless_array, slot_index,
+        StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
+        address_type);
     return _builder.createBinOp(
         spv::Op::OpIAdd, address_type, byte_offset, bias);
 }
@@ -6508,7 +6520,90 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL: {
             LUISA_DEBUG_ASSERT(inst->operand_count() == 2);
             auto dist = _emit_value(inst->operand(1));
-            _builder.createNoResultOp(spv::Op::OpRayQueryGenerateIntersectionKHR, {rq_obj, dist});
+            // The XIR `ProceduralCandidate::commit(t)` contract *rejects* a
+            // distance outside the ray's current interval: no committed
+            // intersection is created, and both the interval and any previously
+            // committed hit stay exactly as they were. Vulkan has no rejecting
+            // form of OpRayQueryGenerateIntersectionKHR - its t "must be in the
+            // interval [RayTmin, RayTmax]" and the result is undefined otherwise
+            // (on hardware that accepted such a t, the rejected candidate showed
+            // up as a committed procedural hit at the attempted distance, and an
+            // infinite one produced an infinite hit distance). The range test is
+            // therefore emitted here; unordered comparisons reject NaN as well.
+            auto float_type = _builder.makeFloatType(32);
+            auto uint_type = _builder.makeUintType(32);
+            auto bool_type = _builder.makeBoolType();
+            auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
+            auto committed_type = _builder.createOp(
+                spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
+                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+            auto has_committed = _builder.createBinOp(
+                spv::Op::OpINotEqual, bool_type, committed_type,
+                _builder.makeUintConstant(0u));
+            auto t_min = _builder.createOp(
+                spv::Op::OpRayQueryGetRayTMinKHR, float_type,
+                std::vector<spv::Id>{rq_obj});
+            // The current upper bound is the T of the committed intersection, or
+            // the query's initial Tmax while nothing is committed. Deriving it
+            // from the committed hit (instead of OpRayQueryGetRayTMaxKHR) keeps
+            // the bound consistent with what `candidate.ray()->t_max()` reports
+            // in this backend.
+            auto initial_t_max = _builder.createCompositeExtract(
+                _ray_query_state(rq_obj).initial_ray, float_type, 3u);
+            auto t_max_var = _builder.createVariable(
+                spv::NoPrecision, spv::StorageClass::Function,
+                float_type, "rq_commit_tmax");
+            _builder.createStore(initial_t_max, t_max_var);
+            // IntersectionT is undefined while the committed type is None, so the
+            // read sits inside its own selection rather than behind OpSelect.
+            auto *committed_block = _create_physical_block();
+            auto *bounds_block = _create_physical_block();
+            auto committed_merge = luisa::make_unique<spv::Instruction>(
+                spv::Op::OpSelectionMerge);
+            committed_merge->reserveOperands(2u);
+            committed_merge->addIdOperand(bounds_block->getId());
+            committed_merge->addImmediateOperand(
+                spv::SelectionControlMask::MaskNone);
+            _builder.getBuildPoint()->addInstruction(
+                to_std_unique_ptr(std::move(committed_merge)));
+            _builder.createConditionalBranch(
+                has_committed, committed_block, bounds_block);
+
+            _set_current_tail(committed_block);
+            auto committed_t_max = _builder.createOp(
+                spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+            _builder.createStore(committed_t_max, t_max_var);
+            _builder.createBranch(false, bounds_block);
+
+            _set_current_tail(bounds_block);
+            auto t_max = _builder.createLoad(t_max_var, spv::NoPrecision);
+            auto above_min = _builder.createBinOp(
+                spv::Op::OpFOrdGreaterThanEqual, bool_type, dist, t_min);
+            auto below_max = _builder.createBinOp(
+                spv::Op::OpFOrdLessThanEqual, bool_type, dist, t_max);
+            auto in_range = _builder.createBinOp(
+                spv::Op::OpLogicalAnd, bool_type, above_min, below_max);
+
+            auto *commit_block = _create_physical_block();
+            auto *merge_block = _create_physical_block();
+            auto range_merge = luisa::make_unique<spv::Instruction>(
+                spv::Op::OpSelectionMerge);
+            range_merge->reserveOperands(2u);
+            range_merge->addIdOperand(merge_block->getId());
+            range_merge->addImmediateOperand(
+                spv::SelectionControlMask::MaskNone);
+            _builder.getBuildPoint()->addInstruction(
+                to_std_unique_ptr(std::move(range_merge)));
+            _builder.createConditionalBranch(
+                in_range, commit_block, merge_block);
+
+            _set_current_tail(commit_block);
+            _builder.createNoResultOp(
+                spv::Op::OpRayQueryGenerateIntersectionKHR, {rq_obj, dist});
+            _builder.createBranch(false, merge_block);
+
+            _set_current_tail(merge_block);
             break;
         }
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:

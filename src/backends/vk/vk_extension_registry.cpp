@@ -288,6 +288,13 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR>,
      check_single_bit<VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR,
                       &VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR::swapchainMaintenance1>},
+    // VK_EXT_present_timing has *two* device prerequisites: VK_KHR_swapchain and
+    // VK_KHR_calibrated_timestamps (its present timestamps are calibrated
+    // timestamps). Enabling it with only the swapchain is
+    // VUID-vkCreateDevice-ppEnabledExtensionNames-01387. Device enables the
+    // calibrated-timestamp prerequisite by name before the registry resolves (see
+    // create_logical_device); when the name is unavailable the second
+    // requirement below rejects the entry instead of creating an invalid device.
     {OptionalExtension::PRESENT_TIMING,
      VK_EXT_PRESENT_TIMING_EXTENSION_NAME, nullptr, VK_KHR_SWAPCHAIN_EXTENSION_NAME,
      requested_present_timing,
@@ -295,7 +302,9 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
      make_feature_of<VkPhysicalDevicePresentTimingFeaturesEXT,
                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT>,
      check_single_bit<VkPhysicalDevicePresentTimingFeaturesEXT,
-                      &VkPhysicalDevicePresentTimingFeaturesEXT::presentTiming>},
+                      &VkPhysicalDevicePresentTimingFeaturesEXT::presentTiming>,
+     VK_STRUCTURE_TYPE_MAX_ENUM, false, VK_API_VERSION_1_0,
+     VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME},
     {OptionalExtension::MULTISAMPLED_RENDER_TO_SWAPCHAIN,
      VK_EXT_MULTISAMPLED_RENDER_TO_SWAPCHAIN_EXTENSION_NAME, nullptr, nullptr,
      requested_multisampled_render_to_swapchain,
@@ -374,6 +383,11 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CONSTANT_DATA_FEATURES_KHR>,
      check_single_bit<VkPhysicalDeviceShaderConstantDataFeaturesKHR,
                       &VkPhysicalDeviceShaderConstantDataFeaturesKHR::shaderConstantData>},
+    // VK_KHR_shader_abort requires VK_KHR_device_fault (the abort message is
+    // reported through the device fault query); enabling the name alone is
+    // VUID-vkCreateDevice-ppEnabledExtensionNames-01387. Device enables the
+    // prerequisite by name before the registry resolves, and the second
+    // requirement rejects the entry when the device does not expose it.
     {OptionalExtension::SHADER_ABORT,
      VK_KHR_SHADER_ABORT_EXTENSION_NAME, nullptr, nullptr,
      requested_shader_abort,
@@ -381,7 +395,9 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
      make_feature_of<VkPhysicalDeviceShaderAbortFeaturesKHR,
                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ABORT_FEATURES_KHR>,
      check_single_bit<VkPhysicalDeviceShaderAbortFeaturesKHR,
-                      &VkPhysicalDeviceShaderAbortFeaturesKHR::shaderAbort>},
+                      &VkPhysicalDeviceShaderAbortFeaturesKHR::shaderAbort>,
+     VK_STRUCTURE_TYPE_MAX_ENUM, false, VK_API_VERSION_1_0,
+     VK_KHR_DEVICE_FAULT_EXTENSION_NAME},
 
     // ---- ray tracing and rendering --------------------------------------
     {OptionalExtension::RAY_TRACING_INVOCATION_REORDER,
@@ -803,6 +819,9 @@ void OptionalExtensionRegistry::resolve() noexcept {
             }
             if (usable && desc.requires_extension != nullptr) {
                 usable = known(desc.requires_extension);
+            }
+            if (usable && desc.requires_extension2 != nullptr) {
+                usable = known(desc.requires_extension2);
             }
             entry.enabled = usable;
         }

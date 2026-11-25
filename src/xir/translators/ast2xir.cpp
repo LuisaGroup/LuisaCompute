@@ -1546,7 +1546,15 @@ private:
                 return _module->create_constant(string_id->type(), &value);
             }
             case Expression::Tag::FUNC_REF: LUISA_NOT_IMPLEMENTED();
-            case Expression::Tag::CPUCUSTOM: LUISA_NOT_IMPLEMENTED();
+            // `CpuCallable` runs a host closure against real values and cannot be
+            // translated into shader code by *any* backend of this tree (the CUDA AST
+            // codegen, the LLVM-to-SPIR-V route, the Metal and the HLSL codegens all
+            // reject it as well); the XIR route reports the same, with the reason.
+            case Expression::Tag::CPUCUSTOM:
+                LUISA_ERROR_WITH_LOCATION(
+                    "CpuCallable cannot be compiled into a shader: its body is a host "
+                    "closure that reads and writes host addresses, and no backend of this "
+                    "build implements CpuCustomOp lowering.");
             case Expression::Tag::GPUCUSTOM: LUISA_NOT_IMPLEMENTED();
         }
         return nullptr;

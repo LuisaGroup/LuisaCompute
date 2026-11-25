@@ -103,6 +103,12 @@ struct SpirvTargetFeatures {
     // VK_KHR_shader_expect_assume: the backend-owned dispatch-bounds predicate
     // may be wrapped in OpExpectKHR(false).
     bool shader_expect_assume{false};
+    // Vulkan float controls for 32-bit floats: the device reports
+    // shaderDenormPreserveFloat32 / shaderDenormFlushToZeroFloat32, i.e. a module
+    // may declare the matching SPIR-V execution mode. When neither is supported
+    // the codegen declares none and the driver default applies.
+    bool denorm_preserve_float32{false};
+    bool denorm_flush_float32{false};
     SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
         SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
     // Default to the contract-preserving portable sequence; see SpirvRoundPolicy.
@@ -210,6 +216,10 @@ struct SpirvTargetFeatures {
                target_feature::shader_replicated_composites);
         enable(shader_expect_assume,
                target_feature::shader_expect_assume);
+        enable(denorm_preserve_float32,
+               target_feature::denorm_preserve_float32);
+        enable(denorm_flush_float32,
+               target_feature::denorm_flush_float32);
         return mask;
     }
 
@@ -315,7 +325,11 @@ struct SpirvTargetFeatures {
             .shader_replicated_composites =
                 has(target_feature::shader_replicated_composites),
             .shader_expect_assume =
-                has(target_feature::shader_expect_assume)};
+                  has(target_feature::shader_expect_assume),
+              .denorm_preserve_float32 =
+                  has(target_feature::denorm_preserve_float32),
+              .denorm_flush_float32 =
+                  has(target_feature::denorm_flush_float32)};
     }
 };
 

@@ -9,6 +9,11 @@ enum class StorageBufferMetadataField : uint8_t {
     DESCRIPTOR_BIAS_BYTES,
     LOGICAL_SIZE_BYTES,
     DEVICE_ADDRESS,
+    // Bindless buffer slots only: the descriptor index that serves the slot.
+    // Both the typed and the untyped shader access read it from here, so the
+    // slot record of the *indices* buffer is free to carry textures only and no
+    // access has to know which `BindlessSlotType` the array was created with.
+    TYPED_DESCRIPTOR_INDEX,
 };
 
 // Shared host/shader ABI for a direct or bindless storage-buffer view. The
@@ -18,6 +23,7 @@ struct StorageBufferMetadata {
     uint64_t descriptor_bias_bytes;
     uint64_t logical_size_bytes;
     uint64_t device_address;
+    uint64_t typed_descriptor_index;
 };
 
 [[nodiscard]] constexpr size_t storage_buffer_metadata_field_offset(
@@ -29,11 +35,13 @@ struct StorageBufferMetadata {
             return offsetof(StorageBufferMetadata, logical_size_bytes);
         case StorageBufferMetadataField::DEVICE_ADDRESS:
             return offsetof(StorageBufferMetadata, device_address);
+        case StorageBufferMetadataField::TYPED_DESCRIPTOR_INDEX:
+            return offsetof(StorageBufferMetadata, typed_descriptor_index);
     }
     return 0u;
 }
 
-static_assert(sizeof(StorageBufferMetadata) == 24u);
+static_assert(sizeof(StorageBufferMetadata) == 32u);
 static_assert(alignof(StorageBufferMetadata) == alignof(uint64_t));
 static_assert(sizeof(StorageBufferMetadata) % sizeof(uint32_t) == 0u);
 static_assert(storage_buffer_metadata_field_offset(

@@ -1234,6 +1234,32 @@ void SpirvCodegenEntry::_emit_kernel(
                               static_cast<int32_t>(bs.x),
                               static_cast<int32_t>(bs.y),
                               static_cast<int32_t>(bs.z));
+    // 32-bit floating-point denormal behaviour. Without an execution mode the
+    // behaviour is the driver's default, which on some drivers (NVIDIA) flushes
+    // denormals to zero - silently changing *precise* arithmetic on denormal
+    // inputs and results (`1.0e-45f * 2.0f` came back as 0). Declare the
+    // behaviour when the device reports the matching float-controls property
+    // (VUID-VkShaderModuleCreateInfo-pCode-08740): precise shaders preserve
+    // denormals, fast-math shaders flush them. Only width 32 is declared; half
+    // and double keep the driver default because the backend's fast-math policy
+    // never touched them.
+    if (_enable_fast_math ? _target_features.denorm_flush_float32 :
+                            _target_features.denorm_preserve_float32) {
+        if (_enable_fast_math) {
+            _builder.addCapability(spv::Capability::DenormFlushToZero);
+        } else {
+            _builder.addCapability(spv::Capability::DenormPreserve);
+        }
+        _builder.addExecutionMode(
+            func,
+            _enable_fast_math ? spv::ExecutionMode::DenormFlushToZero :
+                                spv::ExecutionMode::DenormPreserve,
+            32);
+        _require_target_feature(
+            _enable_fast_math ? target_feature::denorm_flush_float32 :
+                                target_feature::denorm_preserve_float32,
+            true);
+    }
 
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);

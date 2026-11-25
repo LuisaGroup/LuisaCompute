@@ -192,21 +192,36 @@ Device::HeapAlloc &get_alloc(Device &device, BindlessSlotType type) {
 template<typename Modification>
 void upload_buffer_metadata(
     CommandBuffer *cmdbuffer, DefaultBuffer *metadata_buffer,
-    luisa::span<const Modification> modifications) {
+    luisa::span<const Modification> modifications,
+    luisa::span<const uint> descriptor_indices = {}) {
     if (metadata_buffer == nullptr) { return; }
     using Operation = BindlessArrayUpdateCommand::Operation;
+    LUISA_ASSERT(descriptor_indices.empty() ||
+                     descriptor_indices.size() == modifications.size(),
+                 "Vulkan bindless metadata upload needs one descriptor index "
+                 "per modification ({} vs {}).",
+                 descriptor_indices.size(), modifications.size());
     luisa::vector<StorageBufferMetadata> records;
     luisa::vector<size_t> slots;
     records.reserve(modifications.size());
     slots.reserve(modifications.size());
-    for (auto &&modification : modifications) {
+    for (auto i = 0u; i < modifications.size(); i++) {
+        auto &&modification = modifications[i];
         auto &&modified = modification.buffer;
         if (modified.op == Operation::NONE) { continue; }
+        auto record = modified.op == Operation::EMPLACE ?
+                          buffer_descriptor_range(modified).metadata :
+                          StorageBufferMetadata{};
+        // The slot's descriptor index travels with the metadata record: every
+        // bindless buffer access (typed or untyped, any BindlessSlotType) reads
+        // it from here, so no shader access depends on the slot record layout of
+        // the indices buffer (which is 3 words for MULTIPLE, 4 for BUFFER_ONLY
+        // and 1 for texture-only arrays).
+        if (!descriptor_indices.empty()) {
+            record.typed_descriptor_index = descriptor_indices[i];
+        }
         slots.emplace_back(modification.slot);
-        records.emplace_back(
-            modified.op == Operation::EMPLACE ?
-                buffer_descriptor_range(modified).metadata :
-                StorageBufferMetadata{});
+        records.emplace_back(record);
     }
     if (records.empty()) { return; }
 
@@ -618,8 +633,6 @@ void BindlessArray::update(
             bdls_detail::validate_modified_buffer(
                 modification.buffer, modification.slot);
         });
-    bdls_detail::upload_buffer_metadata(
-        cmdbuffer, _buffer_metadata.get(), mods);
     vstd::vector<FreeValue> retired_slots;
     for (auto &mod : mods) {
         auto &resource_index = encoded[mod.slot];
@@ -673,6 +686,17 @@ void BindlessArray::update(
         } else if (mod.buffer.op == Ope::REMOVE) {
             _typed_buffer_bindings[mod.slot] = {};
         }
+    }
+    {
+        luisa::vector<uint> descriptor_indices;
+        descriptor_indices.reserve(mods.size());
+        for (auto &&mod : mods) {
+            descriptor_indices.emplace_back(
+                _typed_buffer_bindings[mod.slot].descriptor_index);
+        }
+        bdls_detail::upload_buffer_metadata(
+            cmdbuffer, _buffer_metadata.get(), mods,
+            luisa::span<const uint>{descriptor_indices});
     }
     bdls_detail::upload_slot_records(
         cmdbuffer, _indices_buffer, mods,
@@ -912,8 +936,6 @@ void BindlessArray::update(
         });
     if (mods.empty()) { return; }
     vstd::vector<FreeValue> retired_slots;
-    bdls_detail::upload_buffer_metadata(
-        cmdbuffer, _buffer_metadata.get(), mods);
     auto dsc_buffer = cmdbuffer->states()->upload_alloc.allocate(16 * mods.size(), 16);
     auto shader = device()->set_bindless_kernel.get(device());
     cache.clear();
@@ -1023,6 +1045,20 @@ void BindlessArray::update(
         v.x = mod.slot;
         std::memcpy(&v.y, &bind_grp, sizeof(BindlessStruct));
         static_assert(sizeof(BindlessStruct) == 12);
+    }
+    // Publish the buffer metadata after the descriptor indices are final: every
+    // bindless buffer access (typed or untyped) takes its descriptor index and
+    // byte bias from this record, so the 3-word slot struct above only carries
+    // the texture bindings.
+    {
+        luisa::vector<uint> descriptor_indices;
+        descriptor_indices.reserve(mods.size());
+        for (auto &&mod : mods) {
+            descriptor_indices.emplace_back(binded[mod.slot].first.buffer);
+        }
+        bdls_detail::upload_buffer_metadata(
+            cmdbuffer, _buffer_metadata.get(), mods,
+            luisa::span<const uint>{descriptor_indices});
     }
     //
     VkDescriptorSet desc_set = cmdbuffer->states()->allocate_descriptor_set(

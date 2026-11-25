@@ -40,10 +40,27 @@ bool enable_driver_optimization,
     auto profile =
         luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     Clock phase_clock;
+    // Every route converges here, so the device's 32-bit denormal contract is
+    // enforced once instead of per route: a module may only declare the behaviour
+    // the device advertises (VUID-VkShaderModuleCreateInfo-pCode-08740). The XIR
+    // route emits nothing when the device lacks float controls, but DXC emits
+    // `DenormFlushToZero` for the fast-math profile and `DenormPreserve` for the
+    // strict one regardless, and builtin/AOT modules are frozen blobs. Stripping
+    // is a no-op when nothing unsupported is declared.
+    auto denorm_stripped_code = std::vector<uint32_t>{};
+    auto code_words = luisa::span<const uint>{spv_code.data(), spv_code.size()};
+    if (!device->denorm_preserve_float32() || !device->denorm_flush_float32()) {
+        denorm_stripped_code.assign(spv_code.begin(), spv_code.end());
+        static_cast<void>(strip_unsupported_denorm_modes(
+            denorm_stripped_code, device->denorm_preserve_float32(),
+            device->denorm_flush_float32()));
+        code_words = luisa::span<const uint>{denorm_stripped_code.data(),
+                                            denorm_stripped_code.size()};
+    }
     VkShaderModuleCreateInfo module_create_info{
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = spv_code.size_bytes(),
-        .pCode = spv_code.data()};
+        .codeSize = code_words.size_bytes(),
+        .pCode = code_words.data()};
     VkShaderModule shader_module;
     VK_CHECK_RESULT(vkCreateShaderModule(device->logic_device(), &module_create_info, Device::alloc_callbacks(), &shader_module));
     if (profile) {
@@ -180,7 +197,11 @@ ComputeShader *ComputeShader::compile(
             if (code_md5) {
                 md5 = *code_md5;
             } else {
-                md5 = vstd::MD5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
+                md5 = hlsl_module_cache_md5(
+                      vstd::string_view{str.result.data() + str.immutableHeaderSize,
+                                        str.result.size() - str.immutableHeaderSize},
+                      device->denorm_preserve_float32(),
+                      device->denorm_flush_float32());
             }
         }
         luisa::string dump_name;
@@ -222,6 +243,23 @@ ComputeShader *ComputeShader::compile(
         return comp_result.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
+                // DXC declares a 32-bit denormal behaviour (`DenormFlushToZero` for the
+                // fast-math profile, `DenormPreserve` for the strict one) whether or not
+                // the device advertises float controls; a declaration the device does not
+                // support is VUID-VkShaderModuleCreateInfo-pCode-08740. Drop exactly the
+                // unsupported ones, so the module asks for what the device can execute and
+                // the driver default applies otherwise.
+                auto spirv_words = std::vector<uint32_t>{
+                    reinterpret_cast<const uint32_t *>(buffer->GetBufferPointer()),
+                    reinterpret_cast<const uint32_t *>(buffer->GetBufferPointer()) +
+                        buffer->GetBufferSize() / sizeof(uint32_t)};
+                if (codegen_dialect == detail::ShaderCodegenDialect::HLSL_SPIRV) {
+                    static_cast<void>(strip_unsupported_denorm_modes(
+                        spirv_words, device->denorm_preserve_float32(),
+                        device->denorm_flush_float32()));
+                }
+                auto spirv_span = luisa::span<const uint>{
+                    spirv_words.data(), spirv_words.size()};
                 if (!dump_name.empty()) {
                     auto spv_file_name = luisa::format("spv_output_{}.spv", dump_name);
                     auto f = fopen(spv_file_name.c_str(), "wb");
@@ -235,7 +273,7 @@ ComputeShader *ComputeShader::compile(
                     block_size,
                     str.properties,
                     std::move(saved_args),
-                    {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
+                    spirv_span,
                     std::move(bindings),
                     str.useTex2DBindless,
                     str.useTex3DBindless,
@@ -256,7 +294,7 @@ ComputeShader *ComputeShader::compile(
                         str.typeMD5,
                         block_size,
                         file_name,
-                        {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
+                        spirv_span,
                         serde_type,
                         bin_io,
                         str.useTex2DBindless,

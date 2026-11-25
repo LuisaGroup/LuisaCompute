@@ -304,6 +304,13 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         bool shader_shared_int64_atomics{false};
     } _int64_atomic_features;
     bool _shader_device_clock_enabled{false};
+
+    // VkPhysicalDeviceVulkan12Properties::shaderDenormPreserveFloat32 and
+    // shaderDenormFlushToZeroFloat32. Both are VK_FALSE on a driver without
+    // 32-bit denormal control, and declaring the matching SPIR-V execution mode
+    // without the property violates VUID-VkShaderModuleCreateInfo-pCode-08740.
+    bool _denorm_preserve_float32{false};
+    bool _denorm_flush_float32{false};
     void _init_device(VkPhysicalDevice external_physical_device, VkDevice external_device, uint32_t selected_device);
     [[nodiscard]] luisa::shared_ptr<NativeImageState>
     acquire_native_image_state(
@@ -652,6 +659,14 @@ public:
     bool enable_async_copy() const { return async_copy_enabled; }
     [[nodiscard]] bool enable_sampler_anisotropy() const noexcept {
         return sampler_anisotropy_enabled;
+    }
+    // Whether a module may declare OpExecutionMode DenormPreserve /
+    // DenormFlushToZero for 32-bit floats.
+    [[nodiscard]] bool denorm_preserve_float32() const noexcept {
+        return _denorm_preserve_float32;
+    }
+    [[nodiscard]] bool denorm_flush_float32() const noexcept {
+        return _denorm_flush_float32;
     }
     [[nodiscard]] bool enable_shader_untyped_pointers() const noexcept {
         return shader_untyped_pointers_enabled;

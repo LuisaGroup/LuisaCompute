@@ -175,6 +175,13 @@ struct OptionalExtensionDescriptor {
     // VK_API_VERSION_1_0 is also the "no promotion" sentinel because every
     // Vulkan device reports at least 1.0.
     uint32_t core_promoted_version{VK_API_VERSION_1_0};
+    // A second extension name that must end up enabled for this one to be usable,
+    // or nullptr. A few extensions have more than one prerequisite
+    // (VK_EXT_present_timing needs both VK_KHR_swapchain and
+    // VK_KHR_calibrated_timestamps); validation rejects the device when any of
+    // them is missing from ppEnabledExtensionNames, so the entry fails closed
+    // unless every prerequisite is really enabled.
+    const char *requires_extension2{nullptr};
 };
 
 // Negotiates the optional device extensions of the Vulkan backend.

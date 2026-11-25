@@ -1621,6 +1621,31 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
             .pNext = &subgroup_properties};
         vkGetPhysicalDeviceProperties2(physical_device, &core_limit_properties2);
+        // 32-bit denormal control: whether a module may declare
+        // OpExecutionMode DenormPreserve / DenormFlushToZero
+        // (VUID-VkShaderModuleCreateInfo-pCode-08740 requires the property).
+        // VK_KHR_shader_float_controls is core Vulkan 1.2, and this backend's
+        // floor is 1.2, so the query is always legal.
+        if (api_version >= VK_API_VERSION_1_2) {
+            // Query the *Vulkan12* structure, not the VK_KHR alias: the
+            // validation layer checks the documented Vulkan12 property, and a
+            // driver may answer the two differently (NVIDIA answers the KHR
+            // alias with VK_TRUE while the layer's Vulkan12 value is VK_FALSE,
+            // which turns the declared capability into a validation error).
+            VkPhysicalDeviceVulkan12Properties float_controls{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+            VkPhysicalDeviceProperties2 float_control_properties2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &float_controls};
+            vkGetPhysicalDeviceProperties2(physical_device, &float_control_properties2);
+            _denorm_preserve_float32 =
+                float_controls.shaderDenormPreserveFloat32 == VK_TRUE;
+            _denorm_flush_float32 =
+                float_controls.shaderDenormFlushToZeroFloat32 == VK_TRUE;
+            LUISA_INFO(
+                "Vulkan 32-bit denormal control: preserve={}, flush={}",
+                _denorm_preserve_float32, _denorm_flush_float32);
+        }
         // A driver that ignores the chain leaves the structures zeroed; a zero
         // bound is reported as "unknown", never as a value.
         auto subgroup_size_control_query =
@@ -2627,11 +2652,32 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     // unconditionally would change ppEnabledExtensionNames on devices that never
     // use either extension. When the prerequisite is unavailable the registry's
     // `requires_extension` check rejects the group-handle entry instead.
-    if (_optional_extensions.requested(
-            detail::OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES) &&
-        supports_device_extension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME)) {
-        enable_device_extension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
-    }
+if (_optional_extensions.requested(
+              detail::OptionalExtension::PIPELINE_LIBRARY_GROUP_HANDLES) &&
+          supports_device_extension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME)) {
+          enable_device_extension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+      }
+      // VK_EXT_present_timing requires both VK_KHR_swapchain and
+      // VK_KHR_calibrated_timestamps (VUID-vkCreateDevice-
+      // ppEnabledExtensionNames-01387). The swapchain is noted below; the
+      // calibrated-timestamp prerequisite is enabled here so the registry's
+      // second `requires_extension2` check can see it. When the name is not
+      // exposed the entry is rejected, because a promoted spelling is not
+      // accepted by the dependency VUID.
+      if (_optional_extensions.requested(
+              detail::OptionalExtension::PRESENT_TIMING) &&
+          supports_device_extension(VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)) {
+          enable_device_extension(VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
+      }
+      // VK_KHR_shader_abort carries the same shape: VK_KHR_device_fault is its
+      // second device prerequisite (VUID-vkCreateDevice-
+      // ppEnabledExtensionNames-01387), and the registry's second requirement
+      // rejects the entry when the name is not exposed.
+      if (_optional_extensions.requested(
+              detail::OptionalExtension::SHADER_ABORT) &&
+          supports_device_extension(VK_KHR_DEVICE_FAULT_EXTENSION_NAME)) {
+          enable_device_extension(VK_KHR_DEVICE_FAULT_EXTENSION_NAME);
+      }
     // Finish the optional extension negotiation after every mandatory
     // extension has been decided, so a prerequisite (swapchain, ray tracing
     // pipeline, ...) is already visible.
@@ -4040,11 +4086,17 @@ if (property == "vk_descriptor_update_template_path") {
     }
     if (property == "opacity_micromap") {
         // "1"/"0": a micromap is usable only when an attach would actually be legal
-        // on this device, not merely when the extension was negotiated.
+        // on this device, not merely when the extension was negotiated. The only
+        // micromap *object* model this backend implements is the VkMicromapEXT one
+        // of the EXT spelling (see opacity_micromap.h): under the KHR spelling the
+        // spec represents a micromap as a VkAccelerationStructureKHR built through
+        // VK_KHR_device_address_commands, which is not implemented and which
+        // plan_opacity_micromap_build refuses as OBJECT_MODEL_UNSUPPORTED.
+        // Advertising support there would let a caller pass the capability query
+        // and then abort in create_opacity_micromap.
         auto legal = optional_extension_enabled(detail::OptionalExtension::OPACITY_MICROMAP) &&
                      !use_fallback_rtx_bit &&
-                     (OpacityMicromap::ext_alias_negotiated(this) ||
-                      opacity_micromap_execution_mode_available());
+                     OpacityMicromap::ext_alias_negotiated(this);
         return legal ? "1" : "0";
     }
     if (property == "opacity_micromap_max_two_state_level") {
@@ -4114,6 +4166,14 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
     // truth, and `query("opacity_micromap")` uses it too.
     enable(owned_logical_device && opacity_micromap_execution_mode_available(),
            target_feature::ray_tracing_opacity_micromap);
+    // A 32-bit denormal execution mode may only be declared when the device
+    // reports the corresponding float-controls property; the codegen then picks
+    // DenormPreserve for precise shaders and DenormFlushToZero for fast-math
+    // ones instead of inheriting the driver default.
+    enable(owned_logical_device && _denorm_preserve_float32,
+           target_feature::denorm_preserve_float32);
+    enable(owned_logical_device && _denorm_flush_float32,
+           target_feature::denorm_flush_float32);
     enable(owned_logical_device &&
                _vk_device->enabled_features.shaderResourceMinLod == VK_TRUE,
            target_feature::shader_resource_min_lod);
@@ -4282,8 +4342,30 @@ namespace vk_device_detail_2 {
         (static_cast<uint64_t>(option.enable_extended_accel_limits) << 2u) |
         (static_cast<uint64_t>(option.enable_scalarizer) << 3u);
     auto block_size = kernel.block_size();
+    // A captured image's pixel storage is not part of the AST (two kernels that
+    // capture a BYTE4 and a FLOAT4 image of the same shape hash identically), but
+    // it decides the image view the descriptor is created from, so the artifacts
+    // must not be shared: a cache hit across storages would dispatch a shader
+    // compiled for one storage against a view of the other. Mix the resolved
+    // formats of every bound texture into the key.
+    auto captured_texture_formats = [&kernel]() noexcept {
+        auto hash = uint64_t{0u};
+        for (auto &&binding : kernel.bound_arguments()) {
+            if (auto p = luisa::get_if<Function::TextureBinding>(&binding)) {
+                auto texture = reinterpret_cast<const Texture *>(p->handle);
+                hash = luisa::hash_combine(
+                    {hash,
+                     texture != nullptr ?
+                         static_cast<uint64_t>(
+                             luisa::to_underlying(texture->format())) :
+                         uint64_t{0u},
+                     static_cast<uint64_t>(p->level)});
+            }
+        }
+        return hash;
+    };
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v17"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v20"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),
@@ -4302,6 +4384,7 @@ namespace vk_device_detail_2 {
         static_cast<uint64_t>(target_features.round_policy),
         vk_device_detail_2::xir_spirv_environment_hash(),
         static_cast<uint64_t>(required_subgroup_size.value_or(0u)),
+        captured_texture_formats(),
     };
     return vstd::MD5{vstd::span<const uint8_t>{
         reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
@@ -4395,9 +4478,13 @@ ShaderCreationInfo Device::_create_shader_hlsl(
                    luisa::string_view{code.result.view().data(),
                                       code.result.view().size()});
     }
-    vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(
-                             code.result.data() + code.immutableHeaderSize),
-                         code.result.size() - code.immutableHeaderSize});
+    // The cache identity folds in the denormal-control policy, so an entry written
+      // before the unsupported denormal declarations were stripped is recompiled
+      // instead of loaded (see hlsl_module_cache_md5).
+      auto check_md5 = hlsl_module_cache_md5(
+          vstd::string_view{code.result.data() + code.immutableHeaderSize,
+                            code.result.size() - code.immutableHeaderSize},
+          _denorm_preserve_float32, _denorm_flush_float32);
     // The push-constant block of the HLSL route is the fixed dispatch block the
     // codegen always declares, plus one 32-bit word per fallback `accel`
     // argument (the tree's region base, written by the command encoder:

@@ -115,6 +115,12 @@ inline constexpr SpirvTargetFeatureMask shader_replicated_composites = 0x0040000
 // VK_KHR_shader_expect_assume: ExpectAssumeKHR with OpExpectKHR
 // (SPV_KHR_expect_assume). Only the backend-owned dispatch-bounds predicate may
 // require it; XIR carries no likelihood hint.
+// Vulkan float controls, 32-bit: whether the module may declare the matching
+// SPIR-V execution mode. VUID-VkShaderModuleCreateInfo-pCode-08740 requires the
+// device property to be VK_TRUE, so an artifact records the bit only when the
+// mode is really declared.
+inline constexpr SpirvTargetFeatureMask denorm_preserve_float32 = 0x0100000000000000ull;
+inline constexpr SpirvTargetFeatureMask denorm_flush_float32 = 0x0200000000000000ull;
 inline constexpr SpirvTargetFeatureMask shader_expect_assume = 0x0080000000000000ull;
 
 inline constexpr SpirvTargetFeatureMask known_mask =
@@ -125,7 +131,8 @@ inline constexpr SpirvTargetFeatureMask known_mask =
     shader_ocp_microscaling_types | shader_constant_data | shader_abort |
     ray_tracing_opacity_micromap |
     shader_mixed_float_dot_product_float16_acc_float32 |
-    shader_replicated_composites | shader_expect_assume;
+    shader_replicated_composites | shader_expect_assume |
+  denorm_preserve_float32 | denorm_flush_float32;
 
 }// namespace target_feature
 
@@ -190,7 +197,9 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::ray_tracing_opacity_micromap, "rayTracingOpacityMicromapExecutionMode"},
     SpirvTargetFeatureDescription{target_feature::shader_mixed_float_dot_product_float16_acc_float32, "shaderMixedFloatDotProductFloat16AccFloat32"},
     SpirvTargetFeatureDescription{target_feature::shader_replicated_composites, "shaderReplicatedComposites"},
-    SpirvTargetFeatureDescription{target_feature::shader_expect_assume, "shaderExpectAssume"}};
+    SpirvTargetFeatureDescription{target_feature::shader_expect_assume, "shaderExpectAssume"},
+      SpirvTargetFeatureDescription{target_feature::denorm_preserve_float32, "shaderDenormPreserveFloat32"},
+      SpirvTargetFeatureDescription{target_feature::denorm_flush_float32, "shaderDenormFlushToZeroFloat32"}};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

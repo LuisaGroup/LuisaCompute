@@ -16,7 +16,7 @@ SpirvBindlessResourceUsage spirv_bindless_resource_usage(
     switch (op) {
         case xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE:
         case xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE:
-            return {.buffer_metadata = !access.typed};
+            return {.buffer_metadata = true};
         case xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS:
             return {.buffer_metadata = true};
         case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE:
@@ -41,7 +41,7 @@ SpirvBindlessResourceUsage spirv_bindless_resource_usage(
  case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
  return {
  .buffer_heap = true,
- .buffer_metadata = !access.typed};
+ .buffer_metadata = true};
         case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ:
         case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
             return {.texture_2d = true};
@@ -62,7 +62,7 @@ SpirvBindlessResourceUsage spirv_bindless_resource_usage(
  case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
  return {
  .buffer_heap = true,
- .buffer_metadata = !access.typed};
+ .buffer_metadata = true};
         default: return {};
     }
 }

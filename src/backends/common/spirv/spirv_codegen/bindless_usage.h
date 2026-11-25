@@ -6,10 +6,13 @@ namespace lc::spirv {
 
 struct SpirvBindlessResourceUsage {
     // Buffer descriptors and buffer-view metadata are independent domains.
-    // Mixed-layout size/address queries consume per-array metadata and mixed
-    // reads/writes consume metadata plus the global heap. Typed size/bias
-    // live in the slot record, so typed reads/writes consume only the heap;
-    // typed device-address queries still consume metadata.
+    // Every bindless buffer access - typed or untyped - takes its descriptor
+    // index and byte bias from the per-array metadata record: the slot record of
+    // the indices buffer is only 3 words for a MULTIPLE array, 4 for a
+    // BUFFER_ONLY one and 1 for a texture-only one, so no single shader access
+    // could read the typed bias from it. Buffer reads/writes therefore consume
+    // metadata plus the global heap, and every size/address query consumes
+    // metadata.
     bool buffer_heap{false};
     bool buffer_metadata{false};
     bool texture_2d{false};
