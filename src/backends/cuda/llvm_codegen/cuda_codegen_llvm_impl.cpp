@@ -16,6 +16,8 @@
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Transforms/IPO/AlwaysInliner.h>
+#include <llvm/Transforms/Scalar/InferAddressSpaces.h>
 #include "../../common/llvm_pass_builder.h"
 #include "../../common/llvm_target_options.h"
 
@@ -370,6 +372,12 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
             case CUDACodegenLLVMConfig::OptLevel::LEVEL_LESS: opt_level = llvm::OptimizationLevel::O1; break;
             case CUDACodegenLLVMConfig::OptLevel::LEVEL_DEFAULT: opt_level = llvm::OptimizationLevel::O2; break;
             case CUDACodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE: opt_level = llvm::OptimizationLevel::O3; break;
+        }
+        if (_rt_analysis.uses_ray_query && phase == "primary optimization") {
+            llvm::ModulePassManager pre_rq;
+            pre_rq.addPass(llvm::AlwaysInlinerPass());
+            pre_rq.addPass(llvm::createModuleToFunctionPassAdaptor(llvm::InferAddressSpacesPass(0)));
+            pre_rq.run(*_llvm_module, MAM);
         }
         llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(opt_level);
         if (callback) { callback(MPM); }

@@ -890,9 +890,9 @@ llvm::Value *CUDACodegenLLVMImpl::_accel_trace_any(IB &b, uint32_t flags, llvm::
     return is_hit;
 }
 
-void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
-                                            llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
-                                            llvm::ArrayRef<llvm::Value *> registers) noexcept {
+llvm::CallInst *CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
+                                                       llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
+                                                       llvm::ArrayRef<llvm::Value *> registers) noexcept {
     LUISA_DEBUG_ASSERT(registers.size() <= 32u);
     auto handle = b.CreateExtractValue(accel, llvm_accel_type_handle_index);
     auto ox = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 0});
@@ -973,6 +973,7 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
         _ray_query_trace_calls.emplace_back(call);
         _ray_query_payload_count = std::max(_ray_query_payload_count, static_cast<uint32_t>(registers.size()));
     }
+    return call;
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_undef(IB &b) noexcept {

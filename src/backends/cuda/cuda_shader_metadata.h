@@ -34,6 +34,7 @@ struct CUDAShaderMetadata {
     bool requires_trace_any;
     bool requires_ray_query;
     uint32_t ray_query_payload_count{2u};// AST uses 2 words; LLVM declares its actual module maximum
+    uint32_t ray_query_payload_rw_mask{0u};
     bool requires_printing;
     // The kernel waits for its programmatic dependency
     // (grid_dependency_synchronize()).  Recorded at creation time because the
@@ -57,6 +58,7 @@ struct CUDAShaderMetadata {
                requires_trace_any == rhs.requires_trace_any &&
                requires_ray_query == rhs.requires_ray_query &&
                ray_query_payload_count == rhs.ray_query_payload_count &&
+               ray_query_payload_rw_mask == rhs.ray_query_payload_rw_mask &&
                requires_printing == rhs.requires_printing &&
                requires_grid_dependency_synchronize == rhs.requires_grid_dependency_synchronize &&
                requires_motion_blur == rhs.requires_motion_blur &&

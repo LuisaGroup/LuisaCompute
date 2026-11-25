@@ -36,6 +36,7 @@
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/core/stl/algorithm.h>
@@ -260,6 +261,14 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     cfg.add("fast-math-simplify", [fast_math = option.enable_fast_math](xir::Module *m, xir::PassReport &r) {
         auto info = xir::fast_math_simplify_pass_run_on_module(m, {.enable_fast_math = fast_math}, &r);
         return info.changed();
+    });
+    cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    cfg.add("unused-callable-removal", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::unused_callable_removal_pass_run_on_module(m, &r);
+        return i.removed_callable_count > 0u;
     });
     auto cfg_stats = cfg.run(xir_module.get());
     verify_xir_or_error(xir_module.get(), "codegen handoff");
@@ -945,6 +954,7 @@ template<bool allow_update_expected_metadata>
         expected_metadata.requires_trace_any = metadata->requires_trace_any;
         expected_metadata.requires_ray_query = metadata->requires_ray_query;
         expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
+        expected_metadata.ray_query_payload_rw_mask = metadata->ray_query_payload_rw_mask;
         expected_metadata.requires_printing = metadata->requires_printing;
         expected_metadata.requires_grid_dependency_synchronize = metadata->requires_grid_dependency_synchronize;
         expected_metadata.requires_motion_blur = metadata->requires_motion_blur;
@@ -960,6 +970,7 @@ template<bool allow_update_expected_metadata>
     auto candidate_metadata = expected_metadata;
     if (candidate_metadata.ray_query_payload_count == 0u) {
         candidate_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
+        candidate_metadata.ray_query_payload_rw_mask = metadata->ray_query_payload_rw_mask;
     }
     // examine the metadata
     if (*metadata != candidate_metadata) {
@@ -972,6 +983,7 @@ template<bool allow_update_expected_metadata>
         return {};
     }
     expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
+    expected_metadata.ray_query_payload_rw_mask = metadata->ray_query_payload_rw_mask;
     // return the ptx string
     return ptx_data;
 }
@@ -1157,6 +1169,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             };
             auto result = luisa_compute_cuda_codegen_llvm(*xir_module, config);
             generated_metadata.ray_query_payload_count = result.ray_query_payload_count;
+            generated_metadata.ray_query_payload_rw_mask = result.ray_query_payload_rw_mask;
             return std::move(result.code);
         };
     }

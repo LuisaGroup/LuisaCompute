@@ -94,6 +94,7 @@ public:
         bool uses_ray_tracing = false;
         bool uses_ray_query = false;
         bool uses_motion_blur = false;
+        uint32_t ray_query_pipeline_count = 0u;
         CurveBasisSet curve_basis_set = CurveBasisSet::make_none();
     };
 
@@ -185,6 +186,12 @@ private:
         unsigned context_field{0u};
         bool is_local_ptr{false};
         bool staged_inline{false};
+        bool unused{false};
+        bool by_value_ro{false};
+        bool by_value_rw{false};
+        llvm::Type *value_type{nullptr};
+        uint32_t payload_word_offset{0u};
+        uint32_t payload_word_count{0u};
     };
     struct RayQueryKernelResource {
         llvm::Constant *pointer;
@@ -199,10 +206,12 @@ private:
         bool hardware_result;
         bool direct_payload{false};
         bool query_is_local_ptr{false};
+        bool disable_anyhit{false};
     };
     std::vector<RayQueryPipeline> _ray_query_pipelines;
     std::vector<llvm::CallInst *> _ray_query_trace_calls;
     uint32_t _ray_query_payload_count{2u};
+    uint32_t _ray_query_payload_rw_mask{0u};
     llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, std::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
@@ -388,9 +397,9 @@ private:
     static void _store_accel_affine_matrix(IB &b, llvm::Value *affine_ptr, llvm::Value *matrix) noexcept;
     [[nodiscard]] llvm::Value *_accel_trace_closest(IB &b, uint32_t flags, llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask) noexcept;
     [[nodiscard]] llvm::Value *_accel_trace_any(IB &b, uint32_t flags, llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask) noexcept;
-    void _call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
-                           llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
-                           llvm::ArrayRef<llvm::Value *> registers) noexcept;
+    llvm::CallInst *_call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
+                                      llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
+                                      llvm::ArrayRef<llvm::Value *> registers) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_undef(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_hit_object_is_hit(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_hit_object_triangle_barycentrics(IB &b) noexcept;
@@ -447,6 +456,7 @@ public:
     explicit CUDACodegenLLVMImpl(CUDACodegenLLVMConfig config) noexcept;
     [[nodiscard]] luisa::string generate(const xir::Module &xir_module) noexcept;
     [[nodiscard]] uint32_t ray_query_payload_count() const noexcept { return _ray_query_payload_count; }
+    [[nodiscard]] uint32_t ray_query_payload_rw_mask() const noexcept { return _ray_query_payload_rw_mask; }
 };
 
 }// namespace luisa::compute::cuda

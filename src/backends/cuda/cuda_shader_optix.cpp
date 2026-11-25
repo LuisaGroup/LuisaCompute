@@ -106,12 +106,17 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
     };
     LUISA_ASSERT(metadata.ray_query_payload_count >= 2u && metadata.ray_query_payload_count <= 32u,
                  "Invalid OptiX ray-query payload count {}.", metadata.ray_query_payload_count);
-    // Both ABIs pass captures from the caller to the candidate handlers. Mutable
-    // references and query results are written through pointers, not payloads.
-    constexpr auto query_semantics = OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
-                                     OPTIX_PAYLOAD_SEMANTICS_IS_READ | OPTIX_PAYLOAD_SEMANTICS_AH_READ;
+    // Both ABIs pass captures from the caller to the candidate handlers. Promoted
+    // small mutable captures also write back through RW payload registers.
+    constexpr auto ro_semantics = OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
+                                  OPTIX_PAYLOAD_SEMANTICS_IS_READ | OPTIX_PAYLOAD_SEMANTICS_AH_READ;
+    constexpr auto rw_semantics = OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE |
+                                  OPTIX_PAYLOAD_SEMANTICS_IS_READ_WRITE | OPTIX_PAYLOAD_SEMANTICS_AH_READ_WRITE;
     std::array<uint32_t, 32u> ray_query_payload_semantics;
-    ray_query_payload_semantics.fill(query_semantics);
+    for (auto i = 0u; i < 32u; i++) {
+        auto is_rw = i < metadata.ray_query_payload_count && ((metadata.ray_query_payload_rw_mask & (1u << i)) != 0u);
+        ray_query_payload_semantics[i] = is_rw ? rw_semantics : ro_semantics;
+    }
 
     std::array<OptixPayloadType, 2u> payload_types{};
     payload_types[0].numPayloadValues = ray_trace_payload_semantics.size();

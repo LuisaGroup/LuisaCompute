@@ -55,6 +55,9 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
     result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
     result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
     result.append(luisa::format("RAY_QUERY_PAYLOAD_COUNT {} ", metadata.ray_query_payload_count));
+    if (metadata.ray_query_payload_rw_mask != 0u) {
+        result.append(luisa::format("RAY_QUERY_PAYLOAD_RW_MASK {:x} ", metadata.ray_query_payload_rw_mask));
+    }
     result.append(metadata.requires_printing ? "PRINTING TRUE " : "PRINTING FALSE ");
     result.append(metadata.requires_grid_dependency_synchronize ? "GRID_DEPENDENCY_SYNC TRUE " : "GRID_DEPENDENCY_SYNC FALSE ");
     result.append(metadata.requires_motion_blur ? "MOTION_BLUR TRUE " : "MOTION_BLUR FALSE ");
@@ -133,6 +136,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<bool> requires_trace_any;
     luisa::optional<bool> requires_ray_query;
     luisa::optional<uint32_t> ray_query_payload_count;
+    luisa::optional<uint32_t> ray_query_payload_rw_mask;
     luisa::optional<bool> requires_printing;
     luisa::optional<bool> requires_grid_dependency_synchronize;
     luisa::optional<bool> requires_motion_blur;
@@ -303,6 +307,17 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 return luisa::nullopt;
             }
             ray_query_payload_count.emplace(static_cast<uint32_t>(x.value()));
+        } else if (token == "RAY_QUERY_PAYLOAD_RW_MASK") {
+            if (ray_query_payload_rw_mask.has_value()) {
+                LUISA_WARNING_WITH_LOCATION("Duplicate ray-query payload RW mask in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_checksum(read_token());
+            if (!x.has_value() || x.value() > 0xffffffffull) {
+                LUISA_WARNING_WITH_LOCATION("Invalid ray-query payload RW mask in shader metadata.");
+                return luisa::nullopt;
+            }
+            ray_query_payload_rw_mask.emplace(static_cast<uint32_t>(x.value()));
         } else if (token == "PRINTING") {
             if (requires_printing.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -615,6 +630,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .requires_ray_query = requires_ray_query.value(),
         // Sidecars written before the payload ABI field used the two-word context pointer.
         .ray_query_payload_count = ray_query_payload_count.value_or(2u),
+        .ray_query_payload_rw_mask = ray_query_payload_rw_mask.value_or(0u),
         .requires_printing = requires_printing.value(),
         // Sidecars written before this field belong to kernels without a
         // programmatic dependency wait.

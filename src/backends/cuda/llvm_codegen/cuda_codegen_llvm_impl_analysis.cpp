@@ -12,8 +12,19 @@ void CUDACodegenLLVMImpl::_analyze_ray_tracing_usage(const xir::Module &module) 
     // Preserve its OptiX entry ABI after XIR optimization removes those traces.
     _rt_analysis.uses_ray_tracing = _config.requires_ray_tracing || _config.requires_ray_query;
     _rt_analysis.uses_ray_query = _config.requires_ray_query;
+    _rt_analysis.ray_query_pipeline_count = 0u;
     llvm::DenseSet<const xir::Function *> visited;
     for (auto f : module.function_list()) {
+        // Count every RayQueryPipelineInst across defined functions matching generate()'s translation loop.
+        if (auto def = f->definition()) {
+            for (auto block : def->basic_blocks()) {
+                for (auto inst : block->instructions()) {
+                    if (inst->derived_instruction_tag() == xir::DerivedInstructionTag::RAY_QUERY_PIPELINE) {
+                        _rt_analysis.ray_query_pipeline_count++;
+                    }
+                }
+            }
+        }
         // we only start from kernel functions so that unused functions are not analyzed
         if (f->isa<xir::KernelFunction>()) {
             _analyze_ray_tracing_in_function(f, visited);

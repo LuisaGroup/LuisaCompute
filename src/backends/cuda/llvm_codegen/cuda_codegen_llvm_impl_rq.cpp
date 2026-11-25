@@ -157,6 +157,48 @@ void pack_ray_query_payload(llvm::IRBuilder<> &b, llvm::Value *value,
     return type->isFloatingPointTy() ? b.CreateBitCast(value, type) : value;
 }
 
+[[nodiscard]] llvm::Value *unpack_ray_query_payload_from_words(llvm::IRBuilder<> &b, llvm::Type *type,
+                                                               llvm::ArrayRef<llvm::Value *> words,
+                                                               uint32_t &pos) noexcept {
+    if (type->isEmptyTy()) { return llvm::Constant::getNullValue(type); }
+    if (auto structure = llvm::dyn_cast<llvm::StructType>(type)) {
+        auto value = static_cast<llvm::Value *>(llvm::Constant::getNullValue(type));
+        for (auto i = 0u; i < structure->getNumElements(); i++) {
+            auto field = unpack_ray_query_payload_from_words(b, structure->getElementType(i), words, pos);
+            value = b.CreateInsertValue(value, field, i);
+        }
+        return value;
+    }
+    if (auto array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+        auto value = static_cast<llvm::Value *>(llvm::Constant::getNullValue(type));
+        for (auto i = 0u; i < array->getNumElements(); i++) {
+            auto element = unpack_ray_query_payload_from_words(b, array->getElementType(), words, pos);
+            value = b.CreateInsertValue(value, element, i);
+        }
+        return value;
+    }
+    if (auto vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+        auto value = static_cast<llvm::Value *>(llvm::Constant::getNullValue(type));
+        for (auto i = 0u; i < vector->getNumElements(); i++) {
+            auto element = unpack_ray_query_payload_from_words(b, vector->getElementType(), words, pos);
+            value = b.CreateInsertElement(value, element, i);
+        }
+        return value;
+    }
+    auto bits = ray_query_payload_scalar_bits(type);
+    LUISA_ASSERT(bits != 0u && pos < words.size(), "Invalid direct ray-query RW payload unpack.");
+    auto value = words[pos++];
+    if (bits > 32u) {
+        LUISA_ASSERT(pos < words.size(), "Invalid 64-bit direct ray-query RW payload unpack.");
+        auto lo = b.CreateZExt(value, b.getInt64Ty());
+        auto hi = b.CreateZExt(words[pos++], b.getInt64Ty());
+        value = b.CreateOr(lo, b.CreateShl(hi, 32u));
+    }
+    if (type->isPointerTy()) { return b.CreateIntToPtr(value, type); }
+    value = b.CreateZExtOrTrunc(value, b.getIntNTy(bits));
+    return type->isFloatingPointTy() ? b.CreateBitCast(value, type) : value;
+}
+
 void validate_ray_query_handler(const xir::Function *function,
                                 llvm::DenseSet<const xir::Function *> &visited) noexcept {
     if (function == nullptr || !visited.insert(function).second) { return; }
@@ -513,6 +555,226 @@ void validate_ray_query_handler(const xir::Function *function,
     }
     return true;
 }
+
+enum class CaptureUsage {
+    Unused,
+    ReadOnly,
+    ReadWrite,
+};
+
+[[nodiscard]] bool pointer_uses_are_readonly(
+    const xir::Value *pointer, llvm::DenseSet<const xir::Value *> &visited) noexcept {
+    if (pointer == nullptr || !visited.insert(pointer).second) { return true; }
+    for (auto use : pointer->use_list()) {
+        auto user = use->user();
+        if (user == nullptr || user->derived_value_tag() != xir::DerivedValueTag::INSTRUCTION) { return false; }
+        auto inst = static_cast<const xir::Instruction *>(user);
+        switch (inst->derived_instruction_tag()) {
+            case xir::DerivedInstructionTag::LOAD:
+                if (inst->operand_count() == 0u || inst->operand(0u) != pointer) { return false; }
+                break;
+            case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+                break;
+            case xir::DerivedInstructionTag::GEP: {
+                auto gep = static_cast<const xir::GEPInst *>(inst);
+                if (gep->base() != pointer || !pointer_uses_are_readonly(gep, visited)) { return false; }
+                break;
+            }
+            case xir::DerivedInstructionTag::CALL: {
+                auto call = static_cast<const xir::CallInst *>(inst);
+                auto callee = call->callee();
+                if (callee == nullptr || callee->definition() == nullptr || call->callee() == pointer) { return false; }
+                auto param_it = callee->arguments().begin();
+                auto param_end = callee->arguments().end();
+                for (auto i = size_t{0u}; i < call->argument_count(); i++) {
+                    if (param_it == param_end) { return false; }
+                    const xir::Argument *param = *param_it;
+                    ++param_it;
+                    if (call->argument(i) == pointer) {
+                        if (!param->is_reference() || !pointer_uses_are_readonly(param, visited)) { return false; }
+                    }
+                }
+                break;
+            }
+            default: return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] CaptureUsage ray_query_capture_usage(
+    const xir::RayQueryPipelineInst *pipeline, size_t capture_idx) noexcept {
+    if (pipeline == nullptr) { return CaptureUsage::ReadWrite; }
+    auto used = false;
+    auto written = false;
+    for (auto procedural : {false, true}) {
+        auto callback = procedural ? pipeline->on_procedural_function() : pipeline->on_surface_function();
+        if (callback == nullptr || ray_query_handler_is_empty(callback)) { continue; }
+        auto target_idx = capture_idx + 1u;
+        if (target_idx >= callback->arguments().count_size()) {
+            return CaptureUsage::ReadWrite;
+        }
+        const xir::Argument *formal = nullptr;
+        size_t idx = 0u;
+        for (auto arg : callback->arguments()) {
+            if (idx++ == target_idx) {
+                formal = arg;
+                break;
+            }
+        }
+        if (formal == nullptr) { return CaptureUsage::ReadWrite; }
+        if (formal->use_list().empty()) { continue; }
+        used = true;
+        if (formal->is_reference()) {
+            llvm::DenseSet<const xir::Value *> visited;
+            if (!pointer_uses_are_readonly(formal, visited)) {
+                written = true;
+            }
+        }
+    }
+    if (!used) { return CaptureUsage::Unused; }
+    return written ? CaptureUsage::ReadWrite : CaptureUsage::ReadOnly;
+}
+
+[[nodiscard]] bool ray_query_surface_handler_always_commits_only_impl(
+    const xir::Function *function, const xir::Value *query,
+    llvm::DenseSet<const xir::Function *> &visiting) noexcept {
+    if (function == nullptr || query == nullptr) { return false; }
+    if (!visiting.insert(function).second) { return false; }
+    auto definition = function->definition();
+    if (definition == nullptr || definition->body_block() == nullptr) {
+        visiting.erase(function);
+        return false;
+    }
+    llvm::DenseSet<const xir::BasicBlock *> dfs_visiting;
+    llvm::DenseSet<const xir::BasicBlock *> dfs_visited;
+    auto is_acyclic = [&](auto &&self, const xir::BasicBlock *bb) noexcept -> bool {
+        if (bb == nullptr || dfs_visited.contains(bb)) { return true; }
+        if (!dfs_visiting.insert(bb).second) { return false; }
+        auto ok = true;
+        bb->traverse_successors(false, [&](const xir::BasicBlock *succ) noexcept {
+            if (ok && !self(self, succ)) { ok = false; }
+        });
+        dfs_visiting.erase(bb);
+        dfs_visited.insert(bb);
+        return ok;
+    };
+    llvm::DenseMap<const xir::BasicBlock *, bool> block_commits;
+    for (auto block : definition->basic_blocks()) {
+        if (!is_acyclic(is_acyclic, block)) {
+            visiting.erase(function);
+            return false;
+        }
+        auto committed = false;
+        for (auto inst : block->instructions()) {
+            switch (inst->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::RETURN:
+                    if (static_cast<const xir::ReturnInst *>(inst)->return_value() != nullptr) {
+                        visiting.erase(function);
+                        return false;
+                    }
+                    break;
+                case xir::DerivedInstructionTag::BRANCH:
+                case xir::DerivedInstructionTag::CONDITIONAL_BRANCH:
+                case xir::DerivedInstructionTag::IF:
+                case xir::DerivedInstructionTag::SWITCH:
+                case xir::DerivedInstructionTag::INDEXED_BRANCH:
+                case xir::DerivedInstructionTag::UNREACHABLE:
+                case xir::DerivedInstructionTag::PHI:
+                case xir::DerivedInstructionTag::ALLOCA:
+                case xir::DerivedInstructionTag::LOAD:
+                case xir::DerivedInstructionTag::GEP:
+                case xir::DerivedInstructionTag::ARITHMETIC:
+                case xir::DerivedInstructionTag::CAST:
+                case xir::DerivedInstructionTag::ASSUME:
+                    break;
+                case xir::DerivedInstructionTag::STORE: {
+                    auto store = static_cast<const xir::StoreInst *>(inst);
+                    auto var = store->variable();
+                    auto is_local_alloca = var != nullptr && var->isa<xir::AllocaInst>() &&
+                                           static_cast<const xir::AllocaInst *>(var)->parent_function() == definition;
+                    auto is_self_copy = var != nullptr && store->value() != nullptr &&
+                                        store->value()->isa<xir::LoadInst>() &&
+                                        static_cast<const xir::LoadInst *>(store->value())->variable() == var;
+                    if (!is_local_alloca && !is_self_copy) {
+                        visiting.erase(function);
+                        return false;
+                    }
+                    break;
+                }
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    auto w = static_cast<const xir::RayQueryObjectWriteInst *>(inst);
+                    if (w->op() == xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE &&
+                        w->operand_count() == 1u && w->operand(0u) == query) {
+                        committed = true;
+                        break;
+                    }
+                    visiting.erase(function);
+                    return false;
+                }
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
+                    auto op = static_cast<const xir::RayQueryObjectReadInst *>(inst)->op();
+                    if (op != xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT &&
+                        !(op == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY &&
+                          world_ray_read_uses_only_exact_ah_fields(inst))) {
+                        visiting.erase(function);
+                        return false;
+                    }
+                    break;
+                }
+                case xir::DerivedInstructionTag::CALL: {
+                    auto call = static_cast<const xir::CallInst *>(inst);
+                    auto forwarded_query = find_forwarded_query_param(call, query);
+                    if (forwarded_query != nullptr &&
+                        ray_query_surface_handler_always_commits_only_impl(call->callee(), forwarded_query, visiting)) {
+                        committed = true;
+                        break;
+                    }
+                    if (ray_query_handler_is_empty(call->callee())) {
+                        break;
+                    }
+                    visiting.erase(function);
+                    return false;
+                }
+                default:
+                    visiting.erase(function);
+                    return false;
+            }
+        }
+        block_commits[block] = committed;
+    }
+    llvm::DenseMap<std::pair<const xir::BasicBlock *, uint8_t>, bool> memo;
+    auto path_always_commits = [&](auto &&self, const xir::BasicBlock *bb, bool committed_so_far) noexcept -> bool {
+        auto now_committed = committed_so_far || block_commits.lookup(bb);
+        auto key = std::pair<const xir::BasicBlock *, uint8_t>{bb, now_committed ? 1u : 0u};
+        if (auto it = memo.find(key); it != memo.end()) { return it->second; }
+        auto res = false;
+        if (bb->is_terminated() && bb->terminator()->derived_instruction_tag() == xir::DerivedInstructionTag::RETURN) {
+            res = now_committed;
+        } else if (bb->is_terminated() && bb->terminator()->derived_instruction_tag() == xir::DerivedInstructionTag::UNREACHABLE) {
+            res = true;
+        } else {
+            auto has_succ = false;
+            auto all_ok = true;
+            bb->traverse_successors(false, [&](const xir::BasicBlock *succ) noexcept {
+                has_succ = true;
+                if (all_ok && !self(self, succ, now_committed)) { all_ok = false; }
+            });
+            res = has_succ && all_ok;
+        }
+        memo[key] = res;
+        return res;
+    };
+    auto ok = path_always_commits(path_always_commits, definition->body_block(), false);
+    visiting.erase(function);
+    return ok;
+}
+
+[[nodiscard]] bool ray_query_surface_handler_always_commits_only(
+    const xir::Function *function, const xir::Value *query) noexcept {
+    llvm::DenseSet<const xir::Function *> visiting;
+    return ray_query_surface_handler_always_commits_only_impl(function, query, visiting);
+}
 }// namespace
 
 void CUDACodegenLLVMImpl::_translate_ray_query_loop_inst(IB &, FunctionContext &, const xir::RayQueryLoopInst *) noexcept {
@@ -658,6 +920,13 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     auto query_is_local_ptr = is_local_ptr_value(inst->query_object(), raw_query);
     auto query = generic_pointer(raw_query);
     auto id = static_cast<uint32_t>(_ray_query_pipelines.size());
+    auto needs_pipeline_id = _rt_analysis.ray_query_pipeline_count > 1u;
+    auto hardware_result = ray_query_pipeline_has_hardware_result(inst);
+    auto has_procedural = !ray_query_handler_is_empty(inst->on_procedural_function());
+    auto surface_cb = inst->on_surface_function();
+    auto surface_query = (surface_cb != nullptr && !surface_cb->arguments().empty()) ? surface_cb->arguments().front() : nullptr;
+    auto disable_anyhit = hardware_result && !has_procedural &&
+                          ray_query_surface_handler_always_commits_only(surface_cb, surface_query);
     llvm::SmallVector<llvm::Value *> fields{b.getInt32(id), query};
     llvm::SmallVector<RayQueryCapture> captures;
     struct CaptureSource {
@@ -666,31 +935,69 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
         llvm::Value *raw_llvm_value;
     };
     llvm::SmallVector<CaptureSource> capture_sources;
-    for (auto capture : inst->captured_argument_uses()) {
-        auto value = capture->value();
-        if (value->isa<xir::Argument>()) {
-            auto arg = static_cast<const xir::Argument *>(value);
-            if (auto iter = _ray_query_resource_origins.find(arg); iter != _ray_query_resource_origins.end()) {
-                captures.emplace_back(RayQueryCapture{iter->second, 0u, false, false});
+    if (disable_anyhit) {
+        for (size_t i = 0u; i < inst->captured_argument_count(); i++) {
+            RayQueryCapture cap{};
+            cap.unused = true;
+            captures.emplace_back(cap);
+        }
+    } else {
+        for (size_t cap_idx = 0u; cap_idx < inst->captured_argument_count(); cap_idx++) {
+            auto value = inst->captured_argument(cap_idx);
+            auto usage = ray_query_capture_usage(inst, cap_idx);
+            if (usage == CaptureUsage::Unused) {
+                RayQueryCapture cap{};
+                cap.unused = true;
+                captures.emplace_back(cap);
                 continue;
             }
+            if (value->isa<xir::Argument>()) {
+                auto arg = static_cast<const xir::Argument *>(value);
+                if (auto iter = _ray_query_resource_origins.find(arg); iter != _ray_query_resource_origins.end()) {
+                    RayQueryCapture cap{};
+                    cap.root_resource = iter->second;
+                    captures.emplace_back(cap);
+                    continue;
+                }
+            }
+            auto raw_val = _get_llvm_value(b, func_ctx, value);
+            auto capture_index = captures.size();
+            if (value->isa<xir::AllocaInst>()) {
+                auto alloca_inst = static_cast<const xir::AllocaInst *>(value);
+                if (alloca_can_stage_inline(alloca_inst, inst)) {
+                    auto elem_type = _get_llvm_type(alloca_inst->type())->mem_type;
+                    if (elem_type != nullptr && !elem_type->isEmptyTy()) {
+                        auto words = ray_query_payload_word_count(elem_type, *_data_layout, 2u);
+                        if (words >= 1u && words <= 2u) {
+                            RayQueryCapture cap{};
+                            cap.context_field = static_cast<unsigned>(fields.size());
+                            cap.by_value_ro = (usage == CaptureUsage::ReadOnly);
+                            cap.by_value_rw = (usage == CaptureUsage::ReadWrite);
+                            cap.value_type = elem_type;
+                            captures.emplace_back(cap);
+                            fields.emplace_back(b.CreateLoad(elem_type, raw_val));
+                            capture_sources.emplace_back(CaptureSource{capture_index, value, raw_val});
+                            continue;
+                        }
+                    }
+                }
+            }
+            // Keep references as references, including aliases and subobject captures.
+            RayQueryCapture cap{};
+            cap.context_field = static_cast<unsigned>(fields.size());
+            cap.is_local_ptr = is_local_ptr_value(value, raw_val);
+            captures.emplace_back(cap);
+            fields.emplace_back(generic_pointer(raw_val));
+            capture_sources.emplace_back(CaptureSource{capture_index, value, raw_val});
         }
-        // Keep references as references, including aliases and subobject captures.
-        auto raw_val = _get_llvm_value(b, func_ctx, value);
-        auto is_local_ptr = is_local_ptr_value(value, raw_val);
-        auto capture_index = captures.size();
-        captures.emplace_back(RayQueryCapture{nullptr, static_cast<unsigned>(fields.size()), is_local_ptr, false});
-        fields.emplace_back(generic_pointer(raw_val));
-        capture_sources.emplace_back(CaptureSource{capture_index, value, raw_val});
     }
     llvm::SmallVector<llvm::Type *> field_types;
     field_types.reserve(fields.size());
     for (auto field : fields) { field_types.emplace_back(field->getType()); }
     auto context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
-    auto hardware_result = ray_query_pipeline_has_hardware_result(inst);
-    auto capture_offset = hardware_result ? kRayQueryPayloadHardwareCaptureOffset : kRayQueryPayloadGeneralCaptureOffset;
+    auto capture_offset = hardware_result ? (needs_pipeline_id ? 1u : 0u) : (needs_pipeline_id ? 3u : 2u);
     auto capture_budget = kRayQueryPayloadWordCount - capture_offset;
-    auto direct_payload = ray_query_uses_direct_payload(context_type, *_data_layout, capture_budget);
+    auto direct_payload = disable_anyhit || ray_query_uses_direct_payload(context_type, *_data_layout, capture_budget);
     struct StagedAlloca {
         unsigned field_index;
         llvm::Type *elem_type;
@@ -699,13 +1006,20 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     llvm::SmallVector<StagedAlloca> staged_allocas;
     if (!direct_payload) {
         for (auto &&src : capture_sources) {
+            auto &cap = captures[src.capture_index];
+            if (cap.by_value_ro || cap.by_value_rw) {
+                cap.by_value_ro = false;
+                cap.by_value_rw = false;
+                cap.staged_inline = true;
+                staged_allocas.emplace_back(StagedAlloca{cap.context_field, cap.value_type, src.raw_llvm_value});
+                continue;
+            }
             if (src.xir_value->isa<xir::AllocaInst>()) {
                 auto alloca_inst = static_cast<const xir::AllocaInst *>(src.xir_value);
                 if (alloca_can_stage_inline(alloca_inst, inst)) {
                     auto elem_type = _get_llvm_type(alloca_inst->type())->mem_type;
                     if (elem_type != nullptr && !elem_type->isEmptyTy() &&
                         _data_layout->getTypeAllocSize(elem_type).getFixedValue() <= 64u) {
-                        auto &cap = captures[src.capture_index];
                         cap.staged_inline = true;
                         field_types[cap.context_field] = elem_type;
                         staged_allocas.emplace_back(StagedAlloca{cap.context_field, elem_type, src.raw_llvm_value});
@@ -717,18 +1031,36 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
             context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
         }
     }
-    _ray_query_pipelines.emplace_back(RayQueryPipeline{
-        inst, context_type, std::move(captures), hardware_result, direct_payload, query_is_local_ptr});
-    // The id is shared by both layouts. Only general handlers receive a
-    // query pointer; hardware results start their captures immediately after id.
-    llvm::SmallVector<llvm::Value *, kRayQueryPayloadWordCount> payload{b.getInt32(id)};
-    if (!hardware_result) { pack_ray_query_payload(b, query, payload); }
+    llvm::SmallVector<llvm::Value *, kRayQueryPayloadWordCount> payload;
+    if (!disable_anyhit) {
+        if (needs_pipeline_id) { payload.emplace_back(b.getInt32(id)); }
+        if (!hardware_result) { pack_ray_query_payload(b, query, payload); }
+    }
     llvm::AllocaInst *context = nullptr;
-    if (direct_payload) {
-        for (auto i = context_capture_offset; i < fields.size(); i++) {
-            pack_ray_query_payload(b, fields[i], payload);
+    struct RWCopyback {
+        uint32_t word_offset;
+        uint32_t word_count;
+        llvm::Type *elem_type;
+        llvm::Value *llvm_alloca;
+    };
+    llvm::SmallVector<RWCopyback> rw_copybacks;
+    if (!disable_anyhit && direct_payload) {
+        for (auto &&src : capture_sources) {
+            auto &cap = captures[src.capture_index];
+            auto field_index = cap.context_field;
+            auto start_word = static_cast<uint32_t>(payload.size());
+            pack_ray_query_payload(b, fields[field_index], payload);
+            if (cap.by_value_rw) {
+                auto end_word = static_cast<uint32_t>(payload.size());
+                cap.payload_word_offset = start_word;
+                cap.payload_word_count = end_word - start_word;
+                for (auto w = start_word; w < end_word; w++) {
+                    _ray_query_payload_rw_mask |= (1u << w);
+                }
+                rw_copybacks.emplace_back(RWCopyback{cap.payload_word_offset, cap.payload_word_count, cap.value_type, src.raw_llvm_value});
+            }
         }
-    } else {
+    } else if (!disable_anyhit) {
         // Traversal invokes its handlers synchronously, and nested traversal in
         // a handler is rejected above. Only the fallback needs private scratch;
         // query objects and captured references retain their original identities.
@@ -745,13 +1077,17 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
         scratch->setAlignment(std::max(scratch->getAlign(), _data_layout->getABITypeAlign(context_type)));
         context = scratch;
         for (auto &&src : capture_sources) {
-            auto field_index = _ray_query_pipelines.back().captures[src.capture_index].context_field;
-            auto staged = _ray_query_pipelines.back().captures[src.capture_index].staged_inline;
-            auto stored_val = staged ? b.CreateLoad(field_types[field_index], src.raw_llvm_value) : fields[field_index];
+            auto &cap = captures[src.capture_index];
+            auto field_index = cap.context_field;
+            auto stored_val = cap.staged_inline && !cap.value_type ?
+                                  b.CreateLoad(field_types[field_index], src.raw_llvm_value) :
+                                  fields[field_index];
             b.CreateStore(stored_val, b.CreateStructGEP(context_type, context, field_index));
         }
         pack_ray_query_payload(b, generic_pointer(context), payload);
     }
+    _ray_query_pipelines.emplace_back(RayQueryPipeline{
+        inst, context_type, std::move(captures), hardware_result, direct_payload, query_is_local_ptr, disable_anyhit});
     LUISA_ASSERT(payload.size() <= kRayQueryPayloadWordCount, "Ray-query payload exceeds the register budget.");
     auto accel = _load_ray_query_field(b, query, llvm_ray_query_type_accel_index);
     auto ray = _load_ray_query_field(b, query, llvm_ray_query_type_ray_index);
@@ -761,11 +1097,25 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     // track opaque hits too. Qualified callbacks use native traversal bounds
     // and recover the final hardware result after traversal instead.
     auto flags = static_cast<uint32_t>(OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
-    if (!hardware_result) { flags |= OPTIX_RAY_FLAG_ENFORCE_ANYHIT; }
+    if (disable_anyhit) {
+        flags |= OPTIX_RAY_FLAG_DISABLE_ANYHIT;
+    } else if (!hardware_result) {
+        flags |= OPTIX_RAY_FLAG_ENFORCE_ANYHIT;
+    }
     if (inst->query_object()->type() == Type::of<RayQueryAny>()) {
         flags |= OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT;
     }
-    _call_optix_trace(b, OPTIX_PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, payload);
+    auto trace_call = _call_optix_trace(b, OPTIX_PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, payload);
+    for (auto &&cb : rw_copybacks) {
+        llvm::SmallVector<llvm::Value *, 2u> words;
+        words.reserve(cb.word_count);
+        for (auto w = 0u; w < cb.word_count; w++) {
+            words.emplace_back(b.CreateExtractValue(trace_call, cb.word_offset + w));
+        }
+        auto pos = 0u;
+        auto updated = unpack_ray_query_payload_from_words(b, cb.elem_type, words, pos);
+        b.CreateStore(updated, cb.llvm_alloca);
+    }
     for (auto &&staged : staged_allocas) {
         auto updated = b.CreateLoad(staged.elem_type, b.CreateStructGEP(context_type, context, staged.field_index));
         b.CreateStore(updated, staged.llvm_alloca);
@@ -867,11 +1217,14 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             call->setArgOperand(payload_first_arg + i, llvm::ConstantInt::get(i32, 0u));
         }
     }
+    auto needs_pipeline_id = _rt_analysis.ray_query_pipeline_count > 1u;
+    auto active_pipeline_count = 0u;
     auto any_procedural_handler = false;
     for (auto &&pipeline : _ray_query_pipelines) {
+        if (pipeline.disable_anyhit) { continue; }
+        active_pipeline_count++;
         if (!ray_query_handler_is_empty(pipeline.inst->on_procedural_function())) {
             any_procedural_handler = true;
-            break;
         }
     }
     for (auto procedural : {false, true}) {
@@ -883,7 +1236,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
         IB b{entry};
         // Dead queries still require these entry points because host metadata
         // describes the original kernel rather than the optimized XIR module.
-        if (_ray_query_pipelines.empty() || (procedural && !any_procedural_handler)) {
+        if (active_pipeline_count == 0u || (procedural && !any_procedural_handler)) {
             b.CreateRetVoid();
             continue;
         }
@@ -906,6 +1259,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             entry_dispatch_block = surface;
         }
         auto get_payload = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", true);
+        auto set_payload = _get_inline_asm("call (), _optix_set_payload, ($0, $1);", "r,r", true);
         llvm::Value *id = nullptr;
         auto load_pipeline_id = [&]() noexcept -> llvm::Value * {
             if (id == nullptr) {
@@ -913,10 +1267,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             }
             return id;
         };
-        auto assume_local_ptr = [&](llvm::Value *ptr_val) noexcept {
-            auto is_local_fn = llvm::Intrinsic::getOrInsertDeclaration(
-                _llvm_module.get(), llvm::Intrinsic::nvvm_isspacep_local);
-            b.CreateAssumption(b.CreateCall(is_local_fn, {ptr_val}));
+        auto recover_local_ptr = [&](llvm::Value *ptr_val) noexcept -> llvm::Value * {
+            auto local_ptr = b.CreateAddrSpaceCast(ptr_val, b.getPtrTy(nvptx_address_space_local));
+            return b.CreateAddrSpaceCast(local_ptr, b.getPtrTy());
         };
         auto emit_callback = [&](const RayQueryPipeline &pipeline, const xir::Function *callback, llvm::Value *query) noexcept {
             if (callback != nullptr) {
@@ -924,15 +1277,24 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 LUISA_ASSERT(callee->arg_size() == pipeline.inst->captured_argument_count() + 3u,
                              "Invalid ray-query callback capture ABI.");
                 llvm::SmallVector<llvm::Value *> args{query};
-                auto word_index = pipeline.hardware_result ? kRayQueryPayloadHardwareCaptureOffset : kRayQueryPayloadGeneralCaptureOffset;
+                auto word_index = pipeline.hardware_result ? (needs_pipeline_id ? 1u : 0u) : (needs_pipeline_id ? 3u : 2u);
                 auto direct_payload = pipeline.direct_payload;
                 llvm::Value *context_local = nullptr;
                 if (!direct_payload) {
                     auto context_generic = unpack_ray_query_payload(b, b.getPtrTy(), get_payload, word_index);
                     context_local = b.CreateAddrSpaceCast(context_generic, b.getPtrTy(nvptx_address_space_local));
                 }
+                struct RWWriteback {
+                    llvm::AllocaInst *local_alloca;
+                    llvm::Type *elem_type;
+                    uint32_t word_offset;
+                    uint32_t word_count;
+                };
+                llvm::SmallVector<RWWriteback> rw_writebacks;
                 for (auto &&capture : pipeline.captures) {
-                    if (auto root = capture.root_resource) {
+                    if (capture.unused) {
+                        args.emplace_back(llvm::PoisonValue::get(callee->getArg(args.size())->getType()));
+                    } else if (auto root = capture.root_resource) {
                         auto iter = _ray_query_kernel_resources.find(root);
                         LUISA_ASSERT(iter != _ray_query_kernel_resources.end(), "Missing ray-query root resource parameter.");
                         auto type = _get_llvm_type(root->type());
@@ -943,19 +1305,29 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                                                          llvm::Align{KernelArgumentStruct::argument_alignment}, "query.resource");
                         _assume_kernel_argument_storage(b, value, root, iter->second.argument_index);
                         args.emplace_back(value);
+                    } else if (direct_payload && (capture.by_value_ro || capture.by_value_rw)) {
+                        auto start_word = word_index;
+                        auto unpacked = unpack_ray_query_payload(b, capture.value_type, get_payload, word_index);
+                        IB alloca_b{entry, entry->begin()};
+                        auto local_slot = alloca_b.CreateAlloca(capture.value_type, nullptr, "rq.capture.slot");
+                        b.CreateStore(unpacked, local_slot);
+                        auto slot_arg = local_slot->getAddressSpace() == 0u ? static_cast<llvm::Value *>(local_slot) :
+                                                                                b.CreateAddrSpaceCast(local_slot, b.getPtrTy());
+                        args.emplace_back(slot_arg);
+                        if (capture.by_value_rw) {
+                            rw_writebacks.emplace_back(RWWriteback{local_slot, capture.value_type, start_word, word_index - start_word});
+                        }
+                    } else if (!direct_payload && capture.staged_inline) {
+                        auto slot = b.CreateStructGEP(pipeline.context_type, context_local, capture.context_field);
+                        args.emplace_back(b.CreateAddrSpaceCast(slot, b.getPtrTy()));
                     } else {
                         auto field_index = capture.context_field;
                         auto field_type = pipeline.context_type->getElementType(field_index);
-                        if (!direct_payload && capture.staged_inline) {
-                            auto slot = b.CreateStructGEP(pipeline.context_type, context_local, field_index);
-                            args.emplace_back(b.CreateAddrSpaceCast(slot, b.getPtrTy()));
-                        } else {
-                            auto value = direct_payload ?
-                                             unpack_ray_query_payload(b, field_type, get_payload, word_index) :
-                                             b.CreateLoad(field_type, b.CreateStructGEP(pipeline.context_type, context_local, field_index));
-                            if (capture.is_local_ptr) { assume_local_ptr(value); }
-                            args.emplace_back(value);
-                        }
+                        auto value = direct_payload ?
+                                         unpack_ray_query_payload(b, field_type, get_payload, word_index) :
+                                         b.CreateLoad(field_type, b.CreateStructGEP(pipeline.context_type, context_local, field_index));
+                        if (capture.is_local_ptr) { value = recover_local_ptr(value); }
+                        args.emplace_back(value);
                     }
                 }
                 // These hidden arguments are immutable for the whole launch,
@@ -970,11 +1342,21 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 if (!callee->hasFnAttribute(llvm::Attribute::NoInline)) {
                     call->addFnAttr(llvm::Attribute::AlwaysInline);
                 }
+                for (auto &&wb : rw_writebacks) {
+                    auto updated = b.CreateLoad(wb.elem_type, wb.local_alloca);
+                    llvm::SmallVector<llvm::Value *, 2u> words;
+                    pack_ray_query_payload(b, updated, words);
+                    for (auto k = 0u; k < wb.word_count; k++) {
+                        b.CreateCall(set_payload, {b.getInt32(wb.word_offset + k), words[k]});
+                    }
+                }
             }
         };
         auto hardware_result_count = 0u;
         for (auto &&pipeline : _ray_query_pipelines) {
-            hardware_result_count += pipeline.hardware_result ? 1u : 0u;
+            if (!pipeline.disable_anyhit && pipeline.hardware_result) {
+                hardware_result_count++;
+            }
         }
         if (hardware_result_count != 0u) {
             auto general = llvm::BasicBlock::Create(_llvm_context, "general.query", function);
@@ -991,7 +1373,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             llvm::BasicBlock *common_target = nullptr;
             for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
                 auto &&pipeline = _ray_query_pipelines[i];
-                if (!pipeline.hardware_result) { continue; }
+                if (pipeline.disable_anyhit || !pipeline.hardware_result) { continue; }
                 auto callback = procedural ? pipeline.inst->on_procedural_function() : pipeline.inst->on_surface_function();
                 auto callee = callback == nullptr ? nullptr : _get_or_declare_llvm_function(callback);
                 // With no captures the complete dispatch body uses only fresh
@@ -1004,8 +1386,15 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                     all_same_target &= (common_target == exit);
                     continue;
                 }
+                auto has_root_captures = false;
+                for (auto &&capture : pipeline.captures) {
+                    if (capture.root_resource != nullptr) {
+                        has_root_captures = true;
+                        break;
+                    }
+                }
                 auto only_root_captures =
-                    !pipeline.captures.empty() &&
+                    has_root_captures &&
                     pipeline.context_type->getNumElements() == context_capture_offset;
                 if (only_root_captures) {
                     llvm::SmallVector<const xir::Argument *, 4u> roots;
@@ -1027,7 +1416,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                         continue;
                     }
                 }
-                auto shareable_body = pipeline.captures.empty() &&
+                auto shareable_body = !has_root_captures &&
                                       pipeline.context_type->getNumElements() == context_capture_offset;
                 auto target = shared_filters.get_or_create(callee, shareable_body,
                                                             pipeline.inst->captured_argument_count(),
@@ -1090,7 +1479,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             }
             // Emit the entry branch or switch after target blocks exist.
             b.SetInsertPoint(entry_dispatch_block);
-            if (hardware_result_count == _ray_query_pipelines.size() && all_same_target && common_target != nullptr) {
+            if (hardware_result_count == active_pipeline_count && all_same_target && common_target != nullptr) {
                 b.CreateBr(common_target);
                 general->eraseFromParent();
                 dispatch->eraseFromParent();
@@ -1111,7 +1500,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 select_filter->addCase(b.getInt32(case_id), target_block);
             }
             b.SetInsertPoint(general);
-            if (hardware_result_count == _ray_query_pipelines.size()) {
+            if (hardware_result_count == active_pipeline_count) {
                 b.CreateUnreachable();
                 dispatch->eraseFromParent();
                 finish->eraseFromParent();
@@ -1127,16 +1516,16 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 continue;
             }
         }
-        auto prefix_word_index = 1u;
+        auto prefix_word_index = needs_pipeline_id ? 1u : 0u;
         auto query = unpack_ray_query_payload(b, b.getPtrTy(), get_payload, prefix_word_index);
         auto all_general_local = true;
         for (auto &&pipeline : _ray_query_pipelines) {
-            if (!pipeline.hardware_result && !pipeline.query_is_local_ptr) {
+            if (!pipeline.disable_anyhit && !pipeline.hardware_result && !pipeline.query_is_local_ptr) {
                 all_general_local = false;
                 break;
             }
         }
-        if (all_general_local) { assume_local_ptr(query); }
+        if (all_general_local) { query = recover_local_ptr(query); }
         if (!procedural) {
             _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
             _store_ray_query_field(b, query, llvm_ray_query_type_state_index, b.getInt8(llvm_ray_query_state_surface_candidate));
@@ -1155,11 +1544,11 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             b.CreateBr(dispatch);
         }
         b.SetInsertPoint(dispatch);
-        auto general_count = _ray_query_pipelines.size() - hardware_result_count;
+        auto general_count = active_pipeline_count - hardware_result_count;
         if (general_count == 1u) {
             for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
                 auto &&pipeline = _ray_query_pipelines[i];
-                if (pipeline.hardware_result) { continue; }
+                if (pipeline.disable_anyhit || pipeline.hardware_result) { continue; }
                 auto callback = procedural ? pipeline.inst->on_procedural_function() : pipeline.inst->on_surface_function();
                 emit_callback(pipeline, callback, query);
                 b.CreateBr(finish);
@@ -1170,7 +1559,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             auto select = b.CreateSwitch(load_pipeline_id(), invalid, static_cast<unsigned>(general_count));
             for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
                 auto &&pipeline = _ray_query_pipelines[i];
-                if (pipeline.hardware_result) { continue; }
+                if (pipeline.disable_anyhit || pipeline.hardware_result) { continue; }
                 auto block = llvm::BasicBlock::Create(_llvm_context, "pipeline." + std::to_string(i), function);
                 select->addCase(b.getInt32(i), block);
                 b.SetInsertPoint(block);
