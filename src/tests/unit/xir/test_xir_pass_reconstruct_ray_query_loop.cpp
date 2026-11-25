@@ -14,8 +14,12 @@
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/translators/ast2xir.h>
@@ -1075,7 +1079,7 @@ void register_tests() {
                xir_to_text_translate(legacy.get(), false));
     };
 
-    "frontend_dsl_inline_query_without_candidate_split_rejects_atomically"_test = [] {
+    "frontend_dsl_inline_query_without_candidate_split_reconstructs_and_lowers"_test = [] {
         Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
             auto index = dispatch_x();
             auto ray = make_ray(
@@ -1099,16 +1103,211 @@ void register_tests() {
         auto *definition = translated_kernel->definition();
         auto info = reconstruct_ray_query_loop_pass_run_on_function(
             translated_kernel);
-        expect(!info.succeeded());
-        expect(info.error_count == 1u);
-        expect(info.reconstructed_ray_query_loop_count == 0u);
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.reconstructed_ray_query_loop_count == 1u);
         expect(count_terminators(
                    definition,
-                   DerivedInstructionTag::SIMPLE_LOOP) == 1u);
+                   DerivedInstructionTag::SIMPLE_LOOP) == 0u);
         expect(count_terminators(
                    definition,
-                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 1u);
         expect(xir_verify_module(module.get()).succeeded());
+
+        auto pipeline = lower_ray_query_to_pipeline_pass_run_on_function(
+            translated_kernel);
+        expect(pipeline.succeeded());
+        expect(pipeline.lowered_loop_count == 1u);
+        expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "frontend_dsl_stateful_inline_query_triangle_procedural_break_continue_and_manual_loop"_test = [] {
+        // Triangle-only loop (no is_surface_candidate check) collapses procedural arm.
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto index = dispatch_x();
+                auto ray = make_ray(
+                    make_float3(0.0f, 0.0f, 1.0f),
+                    make_float3(0.0f, 0.0f, -1.0f));
+                auto rq = accel.query(ray, {});
+                UInt count = 0u;
+                $while (rq.proceed()) {
+                    count += 1u;
+                    auto cand = rq.surface_candidate();
+                    $if (cand.hit()->prim == index) {
+                        cand.commit();
+                        $break;
+                    };
+                };
+                output.write(index, count + rq.committed_hit()->prim);
+            };
+            auto module = ast_to_xir_translate(kernel.function()->function(), {});
+            expect(module != nullptr);
+            auto *k = find_kernel(module.get());
+            expect(k != nullptr);
+            auto rec = reconstruct_ray_query_loop_pass_run_on_function(k);
+            expect(rec.succeeded() && rec.reconstructed_ray_query_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+            auto pipe = lower_ray_query_to_pipeline_pass_run_on_function(k);
+            expect(pipe.succeeded() && pipe.lowered_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+        }
+        // Procedural-only loop collapses surface arm.
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto index = dispatch_x();
+                auto ray = make_ray(
+                    make_float3(0.0f, 0.0f, 1.0f),
+                    make_float3(0.0f, 0.0f, -1.0f));
+                auto rq = accel.query(ray, {});
+                $while (rq.proceed()) {
+                    auto cand = rq.procedural_candidate();
+                    $if (cand.hit()->prim == index) {
+                        $continue;
+                    };
+                    cand.commit(1.5f);
+                };
+                output.write(index, rq.committed_hit()->prim);
+            };
+            auto module = ast_to_xir_translate(kernel.function()->function(), {});
+            expect(module != nullptr);
+            auto *k = find_kernel(module.get());
+            expect(k != nullptr);
+            auto rec = reconstruct_ray_query_loop_pass_run_on_function(k);
+            expect(rec.succeeded() && rec.reconstructed_ray_query_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+            auto pipe = lower_ray_query_to_pipeline_pass_run_on_function(k);
+            expect(pipe.succeeded() && pipe.lowered_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+        }
+        // Shared pre/post stateful updates, stored predicate, continue, break, and manual $loop.
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto index = dispatch_x();
+                auto ray = make_ray(
+                    make_float3(0.0f, 0.0f, 1.0f),
+                    make_float3(0.0f, 0.0f, -1.0f));
+                auto rq = accel.query(ray, {});
+                UInt visited = 0u;
+                UInt post = 0u;
+                $loop {
+                    $if (!rq.proceed()) { $break; };
+                    visited += 1u;
+                    Bool is_surf = rq.is_surface_candidate();
+                    $if (!is_surf) {
+                        auto p = rq.procedural_candidate();
+                        $if (p.hit()->prim == 0u) {
+                            p.commit(1.0f);
+                        };
+                        $continue;
+                    };
+                    auto s = rq.surface_candidate();
+                    $if (s.hit()->inst == 0u) {
+                        s.commit();
+                        $break;
+                    };
+                    post += 1u;
+                };
+                output.write(index, visited * 10u + post + rq.committed_hit()->inst);
+            };
+            auto module = ast_to_xir_translate(kernel.function()->function(), {});
+            expect(module != nullptr);
+            auto *k = find_kernel(module.get());
+            expect(k != nullptr);
+            auto rec = reconstruct_ray_query_loop_pass_run_on_function(k);
+            expect(rec.succeeded() && rec.reconstructed_ray_query_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+            auto pipe = lower_ray_query_to_pipeline_pass_run_on_function(k);
+            expect(pipe.succeeded() && pipe.lowered_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+        }
+        // Post-mem2reg SSA header PHI reconstruction + pipeline lowering.
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto index = dispatch_x();
+                auto ray = make_ray(
+                    make_float3(0.0f, 0.0f, 1.0f),
+                    make_float3(0.0f, 0.0f, -1.0f));
+                auto rq = accel.query(ray, {});
+                UInt visited = 0u;
+                UInt post = 0u;
+                $while (rq.proceed()) {
+                    visited += 1u;
+                    $if (!rq.is_surface_candidate()) {
+                        auto p = rq.procedural_candidate();
+                        $if (p.hit()->prim == 0u) { p.commit(1.0f); };
+                        $continue;
+                    };
+                    auto s = rq.surface_candidate();
+                    $if (s.hit()->inst == index) { s.commit(); };
+                    post += 1u;
+                };
+                output.write(index, visited * 10u + post + rq.committed_hit()->inst);
+            };
+            auto module = ast_to_xir_translate(kernel.function()->function(), {});
+            expect(module != nullptr);
+            auto *k = find_kernel(module.get());
+            expect(k != nullptr);
+            static_cast<void>(dce_pass_run_on_module(module.get()));
+            static_cast<void>(local_store_forward_pass_run_on_module(module.get()));
+            static_cast<void>(local_load_elimination_pass_run_on_module(module.get()));
+            static_cast<void>(mem2reg_pass_run_on_module(module.get()));
+            static_cast<void>(dce_pass_run_on_module(module.get()));
+            auto rec = reconstruct_ray_query_loop_pass_run_on_function(k);
+            expect(rec.succeeded() && rec.reconstructed_ray_query_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+            auto pipe = lower_ray_query_to_pipeline_pass_run_on_function(k);
+            expect(pipe.succeeded() && pipe.lowered_loop_count == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+        }
+    };
+
+    "frontend_dsl_stateful_inline_query_rejects_conflict_and_post_break_proceed_atomically"_test = [] {
+        // Conflicting surface and procedural ops reachable on the same specialization.
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto rq = accel.query(
+                    make_ray(make_float3(0.0f), make_float3(0.0f, 0.0f, -1.0f)), {});
+                $while (rq.proceed()) {
+                    rq.surface_candidate().commit();
+                    rq.procedural_candidate().commit(1.0f);
+                };
+                output.write(dispatch_x(), rq.committed_hit()->prim);
+            };
+            auto module = ast_to_xir_translate(kernel.function()->function(), {});
+            expect(module != nullptr);
+            auto *k = find_kernel(module.get());
+            expect(k != nullptr);
+            auto rec = reconstruct_ray_query_loop_pass_run_on_function(k);
+            expect(!rec.succeeded() && rec.error_count == 1u && rec.reconstructed_ray_query_loop_count == 0u);
+            expect(count_terminators(k->definition(), DerivedInstructionTag::SIMPLE_LOOP) == 1u);
+            expect(xir_verify_module(module.get()).succeeded());
+        }
+        // $break cannot safely rewrite to TERMINATE if the same query is proceeded later.
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto rq = accel.query(
+                    make_ray(make_float3(0.0f), make_float3(0.0f, 0.0f, -1.0f)), {});
+                $while (rq.proceed()) {
+                    $if (rq.is_surface_candidate()) {
+                        rq.surface_candidate().commit();
+                        $break;
+                    };
+                };
+                UInt extra = 0u;
+                $while (rq.proceed()) {
+                    extra += 1u;
+                };
+                output.write(dispatch_x(), extra + rq.committed_hit()->prim);
+            };
+            auto module = ast_to_xir_translate(kernel.function()->function(), {});
+            expect(module != nullptr);
+            auto *k = find_kernel(module.get());
+            expect(k != nullptr);
+            auto rec = reconstruct_ray_query_loop_pass_run_on_function(k);
+            expect(!rec.succeeded() && rec.error_count >= 1u && rec.reconstructed_ray_query_loop_count == 0u);
+            expect(xir_verify_module(module.get()).succeeded());
+        }
     };
 
     "frontend_dsl_inline_queries_preflight_atomically"_test = [] {

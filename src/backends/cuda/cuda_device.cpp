@@ -20,6 +20,7 @@
 #ifdef LUISA_ENABLE_XIR
 
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/print.h>
@@ -281,6 +282,81 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     return xir_module;
+}
+
+[[nodiscard]] auto lower_inline_ray_query_to_ast(Function kernel, const ShaderOption &option) noexcept {
+    auto xir_module = xir::ast_to_xir_translate(kernel, {});
+    xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
+    if (!option.name.empty()) { xir_module->set_location(option.name); }
+    verify_xir_or_error(xir_module.get(), "AST translation (inline ray query)");
+
+    auto reconstruct_info = xir::reconstruct_ray_query_loop_pass_run_on_module(xir_module.get());
+    if (!reconstruct_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "CUDA AST inline ray-query lowering rejected {} malformed ray-query loop(s).",
+            reconstruct_info.error_count);
+    }
+    verify_xir_or_error(xir_module.get(), "inline ray-query reconstruction");
+
+    xir::PassPipeline cleanup;
+    cleanup.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    cleanup.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    cleanup.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    cleanup.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    cleanup.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
+        return i.promoted_ref_arg_count > 0u;
+    });
+    cleanup.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    cleanup.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
+    });
+    cleanup.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::mem2reg_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    cleanup.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    static_cast<void>(cleanup.run(xir_module.get()));
+    verify_xir_or_error(xir_module.get(), "inline ray-query pre-pipeline cleanup");
+
+    auto rq_lower_info = xir::lower_ray_query_to_pipeline_pass_run_on_module(xir_module.get());
+    if (!rq_lower_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "CUDA AST inline ray-query pipeline lowering failed with {} error(s).",
+            rq_lower_info.error_count);
+    }
+    verify_xir_or_error(xir_module.get(), "inline ray-query pipeline lowering");
+
+    xir::xir_to_ast_normalize_module(xir_module.get());
+    xir::XIR2ASTConfig config{
+        .bound_arguments = kernel.bound_arguments(),
+        .cache_transformed_functions = true};
+    for (auto *function : xir_module->function_list()) {
+        if (function->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
+            return xir::xir_to_ast_translate(
+                *static_cast<xir::FunctionDefinition *>(function), config);
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION("CUDA AST inline ray-query lowering did not produce a kernel definition.");
 }
 
 }  // namespace cuda_device_detail
@@ -1127,6 +1203,17 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         return create_shader(option, lowered->function());
 #else
         LUISA_ERROR_WITH_LOCATION("CUDA AutoDiff requires XIR support.");
+#endif
+    }
+    if (!use_llvm_codegen && !_use_fallback_rtx &&
+        kernel.propagated_builtin_callables().test(CallOp::RAY_QUERY_PROCEED)) {
+#ifdef LUISA_ENABLE_XIR
+        auto lowered = cuda_device_detail::lower_inline_ray_query_to_ast(kernel, option);
+        LUISA_ASSERT(!lowered->function().propagated_builtin_callables().test(CallOp::RAY_QUERY_PROCEED),
+                     "CUDA AST inline ray-query lowering left RAY_QUERY_PROCEED unlowered.");
+        return create_shader(option, lowered->function());
+#else
+        LUISA_ERROR_WITH_LOCATION("CUDA inline ray queries require XIR support.");
 #endif
     }
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)

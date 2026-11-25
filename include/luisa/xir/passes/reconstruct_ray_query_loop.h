@@ -23,15 +23,16 @@ struct ReconstructRayQueryLoopInfo {
 };
 
 // Reconstructs RayQueryLoopInst from either the canonical LoopInst proceed shell
-// produced by lower_ray_query_to_loop or the canonical pre-mem2reg SimpleLoopInst
-// emitted for the native DSL `$while (query.proceed())` form. The frontend form
-// must immediately dispatch the same query with a surface/procedural if/else;
-// break/continue, shared post-dispatch payload, nested PROCEED, escaped guard
-// temporaries, and SSA loop-carried PHIs are rejected rather than guessed.
-// Ordinary loops are ignored. Any loop containing RAY_QUERY_OBJECT_PROCEED but
-// not satisfying a complete supported shape is a malformed near-match and is
-// rejected without mutation. Every candidate in the function/module is
-// preflighted before the first edit.
+// produced by lower_ray_query_to_loop or a pre/post-mem2reg SimpleLoopInst
+// emitted for native DSL `$while (query.proceed())` or manual
+// `$loop { if (!query.proceed()) break; ... }` forms. Any structured or CFG
+// body without nested RayQuery loops, inner PROCEED, returns, or candidate-kind
+// conflicts (e.g., surface ops reachable in a procedural arm or vice versa) is
+// specialized into separate surface and procedural handler regions, turning
+// `$break` into RAY_QUERY_OBJECT_TERMINATE when the query is not proceeded again
+// after the loop. Ordinary loops are ignored. Any loop containing
+// RAY_QUERY_OBJECT_PROCEED that cannot be safely reconstructed is rejected
+// atomically before the first edit.
 [[nodiscard]] LUISA_XIR_API ReconstructRayQueryLoopInfo
 reconstruct_ray_query_loop_pass_run_on_function(
     Function *function) noexcept;

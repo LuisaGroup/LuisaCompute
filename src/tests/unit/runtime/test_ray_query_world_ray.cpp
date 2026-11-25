@@ -275,6 +275,129 @@ void test_inline_ray_query_dsl(Device &device) {
     }
 }
 
+void test_stateful_inline_ray_query_dsl(Device &device) {
+    auto stream = device.create_stream();
+
+    const std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    const std::array bounds{
+        AABB{.packed_min = {-0.5f, -0.5f, -0.1f},
+             .packed_max = {0.5f, 0.5f, 0.1f}}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto bounds_buffer = device.create_buffer<AABB>(bounds.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto procedural = device.create_procedural_primitive(bounds_buffer);
+
+    // 1. Triangle-only `$while (rq.proceed())` without `is_surface_candidate()` split.
+    auto tri_accel = device.create_accel();
+    tri_accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    tri_accel.emplace_back(mesh, translation(make_float3(0.0f, 0.0f, -2.0f)), 0xffu, false);
+
+    constexpr auto dispatch_size = 4u;
+    auto result_buffer = device.create_buffer<uint4>(dispatch_size);
+    Kernel1D tri_only_kernel = [](AccelVar accel, BufferUInt4 results) noexcept {
+        auto index = dispatch_x();
+        auto target = index & 1u;
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 10.0f);
+        auto rq = accel.query(ray, {});
+        UInt visited = 0u;
+        $while (rq.proceed()) {
+            visited += 1u;
+            auto candidate = rq.surface_candidate();
+            $if (candidate.hit()->inst == target) {
+                candidate.commit();
+            };
+        };
+        auto hit = rq.committed_hit();
+        results.write(index, make_uint4(hit->hit_type, hit->inst, hit->prim, visited));
+    };
+
+    // 2. Mixed surface+procedural manual `$loop` with shared pre/post state, stored predicate, `$continue`, and `$break`.
+    auto mixed_accel = device.create_accel();
+    mixed_accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    mixed_accel.emplace_back(procedural, translation(make_float3(0.0f, 0.0f, -2.0f)), 0xffu);
+
+    auto mixed_result_buffer = device.create_buffer<uint4>(dispatch_size);
+    Kernel1D mixed_stateful_kernel = [](AccelVar accel, BufferUInt4 results) noexcept {
+        auto index = dispatch_x();
+        auto commit_surface = (index & 1u) == 0u;
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 10.0f);
+        auto rq = accel.query(ray, {});
+        UInt visited = 0u;
+        UInt post = 0u;
+        $loop {
+            $if (!rq.proceed()) { $break; };
+            visited += 1u;
+            Bool is_surf = rq.is_surface_candidate();
+            $if (!is_surf) {
+                auto proc = rq.procedural_candidate();
+                $if (!commit_surface) {
+                    proc.commit(3.0f);
+                };
+                $continue;
+            };
+            auto surf = rq.surface_candidate();
+            $if (commit_surface) {
+                surf.commit();
+                $break;
+            };
+            post += 1u;
+        };
+        auto hit = rq.committed_hit();
+        results.write(index, make_uint4(hit->hit_type, hit->inst, visited, post));
+    };
+
+    auto tri_shader = device.compile(tri_only_kernel);
+    auto mixed_shader = device.compile(mixed_stateful_kernel);
+    std::array<uint4, dispatch_size> tri_results{};
+    std::array<uint4, dispatch_size> mixed_results{};
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << bounds_buffer.copy_from(luisa::span{bounds})
+           << mesh.build()
+           << procedural.build()
+           << tri_accel.build()
+           << mixed_accel.build()
+           << tri_shader(tri_accel, result_buffer).dispatch(dispatch_size)
+           << mixed_shader(mixed_accel, mixed_result_buffer).dispatch(dispatch_size)
+           << result_buffer.copy_to(luisa::span{tri_results})
+           << mixed_result_buffer.copy_to(luisa::span{mixed_results})
+           << synchronize();
+
+    for (auto i = 0u; i < dispatch_size; i++) {
+        auto target = i & 1u;
+        const auto r = tri_results[i];
+        auto valid_visited = target == 0u ? (r.w >= 1u && r.w <= 2u) : (r.w == 2u);
+        expect(r.x == static_cast<uint32_t>(HitType::Surface) &&
+               r.y == target && r.z == 0u && valid_visited)
+            << luisa::format("triangle-only inline ray-query mismatch at lane {}: ({}, {}, {}, {})",
+                              i, r.x, r.y, r.z, r.w);
+
+        const auto m = mixed_results[i];
+        if ((i & 1u) == 0u) {
+            expect(m.x == static_cast<uint32_t>(HitType::Surface) &&
+                   m.y == 0u && m.z >= 1u && m.z <= 2u && m.w == 0u)
+                << luisa::format("mixed stateful inline ray-query (surface) mismatch at lane {}: ({}, {}, {}, {})",
+                                  i, m.x, m.y, m.z, m.w);
+        } else {
+            expect(m.x == static_cast<uint32_t>(HitType::Procedural) &&
+                   m.y == 1u && m.z == 2u && m.w == 1u)
+                << luisa::format("mixed stateful inline ray-query (procedural) mismatch at lane {}: ({}, {}, {}, {})",
+                                  i, m.x, m.y, m.z, m.w);
+        }
+    }
+}
+
 void test_negative_surface_barycentric_hit_type(Device &device) {
     auto stream = device.create_stream();
 
@@ -656,6 +779,7 @@ int main(int argc, char *argv[]) {
     test_ray_query_world_ray(dc->device);
     test_ray_query_commits_closest_surface(dc->device);
     test_inline_ray_query_dsl(dc->device);
+    test_stateful_inline_ray_query_dsl(dc->device);
     test_negative_surface_barycentric_hit_type(dc->device);
     test_procedural_ray_query_world_ray(dc->device);
 }

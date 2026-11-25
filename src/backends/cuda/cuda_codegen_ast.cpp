@@ -1363,10 +1363,13 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         // not supported
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL: [[fallthrough]];
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD: [[fallthrough]];
-        case CallOp::COOPERATIVE_MUL: [[fallthrough]];
+        case CallOp::COOPERATIVE_MUL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector matrix operations are not implemented in the CUDA AST backend yet.");
         case CallOp::RAY_QUERY_PROCEED: [[fallthrough]];
         case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: [[fallthrough]];
-        case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: [[fallthrough]];
+        case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE:
+            LUISA_NOT_IMPLEMENTED(
+                "Inline ray-query proceed operations require XIR pipeline lowering before CUDA AST codegen.");
         case CallOp::TEXTURE2D_SAMPLE: [[fallthrough]];
         case CallOp::TEXTURE2D_SAMPLE_LEVEL: [[fallthrough]];
         case CallOp::TEXTURE2D_SAMPLE_GRAD: [[fallthrough]];
@@ -1734,7 +1737,9 @@ void CUDACodegenAST::emit(Function f, luisa::string_view device_lib, luisa::stri
             _scratch << "#define LUISA_ENABLE_OPTIX_TRACE_ANY\n";
         }
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL) ||
-            f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY)) {
+            f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY) ||
+            f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) ||
+            f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR)) {
             _scratch << "#define LUISA_ENABLE_OPTIX_RAY_QUERY\n";
             _ray_query_lowering->preprocess(f);
         }
