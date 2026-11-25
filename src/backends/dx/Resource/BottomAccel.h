@@ -80,6 +80,15 @@ public:
     [[nodiscard]] bool HasAccelBuffer() const noexcept { return static_cast<bool>(accelBuffer); }
     [[nodiscard]] DefaultBuffer const *TryGetAccelBuffer() const noexcept { return accelBuffer.get(); }
     static void EmitPostCopyBarrier(CommandBufferBuilder &builder, Buffer const *buffer);
+ // Build-to-read ordering for acceleration structures.
+ //
+ // The enhanced-barrier tracker folds every use of a resource inside one
+ // layer (the commands a command list is split into) into a single barrier
+ // emitted *before* the layer, so a build followed by a ray query in the same
+ // command list never gets its WRITE -> READ transition where it is needed and
+ // DirectX Raytracing then answers every query of that list with a miss.
+ // Builds therefore emit this barrier themselves, immediately after
+ // BuildRaytracingAccelerationStructure.
     void ReplaceFromArchive(
         class CommandAllocator *alloc,
         vstd::unique_ptr<DefaultBuffer> newBuffer,
@@ -109,4 +118,5 @@ public:
         BufferView const &scratchBuffer);
     ~BottomAccel();
 };
+ void EmitBuildToReadBarrier(CommandBufferBuilder &builder, Buffer const *accel);
 }// namespace lc::dx

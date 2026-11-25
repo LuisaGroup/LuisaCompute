@@ -360,6 +360,7 @@ void TopAccel::Build(
                 0,
                 nullptr);
         }
+        EmitBuildToReadBarrier(builder, GetAccelBuffer());
         update = true;
     }
 }

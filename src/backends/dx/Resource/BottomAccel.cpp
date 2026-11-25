@@ -206,6 +206,34 @@ void BottomAccel::EmitPostCopyBarrier(
     auto uavBarrier = CD3DX12_RESOURCE_BARRIER::UAV(buffer->GetResource());
     cmdlist->ResourceBarrier(1, &uavBarrier);
 }
+void EmitBuildToReadBarrier(
+    CommandBufferBuilder &builder,
+    Buffer const *accel) {
+    auto *dev = accel->GetDevice();
+    auto *cmdlist = builder.get_cb()->cmd_list();
+    if (dev->feature_check.enhanced_barriers_supported()) {
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> cmd7;
+        if (SUCCEEDED(cmdlist->QueryInterface(IID_PPV_ARGS(&cmd7)))) {
+            D3D12_BUFFER_BARRIER barrier{
+                .SyncBefore = D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE,
+                .SyncAfter = static_cast<D3D12_BARRIER_SYNC>(D3D12_BARRIER_SYNC_ALL_SHADING | D3D12_BARRIER_SYNC_RAYTRACING),
+                .AccessBefore = D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE,
+                .AccessAfter = D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ,
+                .pResource = accel->GetResource(),
+                .Offset = 0,
+                .Size = UINT64_MAX};
+            D3D12_BARRIER_GROUP group{
+                .Type = D3D12_BARRIER_TYPE_BUFFER,
+                .NumBarriers = 1,
+                .pBufferBarriers = &barrier};
+            cmd7->Barrier(1, &group);
+            return;
+        }
+    }
+    auto uavBarrier = CD3DX12_RESOURCE_BARRIER::UAV(accel->GetResource());
+    cmdlist->ResourceBarrier(1, &uavBarrier);
+}
+
 void BottomAccel::ReplaceFromArchive(
     CommandAllocator *alloc,
     vstd::unique_ptr<DefaultBuffer> newBuffer,
@@ -272,6 +300,7 @@ void BottomAccel::UpdateStates(
             0,
             nullptr);
     }
+    EmitBuildToReadBarrier(builder, accelBuffer.get());
 }
 void BottomAccel::FinalCopy(
     CommandBufferBuilder &builder,
