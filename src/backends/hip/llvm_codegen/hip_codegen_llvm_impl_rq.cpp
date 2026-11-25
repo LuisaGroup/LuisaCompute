@@ -778,6 +778,7 @@ struct NativeClosestHandlerAnalysisContext {
 
 [[nodiscard]] bool native_closest_handler_is_reduction(
     const xir::Function *function,
+    const Type *expected_query_type,
     bool allow_mutable_ray_state) noexcept {
     llvm::DenseSet<const xir::Function *> active_functions;
     auto argument_count = function == nullptr ? 0u :
@@ -785,7 +786,7 @@ struct NativeClosestHandlerAnalysisContext {
     if (function == nullptr || argument_count == 0u) { return false; }
     auto query_argument = function->arguments().front();
     if (!query_argument->is_reference() ||
-        query_argument->type() != Type::of<RayQueryAll>()) {
+        query_argument->type() != expected_query_type) {
         return false;
     }
     luisa::vector<bool> active_query_arguments(argument_count, false);
@@ -806,9 +807,9 @@ struct NativeClosestHandlerAnalysisContext {
     const auto committed_post_state_only =
         ray_query_pipeline_post_state_is_committed_hit_only(pipeline);
     const auto surface_is_reduction = native_closest_handler_is_reduction(
-        pipeline->on_surface_function(), false);
+        pipeline->on_surface_function(), Type::of<RayQueryAll>(), false);
     const auto procedural_is_reduction = native_closest_handler_is_reduction(
-        pipeline->on_procedural_function(), true);
+        pipeline->on_procedural_function(), Type::of<RayQueryAll>(), true);
     const auto observation_masks =
         ray_query_handler_observation_masks(pipeline);
     const auto observes_both_ray_spaces =
@@ -835,6 +836,32 @@ struct NativeClosestHandlerAnalysisContext {
     }
     return committed_post_state_only && surface_is_reduction &&
            procedural_is_reduction && !observes_both_ray_spaces;
+}
+
+[[nodiscard]] bool ray_query_pipeline_admits_pure_terminal_predicate(
+    const xir::RayQueryPipelineInst *pipeline,
+    bool uses_motion_blur) noexcept {
+    if (pipeline == nullptr || uses_motion_blur ||
+        pipeline->query_object() == nullptr ||
+        pipeline->query_object()->type() != Type::of<RayQueryAny>()) {
+        return false;
+    }
+    if (!ray_query_pipeline_post_state_is_hit_kind_only(pipeline)) {
+        return false;
+    }
+    const auto surface_is_reduction = native_closest_handler_is_reduction(
+        pipeline->on_surface_function(), Type::of<RayQueryAny>(), false);
+    const auto procedural_is_reduction = native_closest_handler_is_reduction(
+        pipeline->on_procedural_function(), Type::of<RayQueryAny>(), true);
+    const auto observation_masks =
+        ray_query_handler_observation_masks(pipeline);
+    const auto observes_both_ray_spaces =
+        ray_query_observation_requires_distinct_ray_states(
+            observation_masks.surface) ||
+        ray_query_observation_requires_distinct_ray_states(
+            observation_masks.procedural);
+    return surface_is_reduction && procedural_is_reduction &&
+           !observes_both_ray_spaces;
 }
 
 // Prove the one property needed by effect-only any-hit enumeration: no
@@ -1951,7 +1978,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         // it needs neither the dynamic stack lock nor a resumable per-candidate
         // frontier. This is a semantic lowering selected from the handler
         // proof, not a renderer- or scene-specific policy.
-        const auto use_static_global_hiprt_closest =
+        const auto use_hw_native_closest =
             native_closest_reduction && _uses_hardware_rt_stack;
         const auto use_native_hiprt_closest =
             native_closest_reduction && !_uses_hardware_rt_stack;
@@ -1984,74 +2011,54 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             !_uses_hardware_rt_stack;
         // RayQueryAny's first commit is terminal. When the parent observes
         // only CommittedHit::hit_type, the complete post-state is
-        // {MISS, SURFACE, PROCEDURAL}. HIPRT's native any-hit traversal is the
-        // exact implementation of that transition system: reject continues,
-        // while commit or explicit terminate stops without replaying a
-        // callback. Gfx12 uses a statically indexed global spill stack, matching
-        // the native closest route and Cycles' HIPRT traversal construction.
-        // Gfx12 already has a low-overhead single-frontier implementation for
-        // an isolated terminal query. Native HIPRT AnyHit is profitable when
-        // the same reachable kernel also owns a native closest reduction: the
-        // two callbacks share the HIPRT transaction shape and replacing the
-        // second exact query state contracts the combined live set. Without
-        // that co-resident route, the hardware frontier is both smaller and
-        // faster. Pre-gfx12 has no hardware frontier and always uses native
-        // AnyHit. This is a whole-kernel JIT decision over proven semantics,
-        // independent of scene names, resolution, or launch dimensions.
-        const auto has_synchronous_native_closest_reduction =
-            std::any_of(
-                _native_closest_reduction_pipelines.begin(),
-                _native_closest_reduction_pipelines.end(),
-                [this](auto pipeline) noexcept {
-                    return !_function_uses_resumable_ray_query_state(
-                        pipeline->parent_function());
-                });
-        const auto terminal_native_is_profitable =
-            !_uses_hardware_rt_stack ||
-            has_synchronous_native_closest_reduction;
-        const auto use_static_global_hiprt_terminal =
-            terminal_hit_kind_projection && _uses_hardware_rt_stack &&
-            terminal_native_is_profitable;
+        // {MISS, SURFACE, PROCEDURAL}. On gfx12, pure read-only terminal
+        // predicates execute on flat LuisaHwBvhStack traversal with cold
+        // overflow recovery; side-effecting or explicitly terminating queries
+        // keep the exact single-frontier LuisaPipelineHwBvhStack route (16 KB
+        // LDS, zero replay). Pre-gfx12 has no hardware frontier and always uses
+        // HIPRT's native AnyHit traversal when a co-resident closest reduction
+        // exists or isolated terminal queries execute.
+        const auto pure_terminal_predicate =
+            ray_query_pipeline_admits_pure_terminal_predicate(
+                inst, _rt_analysis.uses_motion_blur);
+        const auto use_hw_native_terminal =
+            pure_terminal_predicate && _uses_hardware_rt_stack;
         const auto use_native_hiprt_terminal =
-            terminal_hit_kind_projection && !_uses_hardware_rt_stack &&
-            terminal_native_is_profitable;
+            terminal_hit_kind_projection && !_uses_hardware_rt_stack;
         LUISA_VERBOSE(
             "HIP native callback route: closest-reduction = {}, "
-            "effect-only = {}, terminal-predicate = {}, opacity-stable = {}, "
-            "hardware-stack = {}, "
-            "motion-blur = {}, closest-dynamic = {}, closest-static = {}, "
+            "effect-only = {}, terminal-predicate = {}, pure-terminal = {}, "
+            "opacity-stable = {}, hardware-stack = {}, "
+            "motion-blur = {}, closest-dynamic = {}, closest-hw = {}, "
             "effect-dynamic = {}, effect-static = {}, "
-            "predicate-profitable = {}, predicate-dynamic = {}, "
-            "predicate-static = {}.",
+            "predicate-dynamic = {}, predicate-hw = {}.",
             native_closest_reduction,
             native_effect_only_enumeration,
             terminal_hit_kind_projection,
+            pure_terminal_predicate,
             !_rt_analysis.writes_instance_opacity,
             _uses_hardware_rt_stack, _rt_analysis.uses_motion_blur,
             use_native_hiprt_closest,
-            use_static_global_hiprt_closest,
+            use_hw_native_closest,
             use_native_hiprt_effect,
             use_static_global_hiprt_effect,
-            terminal_native_is_profitable,
             use_native_hiprt_terminal,
-            use_static_global_hiprt_terminal);
+            use_hw_native_terminal);
         _uses_native_closest_ray_query_pipeline |=
             use_native_hiprt_closest ||
-            use_static_global_hiprt_closest;
+            use_hw_native_closest;
         _uses_native_effect_only_ray_query_pipeline |=
             use_native_hiprt_effect ||
             use_static_global_hiprt_effect;
         _uses_static_global_rt_stack |=
-            use_static_global_hiprt_closest ||
-            use_static_global_hiprt_effect ||
-            use_static_global_hiprt_terminal;
+            use_static_global_hiprt_effect;
         _uses_iterative_synchronous_ray_query_pipeline |=
             !(use_native_hiprt_closest ||
-              use_static_global_hiprt_closest ||
+              use_hw_native_closest ||
               use_native_hiprt_effect ||
               use_static_global_hiprt_effect ||
               use_native_hiprt_terminal ||
-              use_static_global_hiprt_terminal);
+              use_hw_native_terminal);
         // Materialize the exact callback environment once. The native HIPRT
         // filter/intersection callbacks receive only an opaque context pointer;
         // this typed struct restores the ordinary Callable ABI without an
@@ -2477,10 +2484,10 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
              b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(),
              b.getPtrTy(0)},
             false);
-        auto llvm_trace_name = use_static_global_hiprt_closest ?
+        auto llvm_trace_name = use_hw_native_closest ?
                                    (_rt_analysis.writes_instance_opacity ?
-                                        "luisa_pipeline_ray_query_trace_all_native_closest_global_stack" :
-                                        "luisa_pipeline_ray_query_trace_all_native_closest_global_stack_stable_opacity") :
+                                        "luisa_pipeline_ray_query_trace_all_native_closest_hw" :
+                                        "luisa_pipeline_ray_query_trace_all_native_closest_hw_stable_opacity") :
                                use_native_hiprt_closest ?
                                    (_rt_analysis.writes_instance_opacity ?
                                         "luisa_pipeline_ray_query_trace_all_native_closest" :
@@ -2489,8 +2496,10 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                                    "luisa_pipeline_ray_query_trace_all_native_effect_global_stack" :
                                use_native_hiprt_effect ?
                                    "luisa_pipeline_ray_query_trace_all_native_effect" :
-                               use_static_global_hiprt_terminal ?
-                                   "luisa_pipeline_ray_query_trace_any_native_terminal_global_stack" :
+                               use_hw_native_terminal ?
+                                   (_rt_analysis.writes_instance_opacity ?
+                                        "luisa_pipeline_ray_query_trace_any_native_terminal_hw" :
+                                        "luisa_pipeline_ray_query_trace_any_native_terminal_hw_stable_opacity") :
                                use_native_hiprt_terminal ?
                                    "luisa_pipeline_ray_query_trace_any_native_terminal" :
                                    (query_object->type() == Type::of<RayQueryAny>() ?

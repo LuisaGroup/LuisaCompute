@@ -525,6 +525,27 @@ luisa_intersect_surface(const LuisaAccelInstance *instances,
     return false;
 }
 
+// Keep curve/motion-triangle intersection cold outside flat hardware BVH loops
+// so triangle-only workloads do not pay register pressure for custom leaves.
+// Pass/return by value so `ray` and `hit` never escape by pointer into the
+// cold callee, letting LLVM SROA `ray` into registers across the BVH loop.
+struct LuisaColdSurfaceHit {
+    hiprtHit hit;
+    bool intersected;
+};
+
+static __device__ __attribute__((noinline)) LuisaColdSurfaceHit
+luisa_intersect_surface_cold(const LuisaAccelInstance *instances,
+                             hiprtRay ray, float time,
+                             uint32_t instance_id, uint32_t prim_id) {
+    hiprtHit candidate;
+    candidate.instanceID = instance_id;
+    candidate.primID = prim_id;
+    const auto matched =
+        luisa_intersect_surface(instances, ray, time, candidate);
+    return LuisaColdSurfaceHit{candidate, matched};
+}
+
 struct LuisaTracePayload {
     const LuisaAccelInstance *instances;
     float time;
@@ -1989,7 +2010,7 @@ luisa_pipeline_ray_query_trace_hw(
     uint32_t observation_mask);
 #endif
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_initialize(
     void *state_ptr,
     uint64_t scene_handle,
@@ -2484,7 +2505,7 @@ luisa_pipeline_ray_query_trace_impl(
     state->terminated = true;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_trace_all(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t observation_mask,
@@ -2494,7 +2515,7 @@ luisa_pipeline_ray_query_trace_all(
         stack_size, stack_count, stack_data);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_trace_any(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t observation_mask,
@@ -2504,7 +2525,7 @@ luisa_pipeline_ray_query_trace_any(
         stack_size, stack_count, stack_data);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_trace_all_stable_opacity(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t observation_mask,
@@ -2514,7 +2535,7 @@ luisa_pipeline_ray_query_trace_all_stable_opacity(
         stack_size, stack_count, stack_data);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_trace_any_stable_opacity(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t observation_mask,
@@ -2527,167 +2548,167 @@ luisa_pipeline_ray_query_trace_any_stable_opacity(
 #define LUISA_PIPELINE_RQ_STATE(state_ptr) \
     reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr)
 
-extern "C" __device__ __attribute__((used, noinline)) uint8_t
+extern "C" __device__ __attribute__((used)) uint8_t
 luisa_pipeline_ray_query_state(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->state;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) bool
+extern "C" __device__ __attribute__((used)) bool
 luisa_pipeline_ray_query_is_surface_candidate(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->state ==
            LUISA_PIPELINE_RQ_STATE_SURFACE;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) bool
+extern "C" __device__ __attribute__((used)) bool
 luisa_pipeline_ray_query_is_procedural_candidate(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->state ==
            LUISA_PIPELINE_RQ_STATE_PROCEDURAL;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) bool
+extern "C" __device__ __attribute__((used)) bool
 luisa_pipeline_ray_query_is_terminated(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->terminated;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) int32_t
+extern "C" __device__ __attribute__((used)) int32_t
 luisa_pipeline_ray_query_candidate_inst_id(void *state_ptr) {
     return static_cast<int32_t>(
         LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.instance_id);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) int32_t
+extern "C" __device__ __attribute__((used)) int32_t
 luisa_pipeline_ray_query_candidate_prim_id(void *state_ptr) {
     return static_cast<int32_t>(
         LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.primitive_id);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_candidate_bary_u(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.u;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_candidate_bary_v(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.v;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_candidate_hit_t(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.t;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) int32_t
+extern "C" __device__ __attribute__((used)) int32_t
 luisa_pipeline_ray_query_committed_inst_id(void *state_ptr) {
     return static_cast<int32_t>(
         LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.instance_id);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) int32_t
+extern "C" __device__ __attribute__((used)) int32_t
 luisa_pipeline_ray_query_committed_prim_id(void *state_ptr) {
     return static_cast<int32_t>(
         LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.primitive_id);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_committed_bary_u(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.u;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_committed_bary_v(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.v;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) int32_t
+extern "C" __device__ __attribute__((used)) int32_t
 luisa_pipeline_ray_query_committed_hit_kind(void *state_ptr) {
     return static_cast<int32_t>(
         LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_kind);
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_committed_hit_t(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.t;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_origin_x(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.x;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_origin_y(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.y;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_origin_z(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.z;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_tmin(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.minT;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_direction_x(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.x;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_direction_y(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.y;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_direction_z(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.z;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_ray_tmax(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.maxT;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_origin_x(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.x;
 }
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_origin_y(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.y;
 }
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_origin_z(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.z;
 }
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_tmin(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.minT;
 }
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_direction_x(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.x;
 }
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_direction_y(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.y;
 }
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_direction_z(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.z;
 }
-extern "C" __device__ __attribute__((used, noinline)) float
+extern "C" __device__ __attribute__((used)) float
 luisa_pipeline_ray_query_object_ray_tmax(void *state_ptr) {
     return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.maxT;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_commit_surface_hit(void *state_ptr) {
     luisa_pipeline_commit_surface(LUISA_PIPELINE_RQ_STATE(state_ptr));
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_commit_procedural_hit(
     void *state_ptr, float distance) {
     auto state = LUISA_PIPELINE_RQ_STATE(state_ptr);
@@ -2699,7 +2720,7 @@ luisa_pipeline_ray_query_commit_procedural_hit(
     if ((state->flags & 1u) != 0u) { state->terminated = true; }
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
+extern "C" __device__ __attribute__((used)) void
 luisa_pipeline_ray_query_terminate(void *state_ptr) {
     LUISA_PIPELINE_RQ_STATE(state_ptr)->terminated = true;
 }
@@ -2934,28 +2955,32 @@ static __device__ __forceinline__ uint4 luisa_hiprt_pack_descriptor(uint32_t box
 // path by bypassing this guaranteed one-child scene: the outer static transform
 // has already been applied by the caller, and this helper applies the nested
 // child's exact transform at the static API's implicit time zero.
-static __device__ __attribute__((noinline)) hiprt::GeomHeader *
+struct LuisaStaticMotionGeometryResult {
+    hiprt::GeomHeader *geometry;
+    hiprtRay ray;
+};
+
+static __device__ __attribute__((noinline)) LuisaStaticMotionGeometryResult
 luisa_hiprt_resolve_static_motion_geometry(
-    const hiprt::InstanceNode &instance, hiprtRay &ray) {
+    const hiprt::InstanceNode &instance, hiprtRay ray) {
     auto nested_scene = instance.m_scene;
     if (nested_scene == nullptr || nested_scene->m_primCount != 1u ||
         nested_scene->m_instances == nullptr || nested_scene->m_frames == nullptr) {
-        return nullptr;
+        return {nullptr, ray};
     }
     const auto &child = nested_scene->m_instances[0];
     if (child.m_type != hiprtInstanceTypeGeometry ||
         child.m_geometry == nullptr || child.m_frameCount == 0u ||
         child.m_frameIndex > nested_scene->m_frameCount ||
         child.m_frameCount > nested_scene->m_frameCount - child.m_frameIndex) {
-        return nullptr;
+        return {nullptr, ray};
     }
     hiprt::Transform transform{
         nested_scene->m_frames,
         child.m_frameIndex,
         child.m_frameCount,
         nested_scene->m_frameStorageType};
-    ray = transform.transformRay(ray, 0.0f);
-    return child.m_geometry;
+    return {child.m_geometry, transform.transformRay(ray, 0.0f)};
 }
 
 static __device__ __forceinline__ void
@@ -3451,11 +3476,14 @@ luisa_pipeline_ray_query_trace_hw(
                         transformed_direction.x,
                         transformed_direction.y,
                         transformed_direction.z};
-                    auto geometry =
-                        instance.m_type == hiprtInstanceTypeScene ?
+                    auto geometry = instance.m_geometry;
+                    if (instance.m_type == hiprtInstanceTypeScene) {
+                        const auto resolved =
                             luisa_hiprt_resolve_static_motion_geometry(
-                                instance, transformed_ray) :
-                            instance.m_geometry;
+                                instance, transformed_ray);
+                        geometry = resolved.geometry;
+                        transformed_ray = resolved.ray;
+                    }
                     if (geometry != nullptr) {
                         for (auto i = 0u; i < 6u; i++) {
                             instance_children[i] = transform_result[i];
@@ -3509,13 +3537,12 @@ luisa_pipeline_ray_query_trace_hw(
             auto terminated = false;
             auto candidate_result = 0u;
             if (is_surface) {
-                hiprtHit surface_hit;
-                surface_hit.instanceID = candidate_instance_id;
-                surface_hit.primID = primitive_id;
-                if (luisa_intersect_surface(
-                        instances, ray, time, surface_hit) &&
-                    ray.minT <= surface_hit.t &&
-                    surface_hit.t <= ray.maxT) {
+                const auto cold_hit = luisa_intersect_surface_cold(
+                    instances, ray, time, candidate_instance_id, primitive_id);
+                if (cold_hit.intersected &&
+                    ray.minT <= cold_hit.hit.t &&
+                    cold_hit.hit.t <= ray.maxT) {
+                    const auto &surface_hit = cold_hit.hit;
                     if constexpr (effect_only) {
                         terminated =
                             luisa_pipeline_native_effect_candidate<false>(
@@ -3772,6 +3799,793 @@ luisa_pipeline_ray_query_trace_all_hardware_effect(
         handler_observation_masks);
 }
 
+static __device__ __forceinline__ void
+luisa_pipeline_validate_observation_masks(uint32_t handler_observation_masks) {
+    const auto surface_observation_mask =
+        luisa_pipeline_surface_observation_mask(handler_observation_masks);
+    const auto procedural_observation_mask =
+        luisa_pipeline_procedural_observation_mask(handler_observation_masks);
+    const auto known_encoded_bits =
+        LUISA_PIPELINE_HANDLER_OBSERVATION_MASK |
+        (LUISA_PIPELINE_HANDLER_OBSERVATION_MASK <<
+         LUISA_PIPELINE_PROCEDURAL_OBSERVATION_SHIFT);
+    if ((handler_observation_masks & ~known_encoded_bits) != 0u ||
+        luisa_pipeline_observation_requires_distinct_rays(
+            surface_observation_mask) ||
+        luisa_pipeline_observation_requires_distinct_rays(
+            procedural_observation_mask)) {
+        __builtin_trap();
+    }
+}
+
+struct LuisaPipelineOverflowResult {
+    LuisaPipelineRayQueryHit committed_hit;
+    float max_t;
+    uint8_t committed_kind;
+    bool candidate_committed;
+};
+
+static __device__ __attribute__((noinline)) LuisaPipelineOverflowResult
+luisa_pipeline_hw_native_closest_overflow_fallback(
+    uint64_t scene_handle,
+    const LuisaAccelInstance *instances,
+    hiprtRay ray,
+    uint32_t mask,
+    uint32_t flags,
+    float time,
+    uint32_t query_state_address,
+    void *callback_context,
+    uint32_t pipeline_id,
+    uint32_t handler_observation_masks) {
+    LuisaPipelineRayQueryState fallback_state{
+        scene_handle,
+        instances,
+        ray,
+        LuisaPipelineRayQueryHit{~0u, ~0u, 0.0f, 0.0f, ray.maxT},
+        LuisaPipelineRayQueryHit{~0u, ~0u, 0.0f, 0.0f, ray.maxT},
+        query_state_address,
+        mask,
+        flags,
+        time,
+        LUISA_PIPELINE_RQ_STATE_TERMINATED,
+        LUISA_PIPELINE_HIT_MISS,
+        false,
+        false};
+    LuisaPipelineNativeCallbackPayload payload{
+        &fallback_state, callback_context, pipeline_id,
+        handler_observation_masks};
+    hiprtFuncTableHeader function_table{
+        1u, LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE + 1u,
+        luisa_pipeline_native_closest_func_data_sets};
+    LuisaCompleteTraversalStack stack;
+    hiprtEmptyInstanceStack instance_stack;
+    auto scene = reinterpret_cast<hiprtScene>(scene_handle);
+    hiprtSceneTraversalClosestCustomStack<
+        LuisaCompleteTraversalStack, hiprtEmptyInstanceStack>
+        traversal{
+            scene, fallback_state.ray, stack, instance_stack,
+            static_cast<hiprtRayMask>(mask),
+            hiprtTraversalHintReflectionRays,
+            &payload, reinterpret_cast<hiprtFuncTable>(&function_table),
+            LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE, time};
+    auto hit = traversal.getNextHit();
+    LuisaPipelineOverflowResult result{
+        fallback_state.committed_hit, ray.maxT, LUISA_PIPELINE_HIT_MISS, false};
+    if (hit.hasHit()) {
+        luisa_pipeline_store_hit(result.committed_hit, hit);
+        result.committed_kind =
+            luisa_is_procedural_sentinel(hit.normal) ?
+                LUISA_PIPELINE_HIT_PROCEDURAL :
+                LUISA_PIPELINE_HIT_SURFACE;
+        result.max_t = hit.t;
+    }
+    return result;
+}
+
+static __device__ __attribute__((noinline)) LuisaPipelineOverflowResult
+luisa_pipeline_hw_native_terminal_overflow_fallback(
+    uint64_t scene_handle,
+    const LuisaAccelInstance *instances,
+    hiprtRay ray,
+    uint32_t mask,
+    uint32_t flags,
+    float time,
+    uint32_t query_state_address,
+    void *callback_context,
+    uint32_t pipeline_id,
+    uint32_t handler_observation_masks) {
+    LuisaPipelineRayQueryState fallback_state{
+        scene_handle,
+        instances,
+        ray,
+        LuisaPipelineRayQueryHit{~0u, ~0u, 0.0f, 0.0f, ray.maxT},
+        LuisaPipelineRayQueryHit{~0u, ~0u, 0.0f, 0.0f, ray.maxT},
+        query_state_address,
+        mask,
+        flags,
+        time,
+        LUISA_PIPELINE_RQ_STATE_TERMINATED,
+        LUISA_PIPELINE_HIT_MISS,
+        false,
+        false};
+    LuisaPipelineNativeCallbackPayload payload{
+        &fallback_state, callback_context, pipeline_id,
+        handler_observation_masks};
+    hiprtFuncTableHeader function_table{
+        1u, LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE + 1u,
+        luisa_pipeline_native_terminal_func_data_sets};
+    LuisaCompleteTraversalStack stack;
+    hiprtEmptyInstanceStack instance_stack;
+    auto scene = reinterpret_cast<hiprtScene>(scene_handle);
+    hiprtSceneTraversalAnyHitCustomStack<
+        LuisaCompleteTraversalStack, hiprtEmptyInstanceStack>
+        traversal{
+            scene, fallback_state.ray, stack, instance_stack,
+            static_cast<hiprtRayMask>(mask),
+            hiprtTraversalHintShadowRays,
+            &payload, reinterpret_cast<hiprtFuncTable>(&function_table),
+            LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE, time};
+    static_cast<void>(traversal.getNextHit());
+    return LuisaPipelineOverflowResult{
+        fallback_state.committed_hit,
+        fallback_state.ray.maxT,
+        fallback_state.committed_kind,
+        fallback_state.candidate_committed};
+}
+
+template<bool opacity_may_change>
+static __device__ void
+luisa_pipeline_hw_trace_native_closest(
+    LuisaPipelineRayQueryState *state,
+    void *callback_context,
+    uint32_t pipeline_id,
+    uint32_t handler_observation_masks) {
+    using namespace hiprt;
+
+    luisa_pipeline_validate_observation_masks(handler_observation_masks);
+    const auto surface_observation_mask =
+        luisa_pipeline_surface_observation_mask(handler_observation_masks);
+    const auto procedural_observation_mask =
+        luisa_pipeline_procedural_observation_mask(handler_observation_masks);
+
+    const uint4 descriptor = luisa_hiprt_pack_descriptor(
+        static_cast<uint32_t>(hiprtTraversalHintReflectionRays) & 0x3u);
+
+    const auto instances = state->instances;
+    const auto mask = state->mask;
+    const auto time = state->time;
+    auto world_ray = state->ray;
+    const auto initial_max_t = world_ray.maxT;
+    auto committed_hit = state->committed_hit;
+    auto committed_kind = static_cast<uint8_t>(LUISA_PIPELINE_HIT_MISS);
+
+    auto *sceneHeader = reinterpret_cast<SceneHeader *>(state->scene_handle);
+    BoxNode *tlasBoxNodes = sceneHeader->m_boxNodes;
+    InstanceNode *instanceNodes = sceneHeader->m_primNodes;
+
+    BoxNode *boxNodes = tlasBoxNodes;
+    void *primNodes = nullptr;
+    uint32_t instanceId = InvalidValue;
+
+    hiprtRay ray = world_ray;
+
+    LuisaHwBvhStack stack(luisa_hiprt_shared_stack_cache);
+
+    uint32_t nodeIndex = RootIndex;
+
+    while (nodeIndex != InvalidValue) {
+        const uint32_t nodeType = getNodeType(nodeIndex);
+
+        if (nodeType == BoxType) {
+            hip_float3 dummy0, dummy1;
+            auto childResults = __builtin_amdgcn_image_bvh8_intersect_ray(
+                encodeBaseAddr(boxNodes),
+                ray.maxT,
+                0xff,
+                {ray.origin.x, ray.origin.y, ray.origin.z},
+                {ray.direction.x, ray.direction.y, ray.direction.z},
+                nodeIndex,
+                {descriptor.x, descriptor.y, descriptor.z, descriptor.w},
+                &dummy0,
+                &dummy1);
+
+            uint32_t children[8] = {
+                childResults[0], childResults[1], childResults[2], childResults[3],
+                childResults[4], childResults[5], childResults[6], childResults[7]};
+            nodeIndex = stack.pushChildrenAndPopClosest(InvalidValue, children);
+            goto try_exit_instance;
+        }
+
+        if (nodeType == InstanceType) {
+            const uint32_t instanceAddr = getNodeAddr(nodeIndex);
+            const InstanceNode &inst = instanceNodes[instanceAddr];
+
+            if ((inst.m_mask & mask) != 0u) {
+                hip_float3 origin, direction;
+                auto xformResult = __builtin_amdgcn_image_bvh8_intersect_ray(
+                    encodeBaseAddr(instanceNodes),
+                    ray.maxT,
+                    0xff,
+                    {ray.origin.x, ray.origin.y, ray.origin.z},
+                    {ray.direction.x, ray.direction.y, ray.direction.z},
+                    nodeIndex,
+                    {descriptor.x, descriptor.y, descriptor.z, descriptor.w},
+                    &origin,
+                    &direction);
+
+                if (xformResult[7] != InvalidValue) {
+                    ray.origin = {origin.x, origin.y, origin.z};
+                    ray.direction = {direction.x, direction.y, direction.z};
+
+                    instanceId = inst.m_primIndex;
+                    if constexpr (!opacity_may_change) {
+                        instanceId |=
+                            inst.m_mask & LUISA_INSTANCE_PACKED_OPAQUE_BIT;
+                    }
+
+                    GeomHeader *geom = inst.m_geometry;
+                    if (inst.m_type == hiprtInstanceTypeScene) {
+                        const auto resolved =
+                            luisa_hiprt_resolve_static_motion_geometry(
+                                inst, ray);
+                        geom = resolved.geometry;
+                        ray = resolved.ray;
+                    }
+                    if (geom == nullptr) {
+                        nodeIndex = stack.pop();
+                        goto try_exit_instance;
+                    }
+                    boxNodes = geom->m_boxNodes;
+                    primNodes = geom->m_primNodes;
+
+                    stack.enterInstance();
+                    nodeIndex = RootIndex;
+                    continue;
+                }
+            }
+
+            nodeIndex = stack.pop();
+            goto try_exit_instance;
+        }
+
+        // --- Custom surface/procedural leaf ---
+        if (nodeType == CustomType && instanceId != InvalidValue) {
+            const auto raw_inst_id =
+                luisa_pipeline_decode_instance_id<opacity_may_change>(instanceId);
+            auto customNodes = reinterpret_cast<CustomNode *>(primNodes);
+            const auto primitive_id =
+                customNodes[getNodeAddr(nodeIndex)].m_primIndex;
+            auto is_surface = false;
+            if (instances != nullptr) {
+                const auto &instance = instances[raw_inst_id];
+                is_surface = instance.geometry_data != 0u &&
+                             (instance.geometry_kind ==
+                                  LUISA_GEOMETRY_KIND_CURVE ||
+                              instance.geometry_kind ==
+                                  LUISA_GEOMETRY_KIND_MOTION_TRIANGLE);
+            }
+            if (is_surface) {
+                const auto cold_hit = luisa_intersect_surface_cold(
+                    instances, ray, time, raw_inst_id, primitive_id);
+                if (cold_hit.intersected &&
+                    ray.minT <= cold_hit.hit.t &&
+                    cold_hit.hit.t <= ray.maxT) {
+                    const auto candidate_result =
+                        luisa_pipeline_process_surface_candidate<
+                            false, opacity_may_change>(
+                            state, committed_hit, committed_kind,
+                            world_ray.maxT, ray, instances,
+                            callback_context, pipeline_id,
+                            surface_observation_mask,
+                            instanceId, primitive_id,
+                            cold_hit.hit.uv.x, cold_hit.hit.uv.y,
+                            cold_hit.hit.t);
+                    if ((candidate_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                        __builtin_trap();
+                    }
+                    if ((candidate_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                        ray.maxT = world_ray.maxT;
+                    }
+                }
+            } else {
+                const auto candidate_result =
+                    luisa_pipeline_process_procedural_candidate<false>(
+                        state, committed_hit, committed_kind,
+                        world_ray.maxT, ray,
+                        callback_context, pipeline_id,
+                        procedural_observation_mask,
+                        raw_inst_id, primitive_id);
+                if ((candidate_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                    __builtin_trap();
+                }
+                if ((candidate_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                    ray.maxT = world_ray.maxT;
+                }
+            }
+            nodeIndex = stack.pop();
+            goto try_exit_instance;
+        }
+
+        // --- Triangle leaf ---
+        if (instanceId != InvalidValue) {
+            auto triangleNodes =
+                reinterpret_cast<TrianglePacketNode *>(primNodes);
+            uint32_t leafAddr = getNodeAddr(nodeIndex);
+            uint32_t triPairIndex = typeToTriPairIndex(nodeType);
+
+            while (true) {
+                hip_float3 dummy0, dummy1;
+                auto triResult = __builtin_amdgcn_image_bvh8_intersect_ray(
+                    encodeBaseAddr(triangleNodes),
+                    ray.maxT,
+                    0xff,
+                    {ray.origin.x, ray.origin.y, ray.origin.z},
+                    {ray.direction.x, ray.direction.y, ray.direction.z},
+                    encodeNodeIndex(leafAddr, triPairIndexToType(triPairIndex)),
+                    {descriptor.x, descriptor.y, descriptor.z, descriptor.w},
+                    &dummy0,
+                    &dummy1);
+
+                const auto t0 = __int_as_float(triResult[0]);
+                const auto t1 = __int_as_float(triResult[4]);
+                const auto hit0 = ray.minT <= t0 && t0 <= ray.maxT;
+                const auto hit1 = ray.minT <= t1 && t1 <= ray.maxT;
+                if (hit0 || hit1) {
+                    const auto first_is_0 = hit0 && (!hit1 || t0 <= t1);
+                    const auto first_prim =
+                        (first_is_0 ? triResult[3] : triResult[7]) >> 1u;
+                    const auto first_u = __int_as_float(
+                        first_is_0 ? triResult[1] : triResult[5]);
+                    const auto first_v = __int_as_float(
+                        first_is_0 ? triResult[2] : triResult[6]);
+                    const auto first_t = first_is_0 ? t0 : t1;
+                    const auto first_result =
+                        luisa_pipeline_process_surface_candidate<
+                            false, opacity_may_change>(
+                            state, committed_hit, committed_kind,
+                            world_ray.maxT, ray, instances,
+                            callback_context, pipeline_id,
+                            surface_observation_mask,
+                            instanceId, first_prim,
+                            first_u, first_v, first_t);
+                    if ((first_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                        __builtin_trap();
+                    }
+                    const auto first_committed =
+                        (first_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u;
+                    if (first_committed) {
+                        ray.maxT = world_ray.maxT;
+                    }
+                    if (hit0 && hit1) {
+                        const auto second_is_0 = !first_is_0;
+                        const auto second_t = second_is_0 ? t0 : t1;
+                        const auto second_in_range =
+                            ray.minT <= second_t &&
+                            (first_committed ? second_t < ray.maxT :
+                                               second_t <= ray.maxT);
+                        if (second_in_range) {
+                            const auto second_prim =
+                                (second_is_0 ? triResult[3] : triResult[7]) >> 1u;
+                            const auto second_u = __int_as_float(
+                                second_is_0 ? triResult[1] : triResult[5]);
+                            const auto second_v = __int_as_float(
+                                second_is_0 ? triResult[2] : triResult[6]);
+                            const auto second_result =
+                                luisa_pipeline_process_surface_candidate<
+                                    false, opacity_may_change>(
+                                    state, committed_hit, committed_kind,
+                                    world_ray.maxT, ray, instances,
+                                    callback_context, pipeline_id,
+                                    surface_observation_mask,
+                                    instanceId, second_prim,
+                                    second_u, second_v, second_t);
+                            if ((second_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                                __builtin_trap();
+                            }
+                            if ((second_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                                ray.maxT = world_ray.maxT;
+                            }
+                        }
+                    }
+                }
+
+                const uint32_t status = triResult[8] & 3u;
+                if (status == 3u) break;
+                triPairIndex++;
+                if (status == 1u) {
+                    triPairIndex = 0u;
+                    leafAddr++;
+                }
+            }
+        }
+
+        nodeIndex = stack.pop();
+
+    try_exit_instance:
+        if (nodeIndex == InvalidValue && stack.insideInstance()) {
+            stack.exitInstance();
+            instanceId = InvalidValue;
+            boxNodes = tlasBoxNodes;
+            ray.origin = world_ray.origin;
+            ray.direction = world_ray.direction;
+            nodeIndex = stack.pop();
+        }
+    }
+
+    if (__builtin_expect(stack.overflowed(), 0)) {
+        world_ray.maxT = initial_max_t;
+        const auto fallback_result =
+            luisa_pipeline_hw_native_closest_overflow_fallback(
+                state->scene_handle, instances, world_ray, mask,
+                state->flags, time, state->query_state_address,
+                callback_context, pipeline_id, handler_observation_masks);
+        luisa_pipeline_finish_trace(
+            state, fallback_result.committed_hit,
+            fallback_result.committed_kind, fallback_result.max_t);
+        return;
+    }
+    luisa_pipeline_finish_trace(
+        state, committed_hit, committed_kind, world_ray.maxT);
+}
+
+template<bool opacity_may_change>
+static __device__ void
+luisa_pipeline_hw_trace_native_terminal_pure(
+    LuisaPipelineRayQueryState *state,
+    void *callback_context,
+    uint32_t pipeline_id,
+    uint32_t handler_observation_masks) {
+    using namespace hiprt;
+
+    luisa_pipeline_validate_observation_masks(handler_observation_masks);
+    const auto surface_observation_mask =
+        luisa_pipeline_surface_observation_mask(handler_observation_masks);
+    const auto procedural_observation_mask =
+        luisa_pipeline_procedural_observation_mask(handler_observation_masks);
+
+    const uint4 descriptor = luisa_hiprt_pack_descriptor(
+        static_cast<uint32_t>(hiprtTraversalHintShadowRays) & 0x3u);
+
+    const auto instances = state->instances;
+    const auto mask = state->mask;
+    const auto time = state->time;
+    auto world_ray = state->ray;
+    const auto initial_max_t = world_ray.maxT;
+    auto committed_hit = state->committed_hit;
+    auto committed_kind = static_cast<uint8_t>(LUISA_PIPELINE_HIT_MISS);
+
+    auto *sceneHeader = reinterpret_cast<SceneHeader *>(state->scene_handle);
+    BoxNode *tlasBoxNodes = sceneHeader->m_boxNodes;
+    InstanceNode *instanceNodes = sceneHeader->m_primNodes;
+
+    BoxNode *boxNodes = tlasBoxNodes;
+    void *primNodes = nullptr;
+    uint32_t instanceId = InvalidValue;
+
+    hiprtRay ray = world_ray;
+
+    LuisaHwBvhStack stack(luisa_hiprt_shared_stack_cache);
+
+    uint32_t nodeIndex = RootIndex;
+
+    while (nodeIndex != InvalidValue) {
+        const uint32_t nodeType = getNodeType(nodeIndex);
+
+        if (nodeType == BoxType) {
+            hip_float3 dummy0, dummy1;
+            auto childResults = __builtin_amdgcn_image_bvh8_intersect_ray(
+                encodeBaseAddr(boxNodes),
+                ray.maxT,
+                0xff,
+                {ray.origin.x, ray.origin.y, ray.origin.z},
+                {ray.direction.x, ray.direction.y, ray.direction.z},
+                nodeIndex,
+                {descriptor.x, descriptor.y, descriptor.z, descriptor.w},
+                &dummy0,
+                &dummy1);
+
+            uint32_t children[8] = {
+                childResults[0], childResults[1], childResults[2], childResults[3],
+                childResults[4], childResults[5], childResults[6], childResults[7]};
+            nodeIndex = stack.pushChildrenAndPopClosest(InvalidValue, children);
+            goto try_exit_instance_any;
+        }
+
+        if (nodeType == InstanceType) {
+            const uint32_t instanceAddr = getNodeAddr(nodeIndex);
+            const InstanceNode &inst = instanceNodes[instanceAddr];
+
+            if ((inst.m_mask & mask) != 0u) {
+                hip_float3 origin, direction;
+                auto xformResult = __builtin_amdgcn_image_bvh8_intersect_ray(
+                    encodeBaseAddr(instanceNodes),
+                    ray.maxT,
+                    0xff,
+                    {ray.origin.x, ray.origin.y, ray.origin.z},
+                    {ray.direction.x, ray.direction.y, ray.direction.z},
+                    nodeIndex,
+                    {descriptor.x, descriptor.y, descriptor.z, descriptor.w},
+                    &origin,
+                    &direction);
+
+                if (xformResult[7] != InvalidValue) {
+                    ray.origin = {origin.x, origin.y, origin.z};
+                    ray.direction = {direction.x, direction.y, direction.z};
+
+                    instanceId = inst.m_primIndex;
+                    if constexpr (!opacity_may_change) {
+                        instanceId |=
+                            inst.m_mask & LUISA_INSTANCE_PACKED_OPAQUE_BIT;
+                    }
+
+                    GeomHeader *geom = inst.m_geometry;
+                    if (inst.m_type == hiprtInstanceTypeScene) {
+                        const auto resolved =
+                            luisa_hiprt_resolve_static_motion_geometry(
+                                inst, ray);
+                        geom = resolved.geometry;
+                        ray = resolved.ray;
+                    }
+                    if (geom == nullptr) {
+                        nodeIndex = stack.pop();
+                        goto try_exit_instance_any;
+                    }
+                    boxNodes = geom->m_boxNodes;
+                    primNodes = geom->m_primNodes;
+
+                    stack.enterInstance();
+                    nodeIndex = RootIndex;
+                    continue;
+                }
+            }
+
+            nodeIndex = stack.pop();
+            goto try_exit_instance_any;
+        }
+
+        // Custom surface/procedural leaf — any hit
+        if (nodeType == CustomType && instanceId != InvalidValue) {
+            const auto raw_inst_id =
+                luisa_pipeline_decode_instance_id<opacity_may_change>(instanceId);
+            auto customNodes = reinterpret_cast<CustomNode *>(primNodes);
+            const auto primitive_id =
+                customNodes[getNodeAddr(nodeIndex)].m_primIndex;
+            auto is_surface = false;
+            if (instances != nullptr) {
+                const auto &instance = instances[raw_inst_id];
+                is_surface = instance.geometry_data != 0u &&
+                             (instance.geometry_kind ==
+                                  LUISA_GEOMETRY_KIND_CURVE ||
+                              instance.geometry_kind ==
+                                  LUISA_GEOMETRY_KIND_MOTION_TRIANGLE);
+            }
+            if (is_surface) {
+                const auto cold_hit = luisa_intersect_surface_cold(
+                    instances, ray, time, raw_inst_id, primitive_id);
+                if (cold_hit.intersected &&
+                    ray.minT <= cold_hit.hit.t &&
+                    cold_hit.hit.t <= ray.maxT) {
+                    const auto candidate_result =
+                        luisa_pipeline_process_surface_candidate<
+                            true, opacity_may_change>(
+                            state, committed_hit, committed_kind,
+                            world_ray.maxT, ray, instances,
+                            callback_context, pipeline_id,
+                            surface_observation_mask,
+                            instanceId, primitive_id,
+                            cold_hit.hit.uv.x, cold_hit.hit.uv.y,
+                            cold_hit.hit.t);
+                    if ((candidate_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                        state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+                        luisa_pipeline_mark_trace_terminated(state);
+                        return;
+                    }
+                    if ((candidate_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                        state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+                        luisa_pipeline_mark_trace_terminated(state);
+                        return;
+                    }
+                }
+            } else {
+                const auto candidate_result =
+                    luisa_pipeline_process_procedural_candidate<true>(
+                        state, committed_hit, committed_kind,
+                        world_ray.maxT, ray,
+                        callback_context, pipeline_id,
+                        procedural_observation_mask,
+                        raw_inst_id, primitive_id);
+                if ((candidate_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                    state->committed_kind = LUISA_PIPELINE_HIT_PROCEDURAL;
+                    luisa_pipeline_mark_trace_terminated(state);
+                    return;
+                }
+                if ((candidate_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                    state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+                    luisa_pipeline_mark_trace_terminated(state);
+                    return;
+                }
+            }
+            nodeIndex = stack.pop();
+            goto try_exit_instance_any;
+        }
+
+        // Triangle leaf — any hit
+        if (instanceId != InvalidValue) {
+            auto triangleNodes =
+                reinterpret_cast<TrianglePacketNode *>(primNodes);
+            uint32_t leafAddr = getNodeAddr(nodeIndex);
+            uint32_t triPairIndex = typeToTriPairIndex(nodeType);
+
+            while (true) {
+                hip_float3 dummy0, dummy1;
+                auto triResult = __builtin_amdgcn_image_bvh8_intersect_ray(
+                    encodeBaseAddr(triangleNodes),
+                    ray.maxT,
+                    0xff,
+                    {ray.origin.x, ray.origin.y, ray.origin.z},
+                    {ray.direction.x, ray.direction.y, ray.direction.z},
+                    encodeNodeIndex(leafAddr, triPairIndexToType(triPairIndex)),
+                    {descriptor.x, descriptor.y, descriptor.z, descriptor.w},
+                    &dummy0,
+                    &dummy1);
+
+                const auto t0 = __int_as_float(triResult[0]);
+                const auto t1 = __int_as_float(triResult[4]);
+                const auto hit0 = ray.minT <= t0 && t0 <= ray.maxT;
+                const auto hit1 = ray.minT <= t1 && t1 <= ray.maxT;
+                if (hit0 || hit1) {
+                    const auto first_is_0 = hit0 && (!hit1 || t0 <= t1);
+                    const auto first_prim =
+                        (first_is_0 ? triResult[3] : triResult[7]) >> 1u;
+                    const auto first_u = __int_as_float(
+                        first_is_0 ? triResult[1] : triResult[5]);
+                    const auto first_v = __int_as_float(
+                        first_is_0 ? triResult[2] : triResult[6]);
+                    const auto first_t = first_is_0 ? t0 : t1;
+                    const auto first_result =
+                        luisa_pipeline_process_surface_candidate<
+                            true, opacity_may_change>(
+                            state, committed_hit, committed_kind,
+                            world_ray.maxT, ray, instances,
+                            callback_context, pipeline_id,
+                            surface_observation_mask,
+                            instanceId, first_prim,
+                            first_u, first_v, first_t);
+                    if ((first_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                        state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+                        luisa_pipeline_mark_trace_terminated(state);
+                        return;
+                    }
+                    if ((first_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                        state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+                        luisa_pipeline_mark_trace_terminated(state);
+                        return;
+                    }
+                    if (hit0 && hit1) {
+                        const auto second_is_0 = !first_is_0;
+                        const auto second_t = second_is_0 ? t0 : t1;
+                        if (ray.minT <= second_t && second_t <= ray.maxT) {
+                            const auto second_prim =
+                                (second_is_0 ? triResult[3] : triResult[7]) >> 1u;
+                            const auto second_u = __int_as_float(
+                                second_is_0 ? triResult[1] : triResult[5]);
+                            const auto second_v = __int_as_float(
+                                second_is_0 ? triResult[2] : triResult[6]);
+                            const auto second_result =
+                                luisa_pipeline_process_surface_candidate<
+                                    true, opacity_may_change>(
+                                    state, committed_hit, committed_kind,
+                                    world_ray.maxT, ray, instances,
+                                    callback_context, pipeline_id,
+                                    surface_observation_mask,
+                                    instanceId, second_prim,
+                                    second_u, second_v, second_t);
+                            if ((second_result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                                state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+                                luisa_pipeline_mark_trace_terminated(state);
+                                return;
+                            }
+                            if ((second_result & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                                state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+                                luisa_pipeline_mark_trace_terminated(state);
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                const uint32_t status = triResult[8] & 3u;
+                if (status == 3u) break;
+                triPairIndex++;
+                if (status == 1u) {
+                    triPairIndex = 0u;
+                    leafAddr++;
+                }
+            }
+        }
+
+        nodeIndex = stack.pop();
+
+    try_exit_instance_any:
+        if (nodeIndex == InvalidValue && stack.insideInstance()) {
+            stack.exitInstance();
+            instanceId = InvalidValue;
+            boxNodes = tlasBoxNodes;
+            ray.origin = world_ray.origin;
+            ray.direction = world_ray.direction;
+            nodeIndex = stack.pop();
+        }
+    }
+
+    if (__builtin_expect(stack.overflowed(), 0)) {
+        world_ray.maxT = initial_max_t;
+        const auto fallback_result =
+            luisa_pipeline_hw_native_terminal_overflow_fallback(
+                state->scene_handle, instances, world_ray, mask,
+                state->flags, time, state->query_state_address,
+                callback_context, pipeline_id, handler_observation_masks);
+        state->candidate_committed = fallback_result.candidate_committed;
+        luisa_pipeline_finish_trace(
+            state, fallback_result.committed_hit,
+            fallback_result.committed_kind, fallback_result.max_t);
+        return;
+    }
+    state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+    luisa_pipeline_mark_trace_terminated(state);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_all_native_closest_hw(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    static_cast<void>(stack_size);
+    static_cast<void>(stack_count);
+    static_cast<void>(stack_data);
+    luisa_pipeline_hw_trace_native_closest<true>(
+        reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr),
+        callback_context, pipeline_id, observation_mask);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_all_native_closest_hw_stable_opacity(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    static_cast<void>(stack_size);
+    static_cast<void>(stack_count);
+    static_cast<void>(stack_data);
+    luisa_pipeline_hw_trace_native_closest<false>(
+        reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr),
+        callback_context, pipeline_id, observation_mask);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_any_native_terminal_hw(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    static_cast<void>(stack_size);
+    static_cast<void>(stack_count);
+    static_cast<void>(stack_data);
+    luisa_pipeline_hw_trace_native_terminal_pure<true>(
+        reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr),
+        callback_context, pipeline_id, observation_mask);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_any_native_terminal_hw_stable_opacity(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    static_cast<void>(stack_size);
+    static_cast<void>(stack_count);
+    static_cast<void>(stack_data);
+    luisa_pipeline_hw_trace_native_terminal_pure<false>(
+        reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr),
+        callback_context, pipeline_id, observation_mask);
+}
+
 static __device__ bool luisa_hiprt_hw_trace_closest(
     hiprtScene scene_handle, const LuisaAccelInstance *instances,
     const hiprtRay &in_ray, uint32_t mask, uint32_t hint, hiprtHit &result) {
@@ -3843,9 +4657,14 @@ static __device__ bool luisa_hiprt_hw_trace_closest(
 
                     instanceId = inst.m_primIndex;
 
-                    GeomHeader *geom = inst.m_type == hiprtInstanceTypeScene ?
-                                           luisa_hiprt_resolve_static_motion_geometry(inst, ray) :
-                                           inst.m_geometry;
+                    GeomHeader *geom = inst.m_geometry;
+                    if (inst.m_type == hiprtInstanceTypeScene) {
+                        const auto resolved =
+                            luisa_hiprt_resolve_static_motion_geometry(
+                                inst, ray);
+                        geom = resolved.geometry;
+                        ray = resolved.ray;
+                    }
                     if (geom == nullptr) {
                         nodeIndex = stack.pop();
                         goto try_exit_instance;
@@ -3866,13 +4685,15 @@ static __device__ bool luisa_hiprt_hw_trace_closest(
         // --- Custom surface leaf ---
         if (nodeType == CustomType && instanceId != InvalidValue) {
             auto customNodes = reinterpret_cast<CustomNode *>(primNodes);
-            hiprtHit candidate;
-            candidate.instanceID = instanceId;
-            candidate.primID = customNodes[getNodeAddr(nodeIndex)].m_primIndex;
-            if (luisa_intersect_surface(instances, ray, 0.0f, candidate) &&
-                ray.minT <= candidate.t && candidate.t <= ray.maxT) {
-                ray.maxT = candidate.t;
-                result = candidate;
+            const auto primitive_id =
+                customNodes[getNodeAddr(nodeIndex)].m_primIndex;
+            const auto cold_hit = luisa_intersect_surface_cold(
+                instances, ray, 0.0f, instanceId, primitive_id);
+            if (cold_hit.intersected &&
+                ray.minT <= cold_hit.hit.t &&
+                cold_hit.hit.t <= ray.maxT) {
+                ray.maxT = cold_hit.hit.t;
+                result = cold_hit.hit;
             }
             nodeIndex = stack.pop();
             goto try_exit_instance;
@@ -4016,9 +4837,14 @@ static __device__ bool luisa_hiprt_hw_trace_any(
 
                     instanceId = inst.m_primIndex;
 
-                    GeomHeader *geom = inst.m_type == hiprtInstanceTypeScene ?
-                                           luisa_hiprt_resolve_static_motion_geometry(inst, ray) :
-                                           inst.m_geometry;
+                    GeomHeader *geom = inst.m_geometry;
+                    if (inst.m_type == hiprtInstanceTypeScene) {
+                        const auto resolved =
+                            luisa_hiprt_resolve_static_motion_geometry(
+                                inst, ray);
+                        geom = resolved.geometry;
+                        ray = resolved.ray;
+                    }
                     if (geom == nullptr) {
                         nodeIndex = stack.pop();
                         goto try_exit_instance_any;
@@ -4039,11 +4865,13 @@ static __device__ bool luisa_hiprt_hw_trace_any(
         // Custom surface leaf — any hit
         if (nodeType == CustomType && instanceId != InvalidValue) {
             auto customNodes = reinterpret_cast<CustomNode *>(primNodes);
-            hiprtHit candidate;
-            candidate.instanceID = instanceId;
-            candidate.primID = customNodes[getNodeAddr(nodeIndex)].m_primIndex;
-            if (luisa_intersect_surface(instances, ray, 0.0f, candidate) &&
-                ray.minT <= candidate.t && candidate.t <= ray.maxT) {
+            const auto primitive_id =
+                customNodes[getNodeAddr(nodeIndex)].m_primIndex;
+            const auto cold_hit = luisa_intersect_surface_cold(
+                instances, ray, 0.0f, instanceId, primitive_id);
+            if (cold_hit.intersected &&
+                ray.minT <= cold_hit.hit.t &&
+                cold_hit.hit.t <= ray.maxT) {
                 overflowed = stack.overflowed();
                 return true;
             }
@@ -4691,9 +5519,14 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
 
                     instanceId = inst.m_primIndex;
 
-                    auto *geometry = inst.m_type == hiprtInstanceTypeScene ?
-                                         luisa_hiprt_resolve_static_motion_geometry(inst, ray) :
-                                         inst.m_geometry;
+                    auto *geometry = inst.m_geometry;
+                    if (inst.m_type == hiprtInstanceTypeScene) {
+                        const auto resolved =
+                            luisa_hiprt_resolve_static_motion_geometry(
+                                inst, ray);
+                        geometry = resolved.geometry;
+                        ray = resolved.ray;
+                    }
                     if (geometry != nullptr) {
                         boxNodes = geometry->m_boxNodes;
                         primNodes = geometry->m_primNodes;

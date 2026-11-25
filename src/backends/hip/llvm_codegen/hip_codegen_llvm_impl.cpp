@@ -400,6 +400,7 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
         !_uses_mixed_ray_query_pipeline;
     _uses_resumable_hardware_ray_query_pipeline =
         _uses_hardware_rt_stack &&
+        _rt_analysis.uses_ray_query &&
         (!_uses_synchronous_ray_query_pipeline ||
          _uses_mixed_ray_query_pipeline);
     // Dynamic global-stack storage is part of the HIP ray-query kernel ABI on
@@ -1378,7 +1379,8 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     auto ray_query_projection =
         _finalize_ray_query_pipeline_contexts();
     if ((_uses_native_closest_ray_query_pipeline ||
-         _uses_native_effect_only_ray_query_pipeline) &&
+         _uses_native_effect_only_ray_query_pipeline ||
+         _uses_iterative_synchronous_ray_query_pipeline) &&
         _config.max_register_count == 0u) {
         // The ordinary synchronous frontier is latency-bound and benefits from
         // a high occupancy target. A native closest callback instead contains

@@ -915,7 +915,7 @@ int main(int argc, char *argv[]) {
             const auto uses_static_native_closest =
                 before_root.find(
                     "@luisa_pipeline_ray_query_trace_all_native_closest_"
-                    "global_stack_stable_opacity(") !=
+                    "hw_stable_opacity(") !=
                 luisa::string_view::npos;
             // Selection is a codegen property, while outlining is an LLVM
             // profitability decision. Inspect the generated root before the
@@ -927,10 +927,13 @@ int main(int argc, char *argv[]) {
                            "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
                            luisa::string_view::npos &&
                        before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_native_closest_global_stack") ==
+                           luisa::string_view::npos &&
+                       before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") ==
                            luisa::string_view::npos)
-                    << "gfx12 closest reduction did not select one static-"
-                       "global HIPRT closest transaction";
+                    << "gfx12 closest reduction did not select the flat "
+                       "hardware-stack closest transaction";
             } else {
                 expect(before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
@@ -1026,21 +1029,19 @@ int main(int argc, char *argv[]) {
                 << "internal constant-specialization marker escaped HIP "
                    "codegen";
             if (uses_gfx12_hardware_stack) {
-                // RayQueryAny retains the exact single-region hardware
-                // frontier, while the proven closest reduction uses HIPRT's
-                // 24-entry-per-lane static global spill stack. The two routes
-                // are non-reentrant and overlay one arena; for a 256-thread
-                // block the latter dominates at 24 * 256 dwords.
+                // Both native closest and pure terminal routes on gfx12 use
+                // LuisaHwBvhStack (two regions x 8 entries x 32 lanes = 512
+                // dwords/wave, 16 KiB LDS for a 256-thread block).
                 expect(module.find(
                            "@luisa_hiprt_shared_stack_cache = internal "
-                           "addrspace(3) global [6144 x i32]") !=
+                           "addrspace(3) global [4096 x i32]") !=
                        std::string::npos)
-                    << "gfx12 mixed native/hardware query did not reserve "
-                       "the maximum route-local LDS footprint";
-                expect(module.find(", i32 16)") !=
+                    << "gfx12 hardware-stack query did not reserve the 16 KiB "
+                       "hardware-frontier LDS footprint";
+                expect(module.find(", i32 8)") !=
                        std::string::npos)
                     << "gfx12 BVH-stack intrinsic did not receive the "
-                       "native 16-entry frontier capacity";
+                       "native 8-entry two-region capacity";
             }
 
             // The two large-environment kernels differ only in whether the
@@ -1088,7 +1089,7 @@ int main(int argc, char *argv[]) {
             const auto expected_pure_reduction_trace =
                 uses_gfx12_hardware_stack ?
                     "@luisa_pipeline_ray_query_trace_all_native_closest_"
-                    "global_stack_stable_opacity(" :
+                    "hw_stable_opacity(" :
                     "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(";
             expect(pure_reduction_before_root.find(
                        expected_pure_reduction_trace) !=
@@ -1190,33 +1191,24 @@ int main(int argc, char *argv[]) {
                 << "kernel-reachable opacity mutation did not retain the "
                    "exact mutable-opacity traversal";
 
-            const auto expected_terminal_trace =
+            const auto expected_pure_terminal_trace =
                 uses_gfx12_hardware_stack ?
                     "@luisa_pipeline_ray_query_trace_any_native_terminal_"
-                    "global_stack(" :
+                    "hw_stable_opacity(" :
                     "@luisa_pipeline_ray_query_trace_any_native_terminal(";
-            if (uses_gfx12_hardware_stack) {
-                expect(terminal_only_before_root.find(
-                           "@luisa_pipeline_ray_query_trace_any_"
-                           "stable_opacity(") != luisa::string_view::npos &&
-                       terminal_only_before_root.find(
-                           "native_terminal") == luisa::string_view::npos)
-                    << "isolated gfx12 terminal query abandoned its faster "
-                       "single-frontier route";
-            } else {
-                expect(terminal_only_before_root.find(
-                           expected_terminal_trace) !=
-                       luisa::string_view::npos)
-                    << "pre-gfx12 terminal query did not select native "
-                       "AnyHit traversal";
-            }
+            expect(terminal_only_before_root.find(
+                       expected_pure_terminal_trace) !=
+                   luisa::string_view::npos)
+                << "pure RayQueryAny did not select native hardware/AnyHit "
+                   "terminal traversal";
             expect(terminal_predicate_before_root.find(
-                       expected_terminal_trace) != luisa::string_view::npos &&
+                       expected_pure_terminal_trace) !=
+                       luisa::string_view::npos &&
                    terminal_predicate_before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") ==
                        luisa::string_view::npos)
                 << "hit-kind-only RayQueryAny did not select native terminal "
-                   "AnyHit traversal";
+                   "traversal";
             expect(terminal_full_hit_before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
                        luisa::string_view::npos &&
@@ -1224,10 +1216,19 @@ int main(int argc, char *argv[]) {
                        "native_terminal") == luisa::string_view::npos)
                 << "RayQueryAny identity observation did not fail closed to "
                    "the complete committed-hit transaction";
-            expect(terminal_mutable_opacity_before_root.find(
-                       expected_terminal_trace) != luisa::string_view::npos)
-                << "kernel-reachable opacity write rejected the live-opacity "
-                   "native terminal traversal";
+            if (uses_gfx12_hardware_stack) {
+                expect(terminal_mutable_opacity_before_root.find(
+                           "@luisa_pipeline_ray_query_trace_any(") !=
+                       luisa::string_view::npos)
+                    << "kernel-reachable opacity write did not keep live-opacity "
+                       "hardware traversal";
+            } else {
+                expect(terminal_mutable_opacity_before_root.find(
+                           expected_pure_terminal_trace) !=
+                       luisa::string_view::npos)
+                    << "kernel-reachable opacity write rejected the live-opacity "
+                       "native terminal traversal";
+            }
 
             if (uses_gfx12_hardware_stack) {
                 // Traversal control is outlined from the owning Callables,
