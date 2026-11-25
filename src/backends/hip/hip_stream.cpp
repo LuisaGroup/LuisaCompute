@@ -20,24 +20,11 @@
 namespace luisa::compute::hip {
 
 void HIPStream::_create_callback_semaphore() noexcept {
-    auto stream_mem_op_support = 0;
-    LUISA_CHECK_HIP(hipDeviceGetAttribute(&stream_mem_op_support,
-                                          hipDeviceAttributeCanUseStreamWaitValue,
-                                          _device->device_id()));
-    if (stream_mem_op_support) {
-        auto callback_semaphore = static_cast<void *>(nullptr);
-        LUISA_CHECK_HIP(hipHostMalloc(&callback_semaphore,
-                                      sizeof(uint64_t), hipHostMallocMapped));
-        _callback_semaphore = static_cast<volatile uint64_t *>(callback_semaphore);
-        LUISA_CHECK_HIP(hipHostGetDevicePointer(&_callback_semaphore_device,
-                                                callback_semaphore, 0u));
-    } else {
-        LUISA_WARNING_WITH_LOCATION(
-            "HIP device does not support stream-ordered memory operations. "
-            "Stream callbacks may have higher latency.");
-        _callback_semaphore = luisa::allocate_with_allocator<volatile uint64_t>(1u);
-        _callback_semaphore_device = nullptr;
-    }
+    // Always retire callbacks via hipLaunchHostFunc + host-allocated atomic
+    // semaphore (matching CUDAStream) and flush the stream; WDDM/PAL does not
+    // reliably flush hipStreamWriteValue64 from an un-synchronized stream.
+    _callback_semaphore = luisa::allocate_with_allocator<volatile uint64_t>(1u);
+    _callback_semaphore_device = nullptr;
     *_callback_semaphore = 0u;
 }
 
@@ -71,7 +58,10 @@ void HIPStream::_spawn_callback_thread() noexcept {
                 static constexpr auto spins_before_yield = 1024u;
                 for (;;) {
                     for (auto i = 0u; i < spins_before_yield; i++) {
-                        if (*_callback_semaphore >= ticket) { return; }
+                        if (std::atomic_ref<uint64_t>{*const_cast<uint64_t *>(_callback_semaphore)}
+                                .load(std::memory_order_acquire) >= ticket) {
+                            return;
+                        }
                     }
                     std::this_thread::yield();
                 }
@@ -341,7 +331,8 @@ public:
         return _pool()->create(semaphore, value);
     }
     void recycle() noexcept {
-        *_semaphore = _value;
+        std::atomic_ref<uint64_t>{*const_cast<uint64_t *>(_semaphore)}
+            .store(_value, std::memory_order_release);
         _pool()->destroy(this);
     }
 };
@@ -349,18 +340,17 @@ public:
 void HIPStream::callback(CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         auto ticket = 1u + _current_ticket.fetch_add(1u, std::memory_order_relaxed);
-        if (_callback_semaphore_device != nullptr) {
-            LUISA_CHECK_HIP(hipStreamWriteValue64(_stream, _callback_semaphore_device, ticket, 0u));
-        } else {
-            auto update = HIPStreamCallbackSemaphoreUpdate::create(_callback_semaphore, ticket);
-            LUISA_CHECK_HIP(hipLaunchHostFunc(
-                _stream,
-                [](void *data) noexcept {
-                    auto update = static_cast<HIPStreamCallbackSemaphoreUpdate *>(data);
-                    update->recycle();
-                },
-                update));
-        }
+        auto update = HIPStreamCallbackSemaphoreUpdate::create(_callback_semaphore, ticket);
+        LUISA_CHECK_HIP(hipLaunchHostFunc(
+            _stream,
+            [](void *data) noexcept {
+                auto update = static_cast<HIPStreamCallbackSemaphoreUpdate *>(data);
+                update->recycle();
+            },
+            update));
+        // Flush the WDDM/PAL command buffer immediately so callers awaiting
+        // callbacks asynchronously observe completion without synchronize().
+        static_cast<void>(hipStreamQuery(_stream));
         // enqueue callbacks
         {
             CallbackPackage package{
