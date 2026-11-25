@@ -2286,6 +2286,8 @@ if (TARGET luisa-compute-backend-simd)
 endif ()
 
 luisa_compute_add_test(test_coro_shared_callable unit/coro/test_coro_shared_callable.cpp)
+target_compile_options(test_coro_shared_callable PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 
 if (TARGET luisa-compute-backend-metal)
     add_test(NAME test_coro_shared_callable_metal COMMAND test_coro_shared_callable metal)
