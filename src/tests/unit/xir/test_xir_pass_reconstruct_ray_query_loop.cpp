@@ -1497,6 +1497,269 @@ void register_tests() {
         expect(report_value(null_report, "ignored_loop") == 0u);
         expect(report_value(null_report, "error") == 0u);
     };
+
+    "frontend_dsl_stateful_inline_corner_cases_reconstruct_and_lower"_test = [] {
+        auto verify_kernel_reconstruct_and_lower = [](luisa::compute::Function kernel_fn,
+                                                      uint expected_reconstructed,
+                                                      uint expected_lowered) {
+            auto module = ast_to_xir_translate(kernel_fn, {});
+            expect(module != nullptr);
+            if (module == nullptr) { return; }
+            expect(xir_verify_module(module.get()).succeeded());
+            auto rec = reconstruct_ray_query_loop_pass_run_on_module(module.get());
+            expect(rec.succeeded() && rec.reconstructed_ray_query_loop_count == expected_reconstructed)
+                << luisa::format("reconstruct failed: errors={}, count={}, expected={}",
+                                 rec.error_count, rec.reconstructed_ray_query_loop_count, expected_reconstructed);
+            expect(xir_verify_module(module.get()).succeeded());
+            static_cast<void>(dce_pass_run_on_module(module.get()));
+            static_cast<void>(local_store_forward_pass_run_on_module(module.get()));
+            static_cast<void>(local_load_elimination_pass_run_on_module(module.get()));
+            static_cast<void>(mem2reg_pass_run_on_module(module.get()));
+            static_cast<void>(dce_pass_run_on_module(module.get()));
+            auto pipe = lower_ray_query_to_pipeline_pass_run_on_module(module.get());
+            expect(pipe.succeeded() && pipe.lowered_loop_count == expected_lowered)
+                << luisa::format("pipeline lowering failed: errors={}, count={}, expected={}",
+                                 pipe.error_count, pipe.lowered_loop_count, expected_lowered);
+            expect(xir_verify_module(module.get()).succeeded());
+        };
+
+        // 1. Pre-declared Bool overwritten in loop + nested-block Bool + compound predicates (&, |, ite).
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto index = dispatch_x();
+                auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f), make_float3(0.0f, 0.0f, -1.0f));
+                auto rq = accel.query(ray, {});
+                Bool is_surf = false;
+                UInt acc = 0u;
+                $while (rq.proceed()) {
+                    is_surf = rq.is_surface_candidate();
+                    $if (is_surf & (index < 10u)) {
+                        rq.surface_candidate().commit();
+                    }
+                    $else {
+                        $if (index == index) {
+                            Bool nested_is_surf = rq.is_surface_candidate();
+                            $if (!nested_is_surf | (index > 100u)) {
+                                $if (!is_surf) {
+                                    rq.procedural_candidate().commit(1.0f);
+                                }
+                                $else {
+                                    acc += 1u;
+                                };
+                            }
+                            $else {
+                                Bool picked = ite(nested_is_surf, index < 10u, index > 100u);
+                                $if (nested_is_surf) {
+                                    $if (picked) { rq.surface_candidate().commit(); };
+                                }
+                                $else {
+                                    $if (!picked) { rq.procedural_candidate().commit(2.0f); };
+                                };
+                            };
+                        };
+                    };
+                };
+                output.write(index, acc + rq.committed_hit()->inst);
+            };
+            verify_kernel_reconstruct_and_lower(kernel.function()->function(), 1u, 1u);
+        }
+
+        // 2. Inner $for loop + inner $switch (with inner $break/$continue) + outer $break.
+        {
+            Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+                auto index = dispatch_x();
+                auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f), make_float3(0.0f, 0.0f, -1.0f));
+                auto rq = accel.query(ray, {});
+                UInt acc = 0u;
+                $while (rq.proceed()) {
+                    $if (rq.is_surface_candidate()) {
+                        auto cand = rq.surface_candidate();
+                        for (auto step : dynamic_range(3u)) {
+                            $if (step == 0u) { $continue; };
+                            acc += step;
+                            $if (step == 1u) { $break; };
+                        }
+                        $switch (cand.hit()->inst) {
+                            $case (0u) {
+                                cand.commit();
+                                $break;
+                            };
+                            $default {
+                                acc += 7u;
+                            };
+                        };
+                        $if (acc > 20u) { $break; };
+                    }
+                    $else {
+                        $if (rq.procedural_candidate().hit()->prim == 0u) {
+                            rq.procedural_candidate().commit(1.0f);
+                            $break;
+                        };
+                    };
+                };
+                output.write(index, acc + rq.committed_hit()->prim);
+            };
+            verify_kernel_reconstruct_and_lower(kernel.function()->function(), 1u, 1u);
+        }
+
+        // 3. Empty loop + counter-only loop + multiple sequential loops + outer $for loop + custom Callable.
+        {
+            Callable trace_helper = [](AccelVar accel, UInt idx) noexcept {
+                auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f), make_float3(0.0f, 0.0f, -1.0f));
+                auto q = accel.query(ray, {});
+                UInt n = 0u;
+                $while (q.proceed()) {
+                    $if (q.is_surface_candidate()) {
+                        $if (q.surface_candidate().hit()->inst == idx) {
+                            q.surface_candidate().commit();
+                        };
+                    }
+                    $else {
+                        n += 1u;
+                    };
+                };
+                return n + q.committed_hit()->prim;
+            };
+            Kernel1D kernel = [&trace_helper](AccelVar accel, BufferUInt output) noexcept {
+                auto index = dispatch_x();
+                auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f), make_float3(0.0f, 0.0f, -1.0f));
+                auto empty_q = accel.query(ray, {});
+                $while (empty_q.proceed()) {};
+
+                auto counter_q = accel.query(ray, {});
+                UInt count = 0u;
+                $while (counter_q.proceed()) {
+                    count += 1u;
+                };
+
+                UInt outer_acc = 0u;
+                for (auto iter : dynamic_range(2u)) {
+                    auto loop_q = accel.query(ray, {});
+                    $while (loop_q.proceed()) {
+                        $if (loop_q.is_surface_candidate()) {
+                            loop_q.surface_candidate().commit();
+                        };
+                    };
+                    outer_acc += iter + loop_q.committed_hit()->inst;
+                }
+                output.write(index, count + outer_acc + trace_helper(accel, index));
+            };
+            // `loop_q` already emits as `RayQueryLoopInst` in `ast2xir`; the other 3 loops reconstruct here.
+            verify_kernel_reconstruct_and_lower(kernel.function()->function(), 3u, 4u);
+        }
+
+        // 4. Inner LoopInst with unreachable update_block inside general inline proceed loop.
+        {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *body = kernel->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *query = b.alloca_local(Type::of<RayQueryAll>());
+            auto *outer = b.simple_loop();
+            auto *loop_body = outer->create_body_block();
+            auto *outer_merge = outer->create_merge_block();
+
+            b.set_insertion_point(loop_body);
+            b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED, {query});
+            auto *terminated = b.call(Type::of<bool>(), RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, {query});
+            auto *guard_if = b.if_(terminated);
+            auto *brk_blk = guard_if->create_true_block();
+            auto *relay_blk = guard_if->create_false_block();
+            auto *cand_blk = guard_if->create_merge_block();
+            b.set_insertion_point(brk_blk);
+            b.break_(outer_merge);
+            b.set_insertion_point(relay_blk);
+            b.br(cand_blk);
+
+            b.set_insertion_point(cand_blk);
+            auto *inner = b.loop();
+            auto *in_prep = inner->create_prepare_block();
+            auto *in_body = inner->create_body_block();
+            auto *in_upd = inner->create_update_block();
+            auto *in_merge = inner->create_merge_block();
+            auto *false_const = module.create_constant_zero(Type::of<bool>());
+            b.set_insertion_point(in_prep);
+            b.cond_br(false_const, in_body, in_merge);
+            b.set_insertion_point(in_body);
+            b.br(in_upd);
+            b.set_insertion_point(in_upd);
+            b.br(in_prep);
+            b.set_insertion_point(in_merge);
+            auto *is_surf = b.call(Type::of<bool>(), RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE, {query});
+            auto *cand_if = b.if_(is_surf);
+            auto *s_blk = cand_if->create_true_block();
+            auto *p_blk = cand_if->create_false_block();
+            auto *c_merge = cand_if->create_merge_block();
+            b.set_insertion_point(s_blk);
+            b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE, {query});
+            b.br(c_merge);
+            b.set_insertion_point(p_blk);
+            b.br(c_merge);
+            b.set_insertion_point(c_merge);
+            b.br(loop_body);
+
+            b.set_insertion_point(outer_merge);
+            b.return_void();
+
+            expect(xir_verify_module(&module).succeeded());
+            auto rec = reconstruct_ray_query_loop_pass_run_on_module(&module);
+            expect(rec.succeeded() && rec.reconstructed_ray_query_loop_count == 1u);
+            expect(xir_verify_module(&module).succeeded());
+        }
+
+        // 5. Transitive helper callable taking query object inside stateful inline loop.
+        {
+            Module module;
+            auto *helper = module.create_callable(nullptr);
+            auto *helper_query = helper->create_reference_argument(Type::of<RayQueryAll>());
+            auto *helper_body = helper->create_body_block();
+            XIRBuilder hb;
+            hb.set_insertion_point(helper_body);
+            hb.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE, {helper_query});
+            hb.return_void();
+
+            auto *kernel = module.create_kernel();
+            auto *k_body = kernel->create_body_block();
+            XIRBuilder kb;
+            kb.set_insertion_point(k_body);
+            auto *query = kb.alloca_local(Type::of<RayQueryAll>());
+            auto *loop = kb.simple_loop();
+            auto *loop_body = loop->create_body_block();
+            auto *merge = loop->create_merge_block();
+            kb.set_insertion_point(loop_body);
+            kb.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED, {query});
+            auto *terminated = kb.call(Type::of<bool>(), RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, {query});
+            auto *guard_if = kb.if_(terminated);
+            auto *brk_blk = guard_if->create_true_block();
+            auto *relay_blk = guard_if->create_false_block();
+            auto *cand_blk = guard_if->create_merge_block();
+            kb.set_insertion_point(brk_blk);
+            kb.break_(merge);
+            kb.set_insertion_point(relay_blk);
+            kb.br(cand_blk);
+            kb.set_insertion_point(cand_blk);
+            auto *is_surf = kb.call(Type::of<bool>(), RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE, {query});
+            auto *cand_if = kb.if_(is_surf);
+            auto *s_blk = cand_if->create_true_block();
+            auto *p_blk = cand_if->create_false_block();
+            auto *c_merge = cand_if->create_merge_block();
+            kb.set_insertion_point(s_blk);
+            kb.call(nullptr, helper, {query});
+            kb.br(c_merge);
+            kb.set_insertion_point(p_blk);
+            kb.br(c_merge);
+            kb.set_insertion_point(c_merge);
+            kb.br(loop_body);
+            kb.set_insertion_point(merge);
+            kb.return_void();
+
+            expect(xir_verify_module(&module).succeeded());
+            auto rec = reconstruct_ray_query_loop_pass_run_on_module(&module);
+            expect(rec.succeeded() && rec.reconstructed_ray_query_loop_count == 1u);
+            expect(xir_verify_module(&module).succeeded());
+        }
+    };
 }
 
 int main(int argc, char *argv[]) {

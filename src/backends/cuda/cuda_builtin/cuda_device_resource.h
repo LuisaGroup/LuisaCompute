@@ -1656,6 +1656,22 @@ template<lc_uint i>
     return f0;
 }
 
+[[nodiscard]] auto lc_get_ray_tmin() noexcept {
+    float f0;
+    asm("call (%0), _optix_get_ray_tmin, ();"
+        : "=f"(f0)
+        :);
+    return f0;
+}
+
+[[nodiscard]] auto lc_get_ray_tmax() noexcept {
+    float f0;
+    asm("call (%0), _optix_get_ray_tmax, ();"
+        : "=f"(f0)
+        :);
+    return f0;
+}
+
 [[nodiscard]] auto lc_undef() noexcept {
     auto u0 = 0u;
     asm("call (%0), _optix_undef_value, ();"
@@ -1942,17 +1958,21 @@ using LCRayQueryAny = LCRayQuery;
         auto inst = lc_hit_object_instance_index();
         auto prim = lc_hit_object_primitive_index();
         auto hit_kind = lc_hit_object_hit_kind();
-#ifdef LUISA_ENABLE_OPTIX_CURVE
-        auto bary = hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-                            hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
-                        lc_hit_object_triangle_bary() :
-                        lc_make_float2(lc_hit_object_curve_parameter(), -1.f);
-#else
-        auto bary = lc_hit_object_triangle_bary();
-#endif
         auto kind = hit_kind > 127u ?
                         static_cast<lc_uint>(LCHitType::BUILTIN) :
                         static_cast<lc_uint>(LCHitType::PROCEDURAL);
+#ifdef LUISA_ENABLE_OPTIX_CURVE
+        auto bary = kind == static_cast<lc_uint>(LCHitType::BUILTIN) ?
+                        (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+                                 hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
+                             lc_hit_object_triangle_bary() :
+                             lc_make_float2(lc_hit_object_curve_parameter(), -1.f)) :
+                        lc_make_float2(0.f, 0.f);
+#else
+        auto bary = kind == static_cast<lc_uint>(LCHitType::BUILTIN) ?
+                        lc_hit_object_triangle_bary() :
+                        lc_make_float2(0.f, 0.f);
+#endif
         auto dist = lc_hit_object_ray_t_max();
         return LCCommittedHit{inst, prim, bary, kind, dist};
     }();
@@ -2020,8 +2040,8 @@ void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     return LCProceduralHit{inst, prim};
 }
 
-[[nodiscard]] auto lc_ray_query_world_ray() noexcept {
-    float ox, oy, oz, t_min, dx, dy, dz, t_max;
+[[nodiscard]] auto lc_ray_query_world_ray(const LCRayQuery &q) noexcept {
+    float ox, oy, oz, t_min, dx, dy, dz;
     // origin
     asm("call (%0), _optix_get_world_ray_origin_x, ();"
         : "=f"(ox)
@@ -2046,10 +2066,6 @@ void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     asm("call (%0), _optix_get_world_ray_direction_z, ();"
         : "=f"(dz)
         :);
-    // t_max
-    asm("call (%0), _optix_get_ray_tmax, ();"
-        : "=f"(t_max)
-        :);
     LCRay ray{};
     ray.m0[0] = ox;
     ray.m0[1] = oy;
@@ -2058,12 +2074,12 @@ void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     ray.m2[0] = dx;
     ray.m2[1] = dy;
     ray.m2[2] = dz;
-    ray.m3 = t_max;
+    ray.m3 = q.ray.m3;
     return ray;
 }
 
-[[nodiscard]] auto lc_ray_query_object_ray() noexcept {
-    float ox, oy, oz, t_min, dx, dy, dz, t_max;
+[[nodiscard]] auto lc_ray_query_object_ray(const LCRayQuery &q) noexcept {
+    float ox, oy, oz, t_min, dx, dy, dz;
     asm("call (%0), _optix_get_object_ray_origin_x, ();" : "=f"(ox) :);
     asm("call (%0), _optix_get_object_ray_origin_y, ();" : "=f"(oy) :);
     asm("call (%0), _optix_get_object_ray_origin_z, ();" : "=f"(oz) :);
@@ -2071,7 +2087,6 @@ void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     asm("call (%0), _optix_get_object_ray_direction_x, ();" : "=f"(dx) :);
     asm("call (%0), _optix_get_object_ray_direction_y, ();" : "=f"(dy) :);
     asm("call (%0), _optix_get_object_ray_direction_z, ();" : "=f"(dz) :);
-    asm("call (%0), _optix_get_ray_tmax, ();" : "=f"(t_max) :);
     LCRay ray{};
     ray.m0[0] = ox;
     ray.m0[1] = oy;
@@ -2080,7 +2095,7 @@ void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     ray.m2[0] = dx;
     ray.m2[1] = dy;
     ray.m2[2] = dz;
-    ray.m3 = t_max;
+    ray.m3 = q.ray.m3;
     return ray;
 }
 
@@ -2113,13 +2128,21 @@ void lc_ray_query_terminate() noexcept {
 
 #define LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT(q) lc_ray_query_procedural_candidate()
 #define LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT(q) lc_ray_query_triangle_candidate()
-#define LC_RAY_QUERY_WORLD_RAY(q) lc_ray_query_world_ray()
-#define LC_RAY_QUERY_OBJECT_RAY(q) lc_ray_query_object_ray()
-#define LC_RAY_QUERY_COMMIT_TRIANGLE(q) static_cast<void>((q).result.committed = true)
-#define LC_RAY_QUERY_COMMIT_PROCEDURAL(q, t) \
-    do {                                     \
-        (q).result.committed = true;         \
-        (q).result.t_hit = t;                \
+#define LC_RAY_QUERY_WORLD_RAY(q) lc_ray_query_world_ray(q)
+#define LC_RAY_QUERY_OBJECT_RAY(q) lc_ray_query_object_ray(q)
+#define LC_RAY_QUERY_COMMIT_TRIANGLE(q)     \
+    do {                                    \
+        (q).result.committed = true;        \
+        (q).ray.m3 = lc_get_hit_distance(); \
+    } while (false)
+#define LC_RAY_QUERY_COMMIT_PROCEDURAL(q, t)              \
+    do {                                                  \
+        auto _lc_t = static_cast<lc_float>(t);            \
+        if (_lc_t >= (q).ray.m1 && _lc_t <= (q).ray.m3) { \
+            (q).result.committed = true;                  \
+            (q).result.t_hit = _lc_t;                     \
+            (q).ray.m3 = _lc_t;                           \
+        }                                                 \
     } while (false)
 #define LC_RAY_QUERY_TERMINATE(q) static_cast<void>((q).result.terminated = true)
 

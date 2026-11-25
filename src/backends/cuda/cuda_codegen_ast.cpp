@@ -63,6 +63,8 @@ public:
         // copy-back is also semantically dead: by-value kernel arguments are
         // read-only for the whole dispatch, so no write-back is ever needed.
         luisa::unordered_set<Variable> read_only_elements;
+        bool track_committed_t_max{false};
+        bool disable_anyhit{false};
     };
 
     struct FunctionResource {
@@ -260,9 +262,137 @@ private:
         for (auto i : indices) { _codegen->_scratch << "_" << i; }
     }
 
+    [[nodiscard]] static luisa::optional<Variable> _extract_root_variable(const Expression *expr) noexcept {
+        while (expr != nullptr) {
+            if (expr->tag() == Expression::Tag::MEMBER) {
+                expr = static_cast<const MemberExpr *>(expr)->self();
+            } else if (expr->tag() == Expression::Tag::ACCESS) {
+                expr = static_cast<const AccessExpr *>(expr)->range();
+            } else if (expr->tag() == Expression::Tag::REF) {
+                return static_cast<const RefExpr *>(expr)->variable();
+            } else {
+                return luisa::nullopt;
+            }
+        }
+        return luisa::nullopt;
+    }
+
+    [[nodiscard]] static bool _scope_uses_ray_query_ray_impl(
+        const ScopeStmt *scope,
+        luisa::unordered_set<const luisa::compute::detail::FunctionBuilder *> &visited) noexcept {
+        if (scope == nullptr) { return false; }
+        auto uses_ray = false;
+        traverse_expressions<true>(
+            scope,
+            [&](const Expression *expr) noexcept {
+                if (uses_ray || expr->tag() != Expression::Tag::CALL) { return; }
+                auto call_expr = static_cast<const CallExpr *>(expr);
+                if (call_expr->op() == CallOp::RAY_QUERY_WORLD_SPACE_RAY ||
+                    call_expr->op() == CallOp::RAY_QUERY_OBJECT_SPACE_RAY) {
+                    uses_ray = true;
+                    return;
+                }
+                if (!call_expr->is_builtin() && call_expr->op() == CallOp::CUSTOM) {
+                    auto callee = call_expr->custom();
+                    if (visited.emplace(callee.builder()).second &&
+                        _scope_uses_ray_query_ray_impl(callee.body(), visited)) {
+                        uses_ray = true;
+                    }
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+        return uses_ray;
+    }
+
+    [[nodiscard]] static bool _scope_uses_ray_query_ray(const ScopeStmt *scope) noexcept {
+        luisa::unordered_set<const luisa::compute::detail::FunctionBuilder *> visited;
+        return _scope_uses_ray_query_ray_impl(scope, visited);
+    }
+
+    [[nodiscard]] static bool _scope_is_always_commit_only_triangle(
+        const ScopeStmt *scope, const Expression *query) noexcept {
+        if (scope == nullptr || scope->statements().size() != 1u ||
+            query == nullptr || query->tag() != Expression::Tag::REF) {
+            return false;
+        }
+        auto *stmt = scope->statements().front();
+        if (stmt->tag() != Statement::Tag::EXPR) { return false; }
+        auto *expr = static_cast<const ExprStmt *>(stmt)->expression();
+        if (expr->tag() != Expression::Tag::CALL) { return false; }
+        auto *call = static_cast<const CallExpr *>(expr);
+        if (call->op() != CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
+            call->arguments().size() != 1u ||
+            call->arguments().front()->tag() != Expression::Tag::REF) {
+            return false;
+        }
+        return static_cast<const RefExpr *>(call->arguments().front())->variable() ==
+               static_cast<const RefExpr *>(query)->variable();
+    }
+
+    [[nodiscard]] static bool _scope_writes_any_captured_element(
+        const ScopeStmt *scope,
+        const luisa::unordered_set<Variable> &captured_element_vars) noexcept {
+        if (scope == nullptr || captured_element_vars.empty()) { return false; }
+        auto writes = false;
+        traverse_expressions<true>(
+            scope,
+            [&](const Expression *expr) noexcept {
+                if (writes || expr->tag() != Expression::Tag::CALL) { return; }
+                auto *call = static_cast<const CallExpr *>(expr);
+                if (call->op() == CallOp::EXTERNAL) {
+                    for (auto arg : call->arguments()) {
+                        if (auto v = _extract_root_variable(arg);
+                            v && captured_element_vars.contains(*v)) {
+                            writes = true;
+                            return;
+                        }
+                    }
+                    return;
+                }
+                if (!call->is_builtin()) {
+                    auto callee = call->custom();
+                    auto params = callee.arguments();
+                    auto args = call->arguments();
+                    for (size_t i = 0u; i < std::min(params.size(), args.size()); i++) {
+                        auto usage = callee.variable_usage(params[i].uid());
+                        if (usage != Usage::READ) {
+                            if (auto v = _extract_root_variable(args[i]);
+                                v && captured_element_vars.contains(*v)) {
+                                writes = true;
+                                return;
+                            }
+                        }
+                    }
+                    return;
+                }
+                if (is_atomic_operation(call->op()) || is_autodiff_operation(call->op())) {
+                    if (!call->arguments().empty()) {
+                        if (auto v = _extract_root_variable(call->arguments().front());
+                            v && captured_element_vars.contains(*v)) {
+                            writes = true;
+                        }
+                    }
+                }
+            },
+            [&](const Statement *s) noexcept {
+                if (!writes && s->tag() == Statement::Tag::ASSIGN) {
+                    auto *assign = static_cast<const AssignStmt *>(s);
+                    if (auto v = _extract_root_variable(assign->lhs());
+                        v && captured_element_vars.contains(*v)) {
+                        writes = true;
+                    }
+                }
+            },
+            [](auto) noexcept {});
+        return writes;
+    }
+
     void _create_outline_definitions(Function f, const RayQueryStmt *s) noexcept {
         // check if the ray query is already outlined
         if (_outline_infos.contains(s)) { return; }
+
+        auto track_committed_t_max = _scope_uses_ray_query_ray(s->on_triangle_candidate());
 
         // sort variables used in the ray query
         std::array target_scopes{s->on_triangle_candidate(),
@@ -394,13 +524,46 @@ private:
             }
         }
 
+        auto grad_variables = detail::glob_variables_with_grad(f);
+        luisa::unordered_set<Variable> read_only_elements;
+        for (auto arg : f.arguments()) { read_only_elements.emplace(arg); }
+        {
+            luisa::unordered_set<Variable> captured_element_vars;
+            for (auto &&e : captured_elements) {
+                captured_element_vars.emplace(e.base_variable);
+            }
+            auto writes_elements = false;
+            for (auto v : captured_element_vars) {
+                if (grad_variables.contains(v)) {
+                    writes_elements = true;
+                    break;
+                }
+            }
+            if (!writes_elements) {
+                writes_elements =
+                    _scope_writes_any_captured_element(s->on_triangle_candidate(), captured_element_vars) ||
+                    _scope_writes_any_captured_element(s->on_procedural_candidate(), captured_element_vars);
+            }
+            if (!writes_elements) {
+                for (auto v : captured_element_vars) {
+                    read_only_elements.emplace(v);
+                }
+            }
+        }
+
         // create outline struct
         // TODO: we may pass the values directly through
         //  OptiX registers if they are small enough
         auto rq_index = static_cast<uint>(_outline_infos.size());
-        if (!captured_elements.empty() ||
-            !captured_resources.empty()) {
+        auto has_ctx = !captured_elements.empty() ||
+                       !captured_resources.empty() ||
+                       track_committed_t_max;
+        if (has_ctx) {
             _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
+            if (track_committed_t_max) {
+                _codegen->_scratch << "\n  LCAccel _lc_rq_accel;"
+                                   << "\n  lc_float _lc_rq_committed_t_max;";
+            }
             for (auto &&v : captured_resources) {
                 _codegen->_scratch << "\n  ";
                 // Resource members deliberately drop the leading `const`: the context
@@ -424,7 +587,14 @@ private:
             _codegen->_scratch << "\n};\n\n";
         }
 
-        auto grad_variables = detail::glob_variables_with_grad(f);
+        auto any_element_writable = false;
+        for (auto &&v : captured_elements) {
+            if (!read_only_elements.contains(v.base_variable)) {
+                any_element_writable = true;
+                break;
+            }
+        }
+
         auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
             // corner case: emit nothing if empty handler
             if (stmt->statements().empty()) { return; }
@@ -522,16 +692,18 @@ private:
             _codegen->_emit_indent();
             _codegen->_scratch << "} // intersection handling body\n";
             // copy back captured variables
-            if (!captured_elements.empty()) {
+            if (any_element_writable) {
                 for (auto v : captured_elements) {
-                    _codegen->_emit_indent();
-                    _codegen->_scratch << "ctx.";
-                    _emit_outline_context_member_name(
-                        v.base_variable, v.access_indices);
-                    _codegen->_scratch << " = ";
-                    _emit_captured_element(
-                        v.base_variable, v.access_indices);
-                    _codegen->_scratch << ";\n";
+                    if (!read_only_elements.contains(v.base_variable)) {
+                        _codegen->_emit_indent();
+                        _codegen->_scratch << "ctx.";
+                        _emit_outline_context_member_name(
+                            v.base_variable, v.access_indices);
+                        _codegen->_scratch << " = ";
+                        _emit_captured_element(
+                            v.base_variable, v.access_indices);
+                        _codegen->_scratch << ";\n";
+                    }
                 }
                 _codegen->_emit_indent();
                 _codegen->_scratch << "lc_assume(__isLocal(ctx_in));\n";
@@ -549,7 +721,27 @@ private:
         _codegen->_scratch << " ";
         s->query()->accept(*_codegen);
         _codegen->_scratch << "{};\n";
+        if (track_committed_t_max) {
+            _codegen->_scratch << "  lc_assume(__isLocal(ctx_in));\n"
+                               << "  auto *lc_rq_ctx_ptr = static_cast<LCRayQueryCtx"
+                               << rq_index << " *>(ctx_in);\n"
+                               << "  lc_assume(__isGlobal(lc_rq_ctx_ptr->_lc_rq_accel.instances));\n"
+                               << "  if ((lc_rq_ctx_ptr->_lc_rq_accel.instances[lc_get_instance_index()].flags & LC_INSTANCE_FLAG_ENFORCE_ANYHIT) == 0u) {\n"
+                               << "    lc_rq_ctx_ptr->_lc_rq_committed_t_max = lc_get_hit_distance();\n"
+                               << "    return LCIntersectionResult{0.f, true, false};\n"
+                               << "  }\n  ";
+            s->query()->accept(*_codegen);
+            _codegen->_scratch << ".ray.m3 = lc_rq_ctx_ptr->_lc_rq_committed_t_max;\n";
+        }
         generate_intersection_body(s->on_triangle_candidate());
+        if (track_committed_t_max) {
+            _codegen->_scratch << "  if (";
+            s->query()->accept(*_codegen);
+            _codegen->_scratch << ".result.committed) {\n"
+                               << "    lc_rq_ctx_ptr->_lc_rq_committed_t_max = ";
+            s->query()->accept(*_codegen);
+            _codegen->_scratch << ".ray.m3;\n  }\n";
+        }
         _codegen->_scratch << "  return ";
         s->query()->accept(*_codegen);
         _codegen->_scratch << ".result;\n"
@@ -561,19 +753,41 @@ private:
         _codegen->_scratch << " ";
         s->query()->accept(*_codegen);
         _codegen->_scratch << "{};\n";
+        if (!s->on_procedural_candidate()->statements().empty()) {
+            _codegen->_scratch << "  ";
+            s->query()->accept(*_codegen);
+            _codegen->_scratch << ".ray.m1 = lc_get_ray_tmin();\n  ";
+            s->query()->accept(*_codegen);
+            _codegen->_scratch << ".ray.m3 = lc_get_ray_tmax();\n";
+        }
         generate_intersection_body(s->on_procedural_candidate());
+        if (track_committed_t_max && !s->on_procedural_candidate()->statements().empty()) {
+            _codegen->_scratch << "  if (";
+            s->query()->accept(*_codegen);
+            _codegen->_scratch << ".result.committed) {\n"
+                               << "    lc_assume(__isLocal(ctx_in));\n"
+                               << "    static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in)->_lc_rq_committed_t_max = ";
+            s->query()->accept(*_codegen);
+            _codegen->_scratch << ".ray.m3;\n  }\n";
+        }
         _codegen->_scratch << "  return ";
         s->query()->accept(*_codegen);
         _codegen->_scratch << ".result;\n"
                               "}\n\n";
 
+        auto disable_anyhit = !track_committed_t_max &&
+                              captured_resources.empty() &&
+                              captured_elements.empty() &&
+                              s->on_procedural_candidate()->statements().empty() &&
+                              _scope_is_always_commit_only_triangle(s->on_triangle_candidate(), s->query());
+
         // record the outline function
-        luisa::unordered_set<Variable> read_only_elements;
-        for (auto arg : f.arguments()) { read_only_elements.emplace(arg); }
         OutlineInfo info{rq_index,
                          std::move(captured_resources),
                          std::move(captured_elements),
-                         std::move(read_only_elements)};
+                         std::move(read_only_elements),
+                         track_committed_t_max,
+                         disable_anyhit};
         _outline_infos.emplace(s, std::move(info));
     }
 
@@ -597,19 +811,30 @@ public:
     void lower(const RayQueryStmt *stmt) noexcept {
         LUISA_ASSERT(_outline_infos.contains(stmt),
                      "Ray query statement not outlined.");
-        auto &&[rq_index, captured_resources, captured_elements, read_only_elements] = _outline_infos.at(stmt);
+        auto &&[rq_index, captured_resources, captured_elements, read_only_elements, track_committed_t_max, disable_anyhit] =
+            _outline_infos.at(stmt);
+        auto has_ctx = !captured_elements.empty() ||
+                       !captured_resources.empty() ||
+                       track_committed_t_max;
         // create ray query context
         _codegen->_scratch << "\n";
         _codegen->_emit_indent();
         _codegen->_scratch << "{ // ray query #" << rq_index << "\n";
         _codegen->_indent++;
         // copy captured variables if any
-        if (!captured_resources.empty() ||
-            !captured_elements.empty()) {
+        if (has_ctx) {
             _codegen->_emit_indent();
             _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
             // copy captured variables
             _codegen->_indent++;
+            if (track_committed_t_max) {
+                _codegen->_emit_indent();
+                stmt->query()->accept(*_codegen);
+                _codegen->_scratch << ".accel,\n";
+                _codegen->_emit_indent();
+                stmt->query()->accept(*_codegen);
+                _codegen->_scratch << ".ray.m3,\n";
+            }
             for (auto &&v : captured_resources) {
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_name(v);
@@ -625,11 +850,20 @@ public:
             _codegen->_emit_indent();
             _codegen->_scratch << "};\n";
         }
+        if (disable_anyhit) {
+            _codegen->_emit_indent();
+            stmt->query()->accept(*_codegen);
+            _codegen->_scratch << ".flags |= LC_RAY_FLAG_DISABLE_ANYHIT;\n";
+        } else if (track_committed_t_max) {
+            _codegen->_emit_indent();
+            stmt->query()->accept(*_codegen);
+            _codegen->_scratch << ".flags |= LC_RAY_FLAG_ENFORCE_ANYHIT;\n";
+        }
         // emit ray query call
         _codegen->_emit_indent();
         _codegen->_scratch << "lc_ray_query_trace(";
         stmt->query()->accept(*_codegen);
-        if (captured_elements.empty() && captured_resources.empty()) {
+        if (!has_ctx) {
             _codegen->_scratch << ", " << rq_index << ", nullptr);\n";
         } else {
             _codegen->_scratch << ", " << rq_index << ", &ctx);\n";

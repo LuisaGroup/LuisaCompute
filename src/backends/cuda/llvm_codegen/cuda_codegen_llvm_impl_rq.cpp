@@ -935,6 +935,14 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
         llvm::Value *raw_llvm_value;
     };
     llvm::SmallVector<CaptureSource> capture_sources;
+    struct LargeByValueCandidate {
+        size_t capture_index;
+        llvm::Type *elem_type;
+        llvm::Value *raw_llvm_value;
+        uint32_t words;
+        CaptureUsage usage;
+    };
+    llvm::SmallVector<LargeByValueCandidate> large_by_value_candidates;
     if (disable_anyhit) {
         for (size_t i = 0u; i < inst->captured_argument_count(); i++) {
             RayQueryCapture cap{};
@@ -967,7 +975,7 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
                 if (alloca_can_stage_inline(alloca_inst, inst)) {
                     auto elem_type = _get_llvm_type(alloca_inst->type())->mem_type;
                     if (elem_type != nullptr && !elem_type->isEmptyTy()) {
-                        auto words = ray_query_payload_word_count(elem_type, *_data_layout, 2u);
+                        auto words = ray_query_payload_word_count(elem_type, *_data_layout, 8u);
                         if (words >= 1u && words <= 2u) {
                             RayQueryCapture cap{};
                             cap.context_field = static_cast<unsigned>(fields.size());
@@ -978,6 +986,10 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
                             fields.emplace_back(b.CreateLoad(elem_type, raw_val));
                             capture_sources.emplace_back(CaptureSource{capture_index, value, raw_val});
                             continue;
+                        }
+                        if (words >= 3u && words <= 8u) {
+                            large_by_value_candidates.emplace_back(LargeByValueCandidate{
+                                capture_index, elem_type, raw_val, words, usage});
                         }
                     }
                 }
@@ -998,6 +1010,36 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     auto capture_offset = hardware_result ? (needs_pipeline_id ? 1u : 0u) : (needs_pipeline_id ? 3u : 2u);
     auto capture_budget = kRayQueryPayloadWordCount - capture_offset;
     auto direct_payload = disable_anyhit || ray_query_uses_direct_payload(context_type, *_data_layout, capture_budget);
+    if (!disable_anyhit && direct_payload && !large_by_value_candidates.empty()) {
+        constexpr auto kPromotedPayloadWordLimit = 24u;
+        auto used_words = capture_offset;
+        for (auto &&src : capture_sources) {
+            auto field_index = captures[src.capture_index].context_field;
+            used_words += ray_query_payload_word_count(field_types[field_index], *_data_layout, kRayQueryPayloadWordCount);
+        }
+        std::sort(large_by_value_candidates.begin(), large_by_value_candidates.end(),
+                  [](const LargeByValueCandidate &lhs, const LargeByValueCandidate &rhs) noexcept {
+                      if (lhs.words != rhs.words) { return lhs.words < rhs.words; }
+                      return (lhs.usage == CaptureUsage::ReadWrite) < (rhs.usage == CaptureUsage::ReadWrite);
+                  });
+        auto upgraded = false;
+        for (auto &&cand : large_by_value_candidates) {
+            auto extra_words = cand.words - 2u;
+            if (used_words + extra_words > kPromotedPayloadWordLimit) { continue; }
+            auto &cap = captures[cand.capture_index];
+            cap.by_value_ro = (cand.usage == CaptureUsage::ReadOnly);
+            cap.by_value_rw = (cand.usage == CaptureUsage::ReadWrite);
+            cap.value_type = cand.elem_type;
+            cap.is_local_ptr = false;
+            fields[cap.context_field] = b.CreateLoad(cand.elem_type, cand.raw_llvm_value);
+            field_types[cap.context_field] = cand.elem_type;
+            used_words += extra_words;
+            upgraded = true;
+        }
+        if (upgraded) {
+            context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
+        }
+    }
     struct StagedAlloca {
         unsigned field_index;
         llvm::Type *elem_type;
@@ -1107,7 +1149,7 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     }
     auto trace_call = _call_optix_trace(b, OPTIX_PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, payload);
     for (auto &&cb : rw_copybacks) {
-        llvm::SmallVector<llvm::Value *, 2u> words;
+        llvm::SmallVector<llvm::Value *, 8u> words;
         words.reserve(cb.word_count);
         for (auto w = 0u; w < cb.word_count; w++) {
             words.emplace_back(b.CreateExtractValue(trace_call, cb.word_offset + w));
@@ -1344,7 +1386,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 }
                 for (auto &&wb : rw_writebacks) {
                     auto updated = b.CreateLoad(wb.elem_type, wb.local_alloca);
-                    llvm::SmallVector<llvm::Value *, 2u> words;
+                    llvm::SmallVector<llvm::Value *, 8u> words;
                     pack_ray_query_payload(b, updated, words);
                     for (auto k = 0u; k < wb.word_count; k++) {
                         b.CreateCall(set_payload, {b.getInt32(wb.word_offset + k), words[k]});

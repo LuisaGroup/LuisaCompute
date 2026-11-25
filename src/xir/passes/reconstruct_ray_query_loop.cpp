@@ -455,29 +455,95 @@ enum class ReconstructMatch {
     return false;
 }
 
-[[nodiscard]] static bool alloca_has_single_store_in_candidate_entry(
-    const Value *variable, BasicBlock *candidate_entry,
-    const luisa::unordered_set<BasicBlock *> &body_region,
-    const StoreInst *&single_store) noexcept {
+[[nodiscard]] static bool variable_only_loaded_or_stored(
+    const Value *variable) noexcept {
     if (variable == nullptr || !variable->isa<AllocaInst>()) { return false; }
-    const StoreInst *found_store = nullptr;
     for (auto *use : variable->use_list()) {
         auto *user = use->user();
         if (user == nullptr || !user->isa<Instruction>()) { return false; }
         auto *inst = static_cast<const Instruction *>(user);
         if (inst->isa<StoreInst>()) {
             auto *store = static_cast<const StoreInst *>(inst);
-            if (store->variable() != variable) { return false; }
-            if (found_store != nullptr) { return false; }
-            found_store = store;
-        } else if (inst->isa<LoadInst>()) {
-            auto *load = static_cast<const LoadInst *>(inst);
-            if (load->variable() != variable ||
-                !body_region.contains(const_cast<BasicBlock *>(load->parent_block()))) {
+            if (store->variable() != variable || store->value() == variable) {
                 return false;
             }
+        } else if (inst->isa<LoadInst>()) {
+            auto *load = static_cast<const LoadInst *>(inst);
+            if (load->variable() != variable) { return false; }
         } else {
             return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static const StoreInst *find_preceding_store_in_block(
+    const LoadInst *load) noexcept {
+    if (load == nullptr || load->parent_block() == nullptr) { return nullptr; }
+    auto *variable = load->variable();
+    const StoreInst *latest_store = nullptr;
+    for (auto *inst : load->parent_block()->instructions()) {
+        if (inst == load) { break; }
+        if (inst->isa<StoreInst>()) {
+            auto *store = static_cast<const StoreInst *>(inst);
+            if (store->variable() == variable) { latest_store = store; }
+        }
+    }
+    if (latest_store != nullptr) { return latest_store; }
+    // Walk backward across single-predecessor links inside the loop body so
+    // a local temporary defined in an enclosing block (e.g. inside an `$if`)
+    // remains visible inside its immediate child arms.
+    luisa::unordered_set<const BasicBlock *> visited;
+    auto *cur = load->parent_block();
+    visited.emplace(cur);
+    while (cur != nullptr) {
+        const BasicBlock *unique_pred = nullptr;
+        auto pred_count = 0u;
+        const_cast<BasicBlock *>(cur)->traverse_predecessors(
+            false, [&](BasicBlock *pred) noexcept {
+                unique_pred = pred;
+                ++pred_count;
+            });
+        if (pred_count != 1u || unique_pred == nullptr ||
+            !visited.emplace(unique_pred).second) {
+            break;
+        }
+        const StoreInst *pred_store = nullptr;
+        for (auto *inst : const_cast<BasicBlock *>(unique_pred)->instructions()) {
+            if (inst->isa<StoreInst>()) {
+                auto *store = static_cast<const StoreInst *>(inst);
+                if (store->variable() == variable) { pred_store = store; }
+            }
+        }
+        if (pred_store != nullptr) { return pred_store; }
+        cur = unique_pred;
+    }
+    return nullptr;
+}
+
+[[nodiscard]] static bool alloca_has_single_store_in_candidate_entry(
+    const Value *variable, BasicBlock *candidate_entry,
+    const luisa::unordered_set<BasicBlock *> &body_region,
+    const StoreInst *&single_store) noexcept {
+    if (!variable_only_loaded_or_stored(variable)) { return false; }
+    const StoreInst *found_store = nullptr;
+    for (auto *use : variable->use_list()) {
+        auto *inst = static_cast<const Instruction *>(use->user());
+        if (inst->isa<StoreInst>()) {
+            auto *store = static_cast<const StoreInst *>(inst);
+            if (!body_region.contains(
+                    const_cast<BasicBlock *>(store->parent_block()))) {
+                continue;
+            }
+            if (found_store != nullptr) { return false; }
+            found_store = store;
+        } else {
+            auto *load = static_cast<const LoadInst *>(inst);
+            if (load->parent_block() != nullptr &&
+                !body_region.contains(
+                    const_cast<BasicBlock *>(load->parent_block()))) {
+                continue;
+            }
         }
     }
     if (found_store == nullptr ||
@@ -528,12 +594,21 @@ enum class ReconstructMatch {
         }
     } else if (inst->isa<LoadInst>()) {
         auto *load = static_cast<const LoadInst *>(inst);
-        const StoreInst *single_store = nullptr;
-        if (alloca_has_single_store_in_candidate_entry(
-                load->variable(), candidate_entry, body_region, single_store)) {
-            result = eval_specialized_bool(
-                single_store->value(), query, is_surface,
-                candidate_entry, body_region, memo);
+        if (variable_only_loaded_or_stored(load->variable())) {
+            if (auto *local_store = find_preceding_store_in_block(load);
+                local_store != nullptr) {
+                result = eval_specialized_bool(
+                    local_store->value(), query, is_surface,
+                    candidate_entry, body_region, memo);
+            } else {
+                const StoreInst *single_store = nullptr;
+                if (alloca_has_single_store_in_candidate_entry(
+                        load->variable(), candidate_entry, body_region, single_store)) {
+                    result = eval_specialized_bool(
+                        single_store->value(), query, is_surface,
+                        candidate_entry, body_region, memo);
+                }
+            }
         }
     } else if (inst->isa<ArithmeticInst>()) {
         auto *arith = static_cast<const ArithmeticInst *>(inst);
@@ -599,11 +674,81 @@ enum class ReconstructMatch {
                 if (lhs && rhs) { result = (*lhs == *rhs); }
                 break;
             }
+            case ArithmeticOp::SELECT: {
+                // XIR SELECT operand layout matches AST lc_select(false_val, true_val, cond).
+                if (arith->operand_count() == 3u) {
+                    auto cond = eval_specialized_bool(
+                        arith->operand(2u), query, is_surface,
+                        candidate_entry, body_region, memo);
+                    if (cond) {
+                        result = eval_specialized_bool(
+                            *cond ? arith->operand(1u) : arith->operand(0u),
+                            query, is_surface, candidate_entry, body_region, memo);
+                    } else {
+                        auto f_val = eval_specialized_bool(
+                            arith->operand(0u), query, is_surface,
+                            candidate_entry, body_region, memo);
+                        auto t_val = eval_specialized_bool(
+                            arith->operand(1u), query, is_surface,
+                            candidate_entry, body_region, memo);
+                        if (f_val && t_val && *f_val == *t_val) {
+                            result = *f_val;
+                        }
+                    }
+                }
+                break;
+            }
             default: break;
         }
     }
     if (result) { memo.emplace(inst, *result); }
     return result;
+}
+
+static void scan_callee_candidate_ops(
+    const Function *callee, const Value *query,
+    luisa::unordered_set<const Function *> &visited,
+    GeneralInlineSpecialization &spec) noexcept {
+    if (callee == nullptr || query == nullptr || !visited.emplace(callee).second) {
+        return;
+    }
+    auto *definition = const_cast<Function *>(callee)->definition();
+    if (definition == nullptr) { return; }
+    for (auto *block : definition->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<RayQueryObjectReadInst>()) {
+                auto *read = static_cast<const RayQueryObjectReadInst *>(inst);
+                if (read->operand_count() == 1u && read->operand(0u) == query) {
+                    if (read->op() == RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT) {
+                        spec.has_surface_ops = true;
+                    } else if (read->op() == RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT) {
+                        spec.has_procedural_ops = true;
+                    }
+                }
+            } else if (inst->isa<RayQueryObjectWriteInst>()) {
+                auto *write = static_cast<const RayQueryObjectWriteInst *>(inst);
+                if (write->operand_count() >= 1u && write->operand(0u) == query) {
+                    if (write->op() == RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE) {
+                        spec.has_surface_ops = true;
+                    } else if (write->op() == RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL) {
+                        spec.has_procedural_ops = true;
+                    }
+                }
+            } else if (inst->isa<CallInst>()) {
+                auto *call = static_cast<const CallInst *>(inst);
+                auto *next_callee = call->callee();
+                if (next_callee == nullptr) { continue; }
+                auto param_it = const_cast<Function *>(next_callee)->arguments().begin();
+                auto param_end = const_cast<Function *>(next_callee)->arguments().end();
+                for (size_t i = 0u; i < call->argument_count() && param_it != param_end; ++i, ++param_it) {
+                    if (call->argument(i) == query) {
+                        scan_callee_candidate_ops(next_callee, *param_it, visited, spec);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 [[nodiscard]] static bool analyze_general_inline_specialization(
@@ -640,6 +785,14 @@ enum class ReconstructMatch {
             cf_merge != nullptr && cf_merge->merge_block() != nullptr) {
             self(self, cf_merge->merge_block());
         }
+        if (terminator->isa<LoopInst>()) {
+            auto *loop_term = static_cast<LoopInst *>(terminator);
+            self(self, loop_term->body_block());
+            self(self, loop_term->update_block());
+        } else if (terminator->isa<SimpleLoopInst>()) {
+            auto *simple_term = static_cast<SimpleLoopInst *>(terminator);
+            self(self, simple_term->body_block());
+        }
         post_order.emplace_back(block);
     };
     dfs(dfs, candidate_entry);
@@ -664,6 +817,19 @@ enum class ReconstructMatch {
                         spec.has_surface_ops = true;
                     } else if (write->op() == RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL) {
                         spec.has_procedural_ops = true;
+                    }
+                }
+            } else if (inst->isa<CallInst>()) {
+                auto *call = static_cast<const CallInst *>(inst);
+                auto *callee = call->callee();
+                if (callee == nullptr) { continue; }
+                auto param_it = const_cast<Function *>(callee)->arguments().begin();
+                auto param_end = const_cast<Function *>(callee)->arguments().end();
+                for (size_t i = 0u; i < call->argument_count() && param_it != param_end; ++i, ++param_it) {
+                    if (call->argument(i) == query) {
+                        luisa::unordered_set<const Function *> visited;
+                        scan_callee_candidate_ops(callee, *param_it, visited, spec);
+                        break;
                     }
                 }
             }
@@ -1004,17 +1170,34 @@ match_frontend_inline_ray_query_loop(
         if (!valid_edges) {
             return reject("stateful inline ray-query body has non-Branch/Continue/Break loop exit");
         }
-        if (auto *cf_merge = terminator->control_flow_merge();
-            cf_merge != nullptr && cf_merge->merge_block() != nullptr) {
-            auto *cf_merge_block = cf_merge->merge_block();
-            if (cf_merge_block == loop_body || cf_merge_block == merge ||
-                cf_merge_block->parent_function() != function ||
-                cf_merge_block == parent || cf_merge_block == break_block ||
-                cf_merge_block == relay_block) {
-                return reject("stateful inline ray-query body has a merge escaping its region");
+        auto check_and_enqueue_structural = [&](BasicBlock *target) noexcept {
+            if (target == nullptr) { return true; }
+            if (target == loop_body || target == merge ||
+                target->parent_function() != function ||
+                target == parent || target == break_block ||
+                target == relay_block) {
+                return false;
             }
-            if (!body_region.contains(cf_merge_block)) {
-                worklist.emplace_back(cf_merge_block);
+            if (!body_region.contains(target)) {
+                worklist.emplace_back(target);
+            }
+            return true;
+        };
+        if (auto *cf_merge = terminator->control_flow_merge();
+            cf_merge != nullptr && !check_and_enqueue_structural(cf_merge->merge_block())) {
+            return reject("stateful inline ray-query body has a merge escaping its region");
+        }
+        if (terminator->isa<LoopInst>()) {
+            auto *loop_term = static_cast<LoopInst *>(terminator);
+            if (!check_and_enqueue_structural(loop_term->prepare_block()) ||
+                !check_and_enqueue_structural(loop_term->body_block()) ||
+                !check_and_enqueue_structural(loop_term->update_block())) {
+                return reject("stateful inline ray-query body has an inner loop escaping its region");
+            }
+        } else if (terminator->isa<SimpleLoopInst>()) {
+            auto *simple_term = static_cast<SimpleLoopInst *>(terminator);
+            if (!check_and_enqueue_structural(simple_term->body_block())) {
+                return reject("stateful inline ray-query body has an inner loop escaping its region");
             }
         }
     }
@@ -1029,6 +1212,19 @@ match_frontend_inline_ray_query_loop(
             cf_merge != nullptr && cf_merge->merge_block() != nullptr &&
             !body_region.contains(cf_merge->merge_block())) {
             return reject("stateful inline ray-query body has a merge outside its region");
+        }
+        if (block->terminator()->isa<LoopInst>()) {
+            auto *loop_term = static_cast<LoopInst *>(block->terminator());
+            if (!body_region.contains(loop_term->prepare_block()) ||
+                !body_region.contains(loop_term->body_block()) ||
+                !body_region.contains(loop_term->update_block())) {
+                return reject("stateful inline ray-query body has an inner loop outside its region");
+            }
+        } else if (block->terminator()->isa<SimpleLoopInst>()) {
+            auto *simple_term = static_cast<SimpleLoopInst *>(block->terminator());
+            if (!body_region.contains(simple_term->body_block())) {
+                return reject("stateful inline ray-query body has an inner loop outside its region");
+            }
         }
         auto has_external_pred = false;
         block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {

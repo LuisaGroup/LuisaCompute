@@ -12,6 +12,8 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
@@ -769,6 +771,405 @@ void test_procedural_ray_query_world_ray(Device &device) {
                 "joint world/object committed distance");
 }
 
+void test_ray_query_world_ray_opaque_and_non_opaque(Device &device) {
+    auto stream = device.create_stream();
+
+    const std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+
+    // Instance 0 (non-opaque): z = 1.5 -> t = 0.5
+    // Instance 1 (opaque):     z = 1.0 -> t = 1.0
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, translation(make_float3(0.0f, 0.0f, 1.5f)), 0xffu, false);
+    accel.emplace_back(mesh, translation(make_float3(0.0f, 0.0f, 1.0f)), 0xffu, true);
+
+    auto results_buf = device.create_buffer<float4>(2u);
+    Kernel1D trace = [](AccelVar accel, UInt commit_non_opaque, BufferFloat4 results) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 2.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 7.5f);
+        Float world_pre = -1.0f;
+        Float object_pre = -1.0f;
+        Float world_post = -1.0f;
+        Float object_post = -1.0f;
+        UInt callback_count = 0u;
+        auto committed = accel.traverse(ray, {})
+                             .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
+                                 callback_count += 1u;
+                                 world_pre = candidate.ray()->t_max();
+                                 object_pre = candidate.object_ray()->t_max();
+                                 $if (commit_non_opaque != 0u) {
+                                     candidate.commit();
+                                 };
+                                 world_post = candidate.ray()->t_max();
+                                 object_post = candidate.object_ray()->t_max();
+                             })
+                             .on_procedural_candidate([](ProceduralCandidate &) noexcept {})
+                             .trace();
+        results.write(0u, make_float4(world_pre, object_pre, world_post, object_post));
+        results.write(1u, make_float4(committed->distance(),
+                                      cast<float>(committed->inst),
+                                      cast<float>(committed->hit_type),
+                                      cast<float>(callback_count)));
+    };
+
+    auto shader = device.compile(trace);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    std::array<float4, 2u> host_results{};
+    // Reject non-opaque (t=0.5), fall back to opaque (t=1.0).
+    stream << shader(accel, 0u, results_buf).dispatch(1u)
+           << results_buf.copy_to(luisa::span{host_results})
+           << synchronize();
+    expect(host_results[0].x >= 1.0f - tolerance && host_results[0].x <= 7.5f + tolerance)
+        << luisa::format("mixed opaque/non-opaque reject pre world t_max={}", host_results[0].x);
+    expect(host_results[0].y >= 1.0f - tolerance && host_results[0].y <= 7.5f + tolerance)
+        << luisa::format("mixed opaque/non-opaque reject pre object t_max={}", host_results[0].y);
+    expect_near(host_results[0].z, host_results[0].x, "mixed reject post world t_max");
+    expect_near(host_results[0].w, host_results[0].y, "mixed reject post object t_max");
+    expect_near(host_results[1].x, 1.0f, "mixed reject committed distance");
+    expect_near(host_results[1].y, 1.0f, "mixed reject committed instance");
+
+    // Commit non-opaque (t=0.5), beating opaque (t=1.0).
+    stream << shader(accel, 1u, results_buf).dispatch(1u)
+           << results_buf.copy_to(luisa::span{host_results})
+           << synchronize();
+    expect_near(host_results[0].z, 0.5f, "mixed commit post world t_max");
+    expect_near(host_results[0].w, 0.5f, "mixed commit post object t_max");
+    expect_near(host_results[1].x, 0.5f, "mixed commit committed distance");
+    expect_near(host_results[1].y, 0.0f, "mixed commit committed instance");
+}
+
+void test_stateful_inline_ray_query_corner_cases(Device &device) {
+    auto stream = device.create_stream();
+
+    const std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    const std::array bounds{
+        AABB{.packed_min = {-0.5f, -0.5f, -0.1f},
+             .packed_max = {0.5f, 0.5f, 0.1f}}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto bounds_buffer = device.create_buffer<AABB>(bounds.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto procedural = device.create_procedural_primitive(bounds_buffer);
+
+    // Non-opaque surface at z=0.0 (t=1.0 from z=1.0), opaque surface at z=-1.0 (t=2.0),
+    // procedural at z=-2.0 (t=3.0).
+    auto mixed_accel = device.create_accel();
+    mixed_accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    mixed_accel.emplace_back(mesh, translation(make_float3(0.0f, 0.0f, -1.0f)), 0xffu, false);
+    mixed_accel.emplace_back(procedural, translation(make_float3(0.0f, 0.0f, -2.0f)), 0xffu);
+
+    auto tri_only_accel = device.create_accel();
+    tri_only_accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+
+    auto img = device.create_image<float>(PixelStorage::FLOAT4, 4u, 1u);
+    const std::array<float4, 4u> img_init{
+        make_float4(1.0f, 2.0f, 3.0f, 4.0f),
+        make_float4(5.0f, 6.0f, 7.0f, 8.0f),
+        make_float4(9.0f, 10.0f, 11.0f, 12.0f),
+        make_float4(13.0f, 14.0f, 15.0f, 16.0f)};
+
+    constexpr auto dispatch_size = 4u;
+    auto extra_buf = device.create_buffer<uint>(4u);
+    const std::array<uint, 4u> extra_init{10u, 20u, 30u, 40u};
+    auto results_u = device.create_buffer<uint4>(dispatch_size * 4u);
+    auto results_f = device.create_buffer<float4>(dispatch_size * 2u);
+
+    // 1. $while (rq.proceed()) inside a custom Callable.
+    Callable callable_query = [](AccelVar accel, UInt target) noexcept {
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 10.0f);
+        auto rq = accel.query(ray, {});
+        UInt count = 0u;
+        $while (rq.proceed()) {
+            count += 1u;
+            $if (rq.is_surface_candidate()) {
+                $if (rq.surface_candidate().hit()->inst == target) {
+                    rq.surface_candidate().commit();
+                };
+            };
+        };
+        auto h = rq.committed_hit();
+        return make_uint2(h->inst, count);
+    };
+
+    Kernel1D corner_kernel = [&callable_query](AccelVar mixed, AccelVar tri_only,
+                                               BufferUInt buf, ImageFloat tex,
+                                               BufferUInt4 out_u, BufferFloat4 out_f) noexcept {
+        auto idx = dispatch_x();
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.1f, 8.0f);
+
+        // A. Custom Callable + outer $for + sequential loops + empty loop.
+        auto from_callable = callable_query(mixed, idx & 1u);
+
+        auto empty_q = tri_only.query(ray, {});
+        $while (empty_q.proceed()) {};
+
+        UInt seq_sum = 0u;
+        for (auto iter : dynamic_range(2u)) {
+            auto loop_q = tri_only.query(ray, {});
+            $while (loop_q.proceed()) {
+                $if (loop_q.is_surface_candidate()) {
+                    loop_q.surface_candidate().commit();
+                };
+            };
+            seq_sum += iter + loop_q.committed_hit()->inst;
+        }
+
+        // B. Inner $for + inner $switch + pre-declared Bool + nested-block Bool + compound predicates
+        //    + Buffer/Image/large ArrayUInt<40> captures + ray()/object_ray() t_max.
+        ArrayUInt<40u> big_arr;
+        $for (k, 40u) {
+            big_arr[k] = idx + k;
+        };
+        Float4 tex_val = make_float4(0.0f);
+        UInt buf_val = 0u;
+        UInt sw_acc = 0u;
+        Float pre_w_tmax = -1.0f;
+        Float post_w_tmax = -1.0f;
+        Float post_o_tmax = -1.0f;
+        UInt inside_commit_type = 0u;
+        Bool pre_is_surf = false;
+        auto complex_q = mixed.query(ray, {});
+        $while (complex_q.proceed()) {
+            pre_is_surf = complex_q.is_surface_candidate();
+            for (auto s : dynamic_range(2u)) {
+                $if (s == 0u) { $continue; };
+                sw_acc += 1u;
+                $break;
+            }
+            Bool do_outer_break = false;
+            $if (pre_is_surf & (idx < 100u)) {
+                auto sc = complex_q.surface_candidate();
+                $switch (sc.hit()->inst) {
+                    $case (0u) {
+                        $if ((idx & 1u) == 0u) {
+                            pre_w_tmax = sc.ray()->t_max();
+                            sc.commit();
+                            post_w_tmax = sc.ray()->t_max();
+                            post_o_tmax = sc.object_ray()->t_max();
+                            tex_val = tex.read(make_uint2(idx, 0u));
+                            buf_val = buf.read(idx);
+                            big_arr[idx + 5u] += 100u;
+                            inside_commit_type = complex_q.committed_hit()->hit_type;
+                            do_outer_break = true;
+                            $break;
+                        };
+                    };
+                    $default {
+                        $if ((idx & 1u) == 1u) {
+                            pre_w_tmax = sc.ray()->t_max();
+                            sc.commit();
+                            post_w_tmax = sc.ray()->t_max();
+                            post_o_tmax = sc.object_ray()->t_max();
+                            tex_val = tex.read(make_uint2(idx, 0u));
+                            buf_val = buf.read(idx);
+                            big_arr[idx + 5u] += 200u;
+                            inside_commit_type = complex_q.committed_hit()->hit_type;
+                        };
+                    };
+                };
+                $if (do_outer_break) { $break; };
+            }
+            $else {
+                $if (idx == idx) {
+                    Bool nested_flag = complex_q.is_surface_candidate();
+                    Bool chosen = ite(nested_flag, idx > 1000u, idx < 1000u);
+                    $if (!nested_flag & chosen) {
+                        auto pc = complex_q.procedural_candidate();
+                        $if ((idx & 1u) == 0u) {
+                            pc.commit(3.0f);
+                        };
+                    };
+                };
+            };
+        };
+        auto c_hit = complex_q.committed_hit();
+
+        // C. query_any termination check.
+        auto any_q = mixed.query_any(ray, {});
+        UInt any_calls = 0u;
+        $while (any_q.proceed()) {
+            any_calls += 1u;
+            $if (any_q.is_surface_candidate()) {
+                any_q.surface_candidate().commit();
+            }
+            $else {
+                any_q.procedural_candidate().commit(3.0f);
+            };
+        };
+
+        out_u.write(idx * 4u + 0u, make_uint4(from_callable.x, from_callable.y,
+                                              empty_q.committed_hit()->hit_type, seq_sum));
+        out_u.write(idx * 4u + 1u, make_uint4(c_hit->hit_type, c_hit->inst, sw_acc, big_arr[idx + 5u]));
+        out_u.write(idx * 4u + 2u, make_uint4(buf_val, inside_commit_type,
+                                              any_q.committed_hit()->hit_type, any_calls));
+        out_f.write(idx * 2u + 0u, tex_val);
+        out_f.write(idx * 2u + 1u, make_float4(pre_w_tmax, post_w_tmax, post_o_tmax, c_hit->distance()));
+    };
+
+    // Motion blur inline stateful loop + (LLVM-only) uncommitted $break preservation.
+    auto llvm_env = std::getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN");
+    auto is_cuda_llvm = llvm_env != nullptr && std::strcmp(llvm_env, "1") == 0;
+    auto is_cuda = device.backend_name() == "cuda";
+    AccelMotionOption motion_opt{};
+    motion_opt.mode = AccelMotionMode::MATRIX;
+    motion_opt.keyframe_count = 2u;
+    motion_opt.time_start = 0.0f;
+    motion_opt.time_end = 1.0f;
+    auto motion_inst = device.create_motion_instance(mesh, motion_opt);
+    const std::array<float4x4, 2u> motion_keys{
+        make_float4x4(1.0f),
+        translation(make_float3(0.0f, 0.0f, -2.0f))};
+    motion_inst.set_keyframes(luisa::span{motion_keys});
+    auto motion_accel = device.create_accel();
+    motion_accel.emplace_back(motion_inst, make_float4x4(1.0f), 0xffu, false);
+    auto motion_res = device.create_buffer<float4>(dispatch_size);
+
+    Kernel1D motion_kernel = [](AccelVar motion_scene, BufferFloat4 out) noexcept {
+        auto idx = dispatch_x();
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 10.0f);
+        auto mq = motion_scene.query_motion(ray, 0.5f, {});
+        UInt count = 0u;
+        $while (mq.proceed()) {
+            count += 1u;
+            $if (mq.is_surface_candidate()) {
+                mq.surface_candidate().commit();
+            };
+        };
+        auto mh = mq.committed_hit();
+        out.write(idx, make_float4(cast<float>(mh->hit_type), mh->distance(),
+                                    cast<float>(mh->inst), cast<float>(count)));
+    };
+
+    auto shader = device.compile(corner_kernel);
+    auto motion_shader = device.compile(motion_kernel);
+
+    std::array<uint4, dispatch_size * 4u> host_u{};
+    std::array<float4, dispatch_size * 2u> host_f{};
+    std::array<float4, dispatch_size> host_motion{};
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << bounds_buffer.copy_from(luisa::span{bounds})
+           << img.copy_from(img_init.data())
+           << extra_buf.copy_from(luisa::span{extra_init})
+           << mesh.build()
+           << procedural.build()
+           << motion_inst.build()
+           << mixed_accel.build()
+           << tri_only_accel.build()
+           << motion_accel.build()
+           << shader(mixed_accel, tri_only_accel, extra_buf, img, results_u, results_f).dispatch(dispatch_size)
+           << motion_shader(motion_accel, motion_res).dispatch(dispatch_size)
+           << results_u.copy_to(luisa::span{host_u})
+           << results_f.copy_to(luisa::span{host_f})
+           << motion_res.copy_to(luisa::span{host_motion})
+           << synchronize();
+
+    for (auto i = 0u; i < dispatch_size; i++) {
+        auto u0 = host_u[i * 4u + 0u];
+        auto u1 = host_u[i * 4u + 1u];
+        auto u2 = host_u[i * 4u + 2u];
+        auto f0 = host_f[i * 2u + 0u];
+        auto f1 = host_f[i * 2u + 1u];
+        auto m = host_motion[i];
+
+        expect(u0.x == (i & 1u) && u0.y >= 1u &&
+               u0.z == static_cast<uint>(HitType::Miss) && u0.w == 1u)
+            << luisa::format("stateful corner callable/empty/seq mismatch lane {}: ({},{},{},{})",
+                             i, u0.x, u0.y, u0.z, u0.w);
+
+        if ((i & 1u) == 0u) {
+            expect(u1.x == static_cast<uint>(HitType::Surface) && u1.y == 0u &&
+                   u1.z >= 1u && u1.w == (i * 2u + 5u + 100u))
+                << luisa::format("stateful corner even complex mismatch lane {}: ({},{},{},{})",
+                                 i, u1.x, u1.y, u1.z, u1.w);
+            expect_near(f1.y, 1.0f, "stateful corner even post world t_max");
+            expect_near(f1.z, 1.0f, "stateful corner even post object t_max");
+            expect_near(f1.w, 1.0f, "stateful corner even committed t");
+        } else {
+            expect(u1.x == static_cast<uint>(HitType::Surface) && u1.y == 1u &&
+                   u1.z >= 1u && u1.w == (i * 2u + 5u + 200u))
+                << luisa::format("stateful corner odd complex mismatch lane {}: ({},{},{},{})",
+                                 i, u1.x, u1.y, u1.z, u1.w);
+            expect_near(f1.y, 2.0f, "stateful corner odd post world t_max");
+            expect_near(f1.z, 2.0f, "stateful corner odd post object t_max");
+            expect_near(f1.w, 2.0f, "stateful corner odd committed t");
+        }
+        expect(u2.x == extra_init[i] &&
+               u2.z == static_cast<uint>(HitType::Surface) && u2.w == 1u)
+            << luisa::format("stateful corner capture/any mismatch lane {}: ({},{},{},{})",
+                             i, u2.x, u2.y, u2.z, u2.w);
+        expect(f1.x >= 1.0f - tolerance && f1.x <= 8.0f + tolerance)
+            << luisa::format("stateful corner pre t_max invalid lane {}: {}", i, f1.x);
+        expect_near(f0.x, img_init[i].x, "stateful corner image capture x");
+        expect_near(f0.w, img_init[i].w, "stateful corner image capture w");
+        expect_near(m.x, static_cast<float>(HitType::Surface), "stateful corner motion hit_type");
+        expect_near(m.y, 2.0f, "stateful corner motion t=0.5 distance");
+        expect_near(m.z, 0.0f, "stateful corner motion inst");
+        expect_near(m.w, 1.0f, "stateful corner motion callback count");
+    }
+
+    // Exact uncommitted-$break preservation requires software query state inside AH/IS
+    // (guaranteed on CUDA LLVM or non-CUDA-AST backends). Use two overlapping procedural
+    // AABBs and commit the farther t on the first visit so hardware still visits the second.
+    if (!is_cuda || is_cuda_llvm) {
+        auto break_accel = device.create_accel();
+        break_accel.emplace_back(procedural, translation(make_float3(0.0f, 0.0f, -1.0f)), 0xffu);
+        break_accel.emplace_back(procedural, translation(make_float3(0.0f, 0.0f, -1.0f)), 0xffu);
+        auto break_res = device.create_buffer<uint4>(1u);
+        Kernel1D break_preserve = [](AccelVar accel, BufferUInt4 out) noexcept {
+            auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                                make_float3(0.0f, 0.0f, -1.0f), 0.0f, 10.0f);
+            auto rq = accel.query(ray, {});
+            UInt calls = 0u;
+            $while (rq.proceed()) {
+                calls += 1u;
+                $if (rq.is_procedural_candidate()) {
+                    $if (calls == 1u) {
+                        rq.procedural_candidate().commit(2.05f);
+                    }
+                    $else {
+                        $break;
+                    };
+                };
+            };
+            auto h = rq.committed_hit();
+            out.write(0u, make_uint4(h->hit_type, h->inst, calls, as<uint>(h->distance())));
+        };
+        auto break_shader = device.compile(break_preserve);
+        std::array<uint4, 1u> host_break{};
+        stream << break_accel.build()
+               << break_shader(break_accel, break_res).dispatch(1u)
+               << break_res.copy_to(luisa::span{host_break})
+               << synchronize();
+        expect(host_break[0].x == static_cast<uint>(HitType::Procedural) &&
+               host_break[0].z == 2u &&
+               std::abs(std::bit_cast<float>(host_break[0].w) - 2.05f) < tolerance)
+            << luisa::format("uncommitted break preserved hit mismatch: ({},{},{},{})",
+                             host_break[0].x, host_break[0].y,
+                             host_break[0].z, host_break[0].w);
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -782,4 +1183,6 @@ int main(int argc, char *argv[]) {
     test_stateful_inline_ray_query_dsl(dc->device);
     test_negative_surface_barycentric_hit_type(dc->device);
     test_procedural_ray_query_world_ray(dc->device);
+    test_ray_query_world_ray_opaque_and_non_opaque(dc->device);
+    test_stateful_inline_ray_query_corner_cases(dc->device);
 }
