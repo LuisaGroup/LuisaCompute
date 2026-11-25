@@ -362,8 +362,7 @@ void emit_byte1_linear_mirror_sample(
         ::llvm::ConstantFP::get(_builder.getFloatTy(), 1.0));
     auto *slot_value = _source.value(instruction.operands[1u]);
     const bool direct_mip0_candidate =
-        dimension == 2u && !has_level && !has_gradient &&
-        (!explicit_sampler || _width == 1u) && varying_result &&
+        dimension == 2u && !has_level && !has_gradient && varying_result &&
         slot_value != nullptr &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING");
@@ -943,6 +942,7 @@ void emit_byte1_linear_mirror_sample(
 
     ::llvm::Value *sampler_pointer = null_pointer;
     ::llvm::Value *explicit_sampler_scalar = nullptr;
+    ::llvm::Value *explicit_sampler_lanes = nullptr;
     if (explicit_sampler) {
         auto *filter_value = _source.value(
             instruction.operands[operand_index]);
@@ -977,6 +977,7 @@ void emit_byte1_linear_mirror_sample(
             address);
         sampler = _builder.CreateSelect(
             _active_mask, sampler, zero_i32);
+        explicit_sampler_lanes = sampler;
         if (_width == 1u) {
             explicit_sampler_scalar = _builder.CreateExtractElement(
                 sampler, _builder.getInt32(0u),
@@ -1068,6 +1069,25 @@ void emit_byte1_linear_mirror_sample(
                 "bindless.texture.mip0.slots.active.same");
             all_slots_equal = _builder.CreateAndReduce(active_same);
         }
+        ::llvm::Value *all_samplers_equal = _builder.getTrue();
+        if (explicit_sampler_lanes != nullptr) {
+            explicit_sampler_scalar = _builder.CreateExtractElement(
+                explicit_sampler_lanes, first_active_lane,
+                "bindless.texture.explicit.sampler.scalar");
+            if (_width > 1u) {
+                auto *splat_sampler = _builder.CreateVectorSplat(
+                    _width, explicit_sampler_scalar);
+                auto *same_sampler = _builder.CreateICmpEQ(
+                    explicit_sampler_lanes, splat_sampler);
+                auto *all_true_lanes = ::llvm::ConstantVector::getSplat(
+                    ::llvm::ElementCount::getFixed(_width), _builder.getTrue());
+                auto *active_same_sampler = _builder.CreateSelect(
+                    _active_mask, same_sampler, all_true_lanes,
+                    "bindless.texture.mip0.samplers.active.same");
+                all_samplers_equal = _builder.CreateAndReduce(
+                    active_same_sampler);
+            }
+        }
         auto *slot_base = _builder.CreateGEP(
             _builder.getInt8Ty(), array.slots,
             _builder.CreateMul(
@@ -1127,7 +1147,7 @@ void emit_byte1_linear_mirror_sample(
                 _builder.getInt64(simd_bindless_texture_mip0_format_shift)),
             _builder.getInt32Ty());
         auto *has_valid_mip0 = _builder.CreateAnd(
-            all_slots_equal,
+            _builder.CreateAnd(all_slots_equal, all_samplers_equal),
             _builder.CreateAnd(
                 _builder.CreateICmpNE(data, null_pointer),
                 _builder.CreateAnd(

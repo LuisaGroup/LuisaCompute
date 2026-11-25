@@ -270,6 +270,16 @@ public:
                                               static_cast<double>(value)});
     }
 
+    CoroSuspendExtensionBuilder &blocking_async(bool enabled = true) noexcept {
+        return attribute(luisa::string{"luisa.coro.schedule.blocking_async"},
+                         CoroSuspendAttributeValue{enabled});
+    }
+
+    CoroSuspendExtensionBuilder &async_domain(luisa::string domain) noexcept {
+        return attribute(luisa::string{"luisa.coro.schedule.async_domain"},
+                         CoroSuspendAttributeValue{std::move(domain)});
+    }
+
     [[nodiscard]] CoroSuspendExtensionPtr build() && noexcept {
         return luisa::make_unique<
             coro_suspend_detail::RecordedCoroSuspendExtension<IsAnnotation>>(

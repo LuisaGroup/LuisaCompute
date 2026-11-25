@@ -11,6 +11,7 @@
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::hip {
 
@@ -85,6 +86,7 @@ private:
     uint8_t _format = {};
     uint8_t _levels : 4 = {};
     uint8_t _dimension : 4 = {};
+    uint8_t _gfx_gen = {};
 
 public:
     HIPTexture() noexcept;
@@ -107,7 +109,7 @@ private:
     void _initialize_direct_descriptor() noexcept;
 
 public:
-    [[nodiscard]] static HIPTexture *create_device_texture(PixelFormat format, uint dim, uint3 size, uint32_t mip_levels) noexcept;
+    [[nodiscard]] static HIPTexture *create_device_texture(PixelFormat format, uint dim, uint3 size, uint32_t mip_levels, luisa::string_view amdgpu_arch = {}) noexcept;
     [[nodiscard]] static HIPTexture *import_external_texture(uint64_t external_array, PixelFormat format, uint dim, uint3 size, uint32_t mip_levels) noexcept;
 };
 

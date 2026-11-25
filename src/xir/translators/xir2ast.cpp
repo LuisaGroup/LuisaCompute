@@ -890,12 +890,51 @@ private:
         return nullptr;
     }
 
+    [[nodiscard]] static bool _is_ray_query_creation_op(ResourceQueryOp op) noexcept {
+        return op == ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
+               op == ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
+               op == ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+               op == ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR;
+    }
+
+    [[nodiscard]] static bool _should_materialize_value_expr(const Instruction *inst) noexcept {
+        if (inst->type() == nullptr || inst->type()->is_resource() || inst->type()->is_custom()) {
+            return false;
+        }
+        if (inst->derived_instruction_tag() == DerivedInstructionTag::CAST) {
+            return false;
+        }
+        if (inst->derived_instruction_tag() == DerivedInstructionTag::ARITHMETIC) {
+            switch (static_cast<const ArithmeticInst *>(inst)->op()) {
+                case ArithmeticOp::EXTRACT:
+                case ArithmeticOp::SHUFFLE:
+                case ArithmeticOp::UNARY_MINUS:
+                case ArithmeticOp::UNARY_BIT_NOT:
+                    return false;
+                default:
+                    break;
+            }
+        }
+        auto *bb = inst->parent_block();
+        size_t use_count = 0u;
+        for (auto &&use : inst->use_list()) {
+            ++use_count;
+            if (use_count > 1u) { return true; }
+            auto *u = use->user();
+            if (u == nullptr || !u->isa<Instruction>()) { return true; }
+            auto *u_inst = static_cast<const Instruction *>(u);
+            if (u_inst->parent_block() != bb) { return true; }
+        }
+        return false;
+    }
+
     [[nodiscard]] static bool _is_lazy_pure_expr(const Instruction *inst) noexcept {
         switch (inst->derived_instruction_tag()) {
             case DerivedInstructionTag::CAST:
             case DerivedInstructionTag::GEP:
-            case DerivedInstructionTag::RESOURCE_QUERY:
                 return true;
+            case DerivedInstructionTag::RESOURCE_QUERY:
+                return _is_ray_query_creation_op(static_cast<const ResourceQueryInst *>(inst)->op());
             case DerivedInstructionTag::ARITHMETIC: {
                 auto *arith = static_cast<const ArithmeticInst *>(inst);
                 if (arith->op() == ArithmeticOp::INSERT) { return false; }
@@ -904,7 +943,7 @@ private:
                     (arith->type()->is_structure() || arith->type()->is_array())) {
                     return false;
                 }
-                return true;
+                return !_should_materialize_value_expr(inst);
             }
             default: return false;
         }
@@ -928,12 +967,15 @@ private:
             case DerivedInstructionTag::ASSERT:
             case DerivedInstructionTag::ASSUME:
                 return true;
+            case DerivedInstructionTag::RESOURCE_QUERY:
+                return !_is_ray_query_creation_op(static_cast<const ResourceQueryInst *>(inst)->op());
             case DerivedInstructionTag::ARITHMETIC: {
                 auto *arith = static_cast<const ArithmeticInst *>(inst);
                 return arith->op() == ArithmeticOp::INSERT ||
                        (arith->op() == ArithmeticOp::AGGREGATE &&
                         arith->type() != nullptr &&
-                        (arith->type()->is_structure() || arith->type()->is_array()));
+                        (arith->type()->is_structure() || arith->type()->is_array())) ||
+                       _should_materialize_value_expr(inst);
             }
             default: return false;
         }
@@ -1057,7 +1099,18 @@ private:
                     return tmp;
                 }
                 case DerivedInstructionTag::GEP: return _gep(static_cast<const GEPInst *>(inst));
-                case DerivedInstructionTag::ARITHMETIC: return _arithmetic(static_cast<const ArithmeticInst *>(inst));
+                case DerivedInstructionTag::ARITHMETIC: {
+                    auto arith = static_cast<const ArithmeticInst *>(inst);
+                    auto expr = _arithmetic(arith);
+                    auto already_materialized =
+                        arith->op() == ArithmeticOp::INSERT ||
+                        (arith->op() == ArithmeticOp::AGGREGATE &&
+                         arith->type() != nullptr &&
+                         (arith->type()->is_structure() || arith->type()->is_array()));
+                    return (!already_materialized && _should_materialize_value_expr(arith)) ?
+                               _materialize(arith->type(), expr) :
+                               expr;
+                }
                 case DerivedInstructionTag::CAST: {
                     auto cast = static_cast<const CastInst *>(inst);
                     auto op = cast->op() == CastOp::STATIC_CAST ? compute::CastOp::STATIC : compute::CastOp::BITWISE;
@@ -1133,11 +1186,16 @@ private:
             args.emplace_back(
                 _current_builder()->literal(Type::of<uint32_t>(), 1u));
         }
-        return _current_builder()->call(
+        auto call = _current_builder()->call(
             inst->type(),
             detail::xir2ast_resource_query_op(
                 inst->op(), inst->bindless_access()),
             args);
+        if (_is_ray_query_creation_op(inst->op()) || inst->type() == nullptr ||
+            inst->use_list().empty()) {
+            return call;
+        }
+        return _materialize(inst->type(), call);
     }
 
     template<typename F>

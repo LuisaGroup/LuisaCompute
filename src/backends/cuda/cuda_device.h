@@ -156,6 +156,9 @@ private:
     bool _use_fallback_rtx{false};
     mutable spin_mutex _fallback_rtx_mutex;
     mutable luisa::unique_ptr<lc::fallback_rtx::FallbackRtxDevice> _fallback_rtx;
+    spin_mutex _sampler_table_mutex;
+    luisa::vector<CUdeviceptr> _sampler_table_chunks;
+    luisa::vector<CUdeviceptr> _sampler_table_free_list;
 
 private:
     // extensions
@@ -218,6 +221,8 @@ public:
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
     [[nodiscard]] auto instance_handle_update_function() const noexcept { return _instance_handle_update_function; }
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
+    [[nodiscard]] CUdeviceptr allocate_sampler_table() noexcept;
+    void deallocate_sampler_table(CUdeviceptr ptr) noexcept;
     [[nodiscard]] auto cudadevrt_library() const noexcept { return luisa::string_view{_cudadevrt_library}; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     // Whether this device answers ray tracing with the software fallback (and

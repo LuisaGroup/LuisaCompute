@@ -3195,10 +3195,10 @@ template<size_t Width>
         CHECK(candidate.chained_predicated_region_count ==
               (width >= 4u ? 1u : 0u));
         CHECK(candidate.chained_predicated_transition_count ==
-              (width == 8u ? 2u : width >= 4u ? 1u :
-                                                0u));
+              ((width == 4u || width == 8u) ? 2u : width >= 4u ? 1u :
+                                                                 0u));
         CHECK(candidate.chained_predicated_nested_tail_count ==
-              (width == 8u ? 1u : 0u));
+              ((width == 4u || width == 8u) ? 1u : 0u));
         CHECK(candidate.chained_predicated_terminal_block_count == 0u ||
               width >= 8u);
         CHECK(candidate.chained_predicated_terminal_instruction_count == 0u ||
@@ -4578,7 +4578,7 @@ template<size_t Width>
                     std::cerr << codegen.error << '\n';
                     return false;
                 }
-                auto enabled = width == 2u || width == 8u;
+                auto enabled = width == 2u || width == 4u || width == 8u;
                 CHECK(codegen.all_on_region_version_count ==
                       (disable_versioning || !enabled ? 0u : 1u));
                 CHECK(codegen.all_on_region_block_count ==
@@ -5099,16 +5099,17 @@ template<size_t Width>
                   count_occurrences(*oracle_ir, "call void @llvm.masked.store.v4i32") == 1u);
         CHECK(oracle_ir->find("@llvm.masked.gather") == std::string::npos);
         CHECK(oracle_ir->find("@llvm.masked.scatter") == std::string::npos);
-    } else if (width == 8u) {
+    } else if (width == 4u || width == 8u) {
         CHECK(count_occurrences(
-                  *oracle_ir, "call <8 x i32> @llvm.masked.gather") == 0u);
+                  *oracle_ir, "call <" + std::to_string(width) +
+                                  " x i32> @llvm.masked.gather") == 0u);
         ScopedEnvironmentVariable disable_aos{
             "LUISA_SIMD_DISABLE_AOS_TRANSPOSE_GATHER", "1"};
         auto scalar_oracle_ir = make_ir(false);
         CHECK(scalar_oracle_ir.has_value());
         CHECK(count_occurrences(
-                  *scalar_oracle_ir, "call <8 x i32> @llvm.masked.gather") ==
-              8u);
+                  *scalar_oracle_ir, "call <" + std::to_string(width) +
+                                         " x i32> @llvm.masked.gather") == 8u);
     } else {
         CHECK(count_occurrences(
                   *oracle_ir, "call <" + std::to_string(width) +
@@ -5264,7 +5265,7 @@ template<size_t Width>
     auto oracle = compile(true, "oracle");
     CHECK(candidate.succeeded());
     CHECK(oracle.succeeded());
-    auto expect_group = width == 8u || width == 16u;
+    auto expect_group = width == 4u || width == 8u || width == 16u;
     CHECK(candidate.interleaved_scalar_buffer_read_group_count ==
           (expect_group ? 1u : 0u));
     CHECK(candidate.interleaved_scalar_buffer_read_count ==
@@ -13238,6 +13239,207 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+struct BindlessW4ExplicitSamplerProbe {
+    bool valid{true};
+    uint32_t calls{0u};
+    uint64_t active_mask_bits{0u};
+    std::array<uint32_t, 4u> sampler_codes{};
+};
+
+void bindless_w4_explicit_sampler_probe(
+    const SIMDHostBindlessSlot *slots, size_t slot_count,
+    uint32_t dimension, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *slot_indices,
+    const uint32_t *sampler_codes,
+    const float *u, const float *v, const float *w,
+    const float *levels, float *values) {
+    auto *probe = static_cast<BindlessW4ExplicitSamplerProbe *>(
+        slots[0u].texture2d.texture);
+    probe->calls++;
+    probe->active_mask_bits = active_mask_bits;
+    probe->valid &= slot_count == 1u && dimension == 2u &&
+                    lane_count == 4u && active_mask_bits == 0x7u &&
+                    slot_indices != nullptr && sampler_codes != nullptr &&
+                    u != nullptr && v != nullptr && w != nullptr &&
+                    levels == nullptr && values != nullptr;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->valid &= slot_indices[lane] == 0u;
+        probe->sampler_codes[lane] = sampler_codes[lane];
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            values[component * lane_count + lane] =
+                static_cast<float>(500u + component * 10u + lane);
+        }
+    }
+}
+
+[[nodiscard]] bool run_bindless_texture_w4_explicit_sampler_mip0_codegen() {
+    static constexpr auto width = 4u;
+    static constexpr auto active_lanes = 3u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("bindless_w4_explicit_sampler_mip0");
+    auto *bindless = kernel->create_resource_argument(
+        Type::of<BindlessArray>());
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::float4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto four_value = uint32_t{4u};
+    auto *four = module.create_constant(Type::of<uint32_t>(), &four_value);
+    auto quarter_value = 0.25f;
+    auto half_value = 0.5f;
+    auto *quarter = module.create_constant(Type::of<float>(), &quarter_value);
+    auto *half = module.create_constant(Type::of<float>(), &half_value);
+    auto filter_value = static_cast<uint32_t>(
+        Sampler::Filter::LINEAR_POINT);
+    auto *filter = module.create_constant(
+        Type::of<uint32_t>(), &filter_value);
+    auto repeat_addr_value = static_cast<uint32_t>(
+        Sampler::Address::REPEAT);
+    auto *repeat_addr = module.create_constant(
+        Type::of<uint32_t>(), &repeat_addr_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *x_low = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {x, one});
+    auto *x_high = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_SHIFT_RIGHT,
+        {x, one});
+    auto *x_low_f = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, x_low);
+    auto *x_high_f = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, x_high);
+    auto *u = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {quarter, builder.call(
+                      Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+                      {x_low_f, half})});
+    auto *v = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {quarter, builder.call(
+                      Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+                      {x_high_f, half})});
+    auto *uv = builder.call(
+        Type::of<luisa::float2>(), xir::ArithmeticOp::AGGREGATE,
+        {u, v});
+    auto *uniform_sample = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER,
+        {bindless, zero, uv, filter, repeat_addr});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, uniform_sample});
+    auto *divergent_sample = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER,
+        {bindless, zero, uv, filter, x_low});
+    auto *divergent_idx = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {x, four});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, divergent_idx, divergent_sample});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
+        "simd-w4-explicit-sampler-mip0", *context);
+    auto name = std::string{"simd_w4_explicit_sampler_mip0"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostBindlessArrayView bindless;
+        SIMDHostBufferView output;
+    };
+    CHECK(codegen.argument_buffer_size == sizeof(Arguments));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("bindless.texture.mip0.samplers.active.same") !=
+          std::string::npos);
+    CHECK(ir.find("bindless.texture.explicit.sampler.scalar") !=
+          std::string::npos);
+    CHECK(ir.find("bindless.texture.byte4.direct") != std::string::npos);
+
+    LLVMJIT jit{true};
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+
+    std::array<std::byte, 16u> texels{
+        std::byte{0u},   std::byte{255u}, std::byte{0u},   std::byte{255u},
+        std::byte{255u}, std::byte{0u},   std::byte{0u},   std::byte{255u},
+        std::byte{0u},   std::byte{0u},   std::byte{255u}, std::byte{255u},
+        std::byte{255u}, std::byte{255u}, std::byte{255u}, std::byte{255u},
+    };
+    BindlessW4ExplicitSamplerProbe probe;
+    std::array<SIMDHostBindlessSlot, 1u> slots{};
+    slots[0u].texture2d.texture = &probe;
+    slots[0u].texture2d.byte1_mip0 = texels.data();
+    slots[0u].texture2d.metadata = simd_bindless_texture_metadata(
+        Sampler::point_edge().code(), 2u, 2u, 1u,
+        simd_bindless_texture_mip0_format_byte4);
+    std::array<luisa::float4, 8u> output_values{};
+    Arguments arguments{
+        .bindless = {
+            .slots = slots.data(),
+            .size = slots.size(),
+            .sample_texture = bindless_w4_explicit_sampler_probe,
+        },
+        .output = {output_values.data(), sizeof(output_values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.calls == 1u);
+    CHECK(probe.active_mask_bits == 0x7u);
+    CHECK(luisa::all(output_values[0u] ==
+                     luisa::make_float4(0.0f, 1.0f, 0.0f, 1.0f)));
+    CHECK(luisa::all(output_values[1u] ==
+                     luisa::make_float4(1.0f, 0.0f, 0.0f, 1.0f)));
+    CHECK(luisa::all(output_values[2u] ==
+                     luisa::make_float4(0.0f, 0.0f, 1.0f, 1.0f)));
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        auto expected_sampler =
+            (filter_value << 2u) | (lane & 1u);
+        CHECK(probe.sampler_codes[lane] == expected_sampler);
+        CHECK(luisa::all(
+            output_values[4u + lane] ==
+            luisa::make_float4(
+                static_cast<float>(500u + lane),
+                static_cast<float>(510u + lane),
+                static_cast<float>(520u + lane),
+                static_cast<float>(530u + lane))));
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_buffer_codegen() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -18872,6 +19074,8 @@ int main() {
          &run_bindless_texture_packet_codegen},
         {"XIR bindless uniform gradient LOD",
          &run_bindless_uniform_gradient_lod_codegen},
+        {"XIR bindless W4 explicit sampler mip0",
+         &run_bindless_texture_w4_explicit_sampler_mip0_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
         {"full-packet specialization and tail isolation", &run_full_packet_specialization},

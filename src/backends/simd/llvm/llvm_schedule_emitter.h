@@ -573,7 +573,7 @@ private:
         const Type *type, ::llvm::Value *mask = nullptr);
     [[nodiscard]] ::llvm::GlobalVariable *_get_or_create_zero_read_buffer(
         size_t min_bytes);
-    [[nodiscard]] ::llvm::Value *_gather_aos_chunked_w8(
+    [[nodiscard]] ::llvm::Value *_gather_aos_chunked(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type);
     [[nodiscard]] static uint32_t _vector_storage_component_count(

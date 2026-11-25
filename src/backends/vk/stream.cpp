@@ -32,6 +32,7 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/vk_custom_cmd.h>
 #include <luisa/backends/ext/vk_cuda_interop.h>
+#include <luisa/backends/ext/batch_copy_cmd.h>
 #include <luisa/core/stl/memory.h>
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
 #include "vk_cuda_interop_ext.h"
@@ -1966,6 +1967,40 @@ void CommandBufferState::init(Device &device, StreamTag tag,
         copy_memory_indirect_supported_queues =
             copy_memory_indirect_properties.supportedQueues;
     }
+    timestamp_resettable =
+        (pool_flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) != 0u;
+    if (device.gpu_timeline() != nullptr) {
+        ensure_timestamp_pool(device, tag, 512u);
+    }
+}
+void CommandBufferState::ensure_timestamp_pool(
+    Device &device, StreamTag tag, uint32_t min_capacity) {
+    if (timestamp_pool != VK_NULL_HANDLE || !timestamp_resettable) {
+        return;
+    }
+    uint32_t qf = 0u;
+    switch (tag) {
+        case StreamTag::GRAPHICS: qf = device.graphics_queue_index(); break;
+        case StreamTag::COPY: qf = device.copy_queue_index(); break;
+        case StreamTag::COMPUTE: qf = device.compute_queue_index(); break;
+        default: break;
+    }
+    auto qfp = device.queue_family_properties();
+    if (qf < qfp.size()) {
+        timestamp_valid_bits = qfp[qf].timestampValidBits;
+    }
+    if (timestamp_valid_bits > 0u) {
+        timestamp_pool_capacity = std::max(min_capacity, 2u);
+        VkQueryPoolCreateInfo qp_ci{
+            .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0u,
+            .queryType = VK_QUERY_TYPE_TIMESTAMP,
+            .queryCount = timestamp_pool_capacity,
+            .pipelineStatistics = 0u};
+        VK_CHECK_RESULT(vkCreateQueryPool(
+            device.logic_device(), &qp_ci, Device::alloc_callbacks(), &timestamp_pool));
+    }
 }
 CommandBufferState::~CommandBufferState() {
     for (auto *r : retained_pipelines) {
@@ -1974,6 +2009,10 @@ CommandBufferState::~CommandBufferState() {
     retained_pipelines.clear();
     if (device != nullptr) {
         auto vk_dev = device->logic_device();
+        if (timestamp_pool != VK_NULL_HANDLE) {
+            vkDestroyQueryPool(vk_dev, timestamp_pool, Device::alloc_callbacks());
+            timestamp_pool = VK_NULL_HANDLE;
+        }
         if (pool) {
             vkDestroyCommandPool(vk_dev, pool, Device::alloc_callbacks());
         }
@@ -2091,6 +2130,81 @@ void CommandBufferState::reset_host_visible(Stream *stream, Device &device) {
         vkDestroyImageView(device.logic_device(), i, Device::alloc_callbacks());
     }
     img_views.clear();
+    if (has_submitted_timestamps && timestamp_pool != VK_NULL_HANDLE && device.gpu_timeline() != nullptr) {
+        luisa::vector<uint64_t> raw_ts(timestamp_cursor, 0ull);
+        if (timestamp_cursor > 0u) {
+            VK_CHECK_RESULT(vkGetQueryPoolResults(
+                device.logic_device(),
+                timestamp_pool,
+                0u,
+                timestamp_cursor,
+                timestamp_cursor * sizeof(uint64_t),
+                raw_ts.data(),
+                sizeof(uint64_t),
+                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+        }
+        TimelineSubmitRecord rec{};
+        rec.submit_seq = tl_submit_seq;
+        rec.stream_handle = tl_stream_handle;
+        rec.stream_tag = tl_stream_tag;
+        rec.fence = tl_fence;
+        rec.cpu_record_begin_ns = tl_cpu_record_begin_ns;
+        rec.cpu_submit_begin_ns = tl_cpu_submit_begin_ns;
+        rec.cpu_submit_end_ns = tl_cpu_submit_end_ns;
+        rec.cpu_fence_complete_ns = tl_cpu_fence_complete_ns;
+        rec.ts_bits = timestamp_valid_bits;
+        rec.cmd_count = tl_cmd_count;
+        rec.layer_count = tl_layer_count;
+        rec.truncated_spans = tl_truncated_spans;
+        if (tl_cb_q_begin < timestamp_cursor && tl_cb_q_end < timestamp_cursor) {
+            rec.gpu_cb_begin_ticks = raw_ts[tl_cb_q_begin];
+            rec.gpu_cb_end_ticks = raw_ts[tl_cb_q_end];
+            rec.cb_valid = true;
+            if (stream != nullptr && stream->online_timing_enabled()) {
+                stream->record_online_cb_timing(
+                    rec.gpu_cb_begin_ticks, rec.gpu_cb_end_ticks,
+                    timestamp_valid_bits, device.properties().limits.timestampPeriod);
+            }
+        }
+        rec.layers.reserve(tl_layers.size());
+        for (auto &layer : tl_layers) {
+            TimelineSubmitRecord::ResolvedLayer resolved{};
+            resolved.layer_idx = layer.layer_idx;
+            resolved.cmds = std::move(layer.cmds);
+            if (layer.q_begin < timestamp_cursor && layer.q_end < timestamp_cursor) {
+                resolved.gpu_begin_ticks = raw_ts[layer.q_begin];
+                resolved.gpu_end_ticks = raw_ts[layer.q_end];
+                resolved.valid = true;
+            }
+            rec.layers.emplace_back(std::move(resolved));
+        }
+        device.gpu_timeline()->record_submit(std::move(rec));
+    } else if (has_submitted_timestamps && timestamp_pool != VK_NULL_HANDLE &&
+               stream != nullptr &&
+               tl_cb_q_begin < timestamp_cursor && tl_cb_q_end < timestamp_cursor &&
+               tl_cb_q_begin == 0u && tl_cb_q_end == 1u) {
+        uint64_t raw2[2]{0ull, 0ull};
+        VK_CHECK_RESULT(vkGetQueryPoolResults(
+            device.logic_device(),
+            timestamp_pool,
+            0u,
+            2u,
+            sizeof(raw2),
+            raw2,
+            sizeof(uint64_t),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+        stream->record_online_cb_timing(
+            raw2[0], raw2[1],
+            timestamp_valid_bits, device.properties().limits.timestampPeriod);
+    }
+    has_submitted_timestamps = false;
+    timestamp_cursor = 0u;
+    tl_cb_q_begin = 0xffffffffu;
+    tl_cb_q_end = 0xffffffffu;
+    tl_cmd_count = 0u;
+    tl_layer_count = 0u;
+    tl_truncated_spans = 0u;
+    tl_layers.clear();
 }
 // `reset_native` runs everything else, i.e. the recycling work whose effect is
 // only observable by the next recording of this state: releasing the retained
@@ -2278,6 +2392,7 @@ Stream::Stream(Device *device, StreamTag tag)
                   deferred_staging_frees.clear();
               }
           };
+          uint64_t last_sync_complete_ns = 0u;
           auto loop_cmd = [&]() {
               while (true) {
                   _mtx.lock();
@@ -2294,6 +2409,9 @@ Stream::Stream(Device *device, StreamTag tag)
                               }
                           } else if constexpr (std::is_same_v<T, SyncExt>) {
                               t.evt->_host_wait(t.value);
+                              if (this->device()->gpu_timeline() != nullptr) {
+                                  last_sync_complete_ns = VkGpuTimeline::steady_ns();
+                              }
                           } else if constexpr (std::is_same_v<T, NotifyEvt>) {
                               // Phase 3B (opt C): notify first, recycle after. The host-visible half of
                               // every batch this notification covers already ran (a `CommandBuffer`
@@ -2303,6 +2421,9 @@ Stream::Stream(Device *device, StreamTag tag)
                               t.evt->_notify(t.value);
                               recycle_pending();
                           } else if constexpr (std::is_same_v<T, CommandBuffer>) {
+                              if (this->device()->gpu_timeline() != nullptr) {
+                                  t.states()->tl_cpu_fence_complete_ns = last_sync_complete_ns;
+                              }
                               t.retire_host_visible();
                               pending_recycle.emplace_back(std::move(t));
                           }
@@ -2441,6 +2562,7 @@ uint64_t Stream::execute_immediate(
     uint64_t fence = 0u;
     {
         std::lock_guard lck{_dispatch_mtx};
+        _flush_pending_waits();
         _temp_desc.clear();
         _throttle_in_flight();
         auto fence_plan = detail::plan_timeline_value_increment(
@@ -2537,6 +2659,7 @@ void Stream::present(
     Swapchain *swapchain,
     bool inqueue_limit) {
     std::lock_guard lck{_dispatch_mtx};
+    _flush_pending_waits();
     _temp_desc.clear();
     if (inqueue_limit) {
         // Same in-flight bound as the dispatch path (plan P1.5); the engine, the
@@ -2709,7 +2832,25 @@ void Stream::dispatch(
     PresentCommand present_cmd;
     luisa::fixed_vector<VkSwapchainKHR, 1> vk_swapchains;
     _temp_desc.clear();
-    if (cmds.empty() && callbacks.empty() && presents.empty()) {
+    luisa::fixed_vector<EventSignalEntry, 4> extra_signals;
+    bool has_gpu_cmds = false;
+    for (auto const &c : cmds) {
+        if (c->tag() == Command::Tag::ECustomCommand) {
+            auto *custom_cmd = static_cast<CustomCommand const *>(c.get());
+            if (custom_cmd->custom_cmd_uuid() ==
+                luisa::to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT)) {
+                auto *sc = static_cast<StreamSignalEventCommand const *>(custom_cmd);
+                if (sc->event_handle() != 0ull) {
+                    extra_signals.emplace_back(EventSignalEntry{
+                        reinterpret_cast<Event *>(sc->event_handle()),
+                        sc->fence_value()});
+                }
+                continue;
+            }
+        }
+        has_gpu_cmds = true;
+    }
+    if (!has_gpu_cmds && extra_signals.empty() && callbacks.empty() && presents.empty()) {
         return;
     }
     if (inqueue_limit) {
@@ -2723,7 +2864,12 @@ void Stream::dispatch(
         static_cast<bool>(fence_plan),
         "Vulkan stream timeline fence overflow during dispatch.");
     auto fence = fence_plan.value;
-    if (!cmds.empty() || !presents.empty()) {
+    if (has_gpu_cmds || !presents.empty()) {
+        if (!presents.empty() || device()->config_ext() != nullptr) {
+            _flush_pending_waits();
+        }
+        auto *tl = device()->gpu_timeline();
+        uint64_t tl_record_begin_ns = tl != nullptr ? VkGpuTimeline::steady_ns() : 0u;
         // Counter-only: one command batch = one command-buffer record plus (at
         // most) one submit (F6).
         submit_profile::record_command_batch();
@@ -2739,6 +2885,37 @@ void Stream::dispatch(
         auto cb_ptr = &cb;
         // Counter-only: host encode time of this batch, begin -> end (P0.2).
         auto const profile_encode_begin = submit_profile::timing_begin();
+        if (tl != nullptr) {
+            auto *st = cmdbuffer.states();
+            st->has_submitted_timestamps = false;
+            st->timestamp_cursor = 0u;
+            st->tl_cb_q_begin = 0xffffffffu;
+            st->tl_cb_q_end = 0xffffffffu;
+            st->tl_cmd_count = 0u;
+            st->tl_layer_count = 0u;
+            st->tl_truncated_spans = 0u;
+            st->tl_layers.clear();
+            st->tl_cpu_record_begin_ns = tl_record_begin_ns;
+            if (st->timestamp_pool != VK_NULL_HANDLE) {
+                vkCmdResetQueryPool(cb, st->timestamp_pool, 0u, st->timestamp_pool_capacity);
+                vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, st->timestamp_pool, 0u);
+                st->tl_cb_q_begin = 0u;
+                st->timestamp_cursor = 1u;
+            }
+        } else if (online_timing_enabled()) {
+            auto *st = cmdbuffer.states();
+            st->has_submitted_timestamps = false;
+            st->timestamp_cursor = 0u;
+            st->tl_cb_q_begin = 0xffffffffu;
+            st->tl_cb_q_end = 0xffffffffu;
+            st->ensure_timestamp_pool(*device(), _stream_tag, 2u);
+            if (st->timestamp_pool != VK_NULL_HANDLE) {
+                vkCmdResetQueryPool(cb, st->timestamp_pool, 0u, 2u);
+                vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, st->timestamp_pool, 0u);
+                st->tl_cb_q_begin = 0u;
+                st->timestamp_cursor = 1u;
+            }
+        }
         cmdbuffer.execute(cmds);
         bool present_failed = false;
         for (auto &i : presents) {
@@ -2884,12 +3061,13 @@ void Stream::dispatch(
                 _exec.enqueue(std::move(cmdbuffer));
             } else {
                 // No successful swapchains - if there are commands, submit them without present
-                if (!cmds.empty()) {
+                if (has_gpu_cmds) {
                     // Check for external command buffer execution (same as normal path)
                     auto cb_ptr = &cb;
                     if (_execute_external_command_buffer(cb)) {
                         cb_ptr = nullptr;
                     }
+                    _flush_pending_waits();
                     _evt._signal(*this, fence, cb_ptr);
                     _mtx.lock();
                     _exec.enqueue(SyncExt{
@@ -2899,9 +3077,16 @@ void Stream::dispatch(
                 } else {
                     // No commands and no successful presents - cleanup without submitting
                     cmdbuffer.states()->reset(this, *device());
-                    _mtx.lock();
-                    // Update fence to prevent reuse, then notify
+                    _flush_pending_waits();
                     _evt._update_fence(fence);
+                    _mtx.lock();
+                }
+                for (auto const &s : extra_signals) {
+                    if (s.evt != nullptr) {
+                        s.evt->_signal(*this, s.value);
+                        _exec.enqueue(SyncExt{.evt = s.evt, .value = s.value});
+                        _exec.enqueue(NotifyEvt{.evt = s.evt, .value = s.value});
+                    }
                 }
                 // Enqueue callbacks and completion notification
                 if (!callbacks.empty()) {
@@ -2919,6 +3104,13 @@ void Stream::dispatch(
                 return;
             }
 
+            for (auto const &s : extra_signals) {
+                if (s.evt != nullptr) {
+                    s.evt->_signal(*this, s.value);
+                    _exec.enqueue(SyncExt{.evt = s.evt, .value = s.value});
+                    _exec.enqueue(NotifyEvt{.evt = s.evt, .value = s.value});
+                }
+            }
             // Enqueue callbacks and completion notification for successful prefix
             if (!callbacks.empty()) {
                 _exec.enqueue(std::move(callbacks));
@@ -2944,16 +3136,91 @@ void Stream::dispatch(
         }
         // Counter-only: host time inside the submit call of this batch (P0.2).
         auto const profile_submit_begin = submit_profile::timing_begin();
-        _evt._signal(*this, fence, cb_ptr);
+        const bool use_fused_submit =
+            (device()->config_ext() == nullptr) &&
+            presents.empty() &&
+            (cb_ptr != nullptr);
+        if (tl != nullptr) {
+            auto *st = cmdbuffer.states();
+            st->tl_submit_seq = tl->alloc_submit_seq();
+            st->tl_stream_handle = reinterpret_cast<uint64_t>(this);
+            st->tl_stream_tag = static_cast<uint32_t>(_stream_tag);
+            st->tl_fence = fence;
+            st->tl_cpu_record_begin_ns = tl_record_begin_ns;
+            st->tl_cpu_submit_begin_ns = VkGpuTimeline::steady_ns();
+            if (use_fused_submit) {
+                _evt._signal_batch(*this, fence, cb_ptr, _pending_waits, extra_signals);
+                _pending_waits.clear();
+            } else {
+                _flush_pending_waits();
+                _evt._signal(*this, fence, cb_ptr);
+            }
+            st->tl_cpu_submit_end_ns = VkGpuTimeline::steady_ns();
+            st->has_submitted_timestamps = (st->timestamp_pool != VK_NULL_HANDLE) && (cb_ptr != nullptr);
+        } else {
+            if (use_fused_submit) {
+                _evt._signal_batch(*this, fence, cb_ptr, _pending_waits, extra_signals);
+                _pending_waits.clear();
+            } else {
+                _flush_pending_waits();
+                _evt._signal(*this, fence, cb_ptr);
+            }
+            if (online_timing_enabled()) {
+                auto *st = cmdbuffer.states();
+                st->has_submitted_timestamps =
+                    (st->timestamp_pool != VK_NULL_HANDLE) && (cb_ptr != nullptr);
+            }
+        }
+        if (!use_fused_submit) {
+            for (auto const &s : extra_signals) {
+                if (s.evt != nullptr) {
+                    s.evt->_signal(*this, s.value);
+                }
+            }
+        }
         submit_profile::timing_end_submit(profile_submit_begin);
         _mtx.lock();
         _exec.enqueue(SyncExt{
             .evt = &_evt,
             .value = fence});
         _exec.enqueue(std::move(cmdbuffer));
+        for (auto const &s : extra_signals) {
+            if (s.evt != nullptr) {
+                _exec.enqueue(SyncExt{.evt = s.evt, .value = s.value});
+                _exec.enqueue(NotifyEvt{.evt = s.evt, .value = s.value});
+            }
+        }
     } else {
-        _evt._update_fence(fence);
-        _mtx.lock();
+        const bool need_gpu_batch =
+            !extra_signals.empty() ||
+            (!_pending_waits.empty() && device()->config_ext() == nullptr);
+        if (need_gpu_batch) {
+            if (device()->config_ext() == nullptr) {
+                _evt._signal_batch(*this, fence, nullptr, _pending_waits, extra_signals);
+                _pending_waits.clear();
+            } else {
+                _flush_pending_waits();
+                _evt._signal(*this, fence, nullptr);
+                for (auto const &s : extra_signals) {
+                    if (s.evt != nullptr) {
+                        s.evt->_signal(*this, s.value);
+                    }
+                }
+            }
+            _mtx.lock();
+            _exec.enqueue(SyncExt{
+                .evt = &_evt,
+                .value = fence});
+            for (auto const &s : extra_signals) {
+                if (s.evt != nullptr) {
+                    _exec.enqueue(SyncExt{.evt = s.evt, .value = s.value});
+                    _exec.enqueue(NotifyEvt{.evt = s.evt, .value = s.value});
+                }
+            }
+        } else {
+            _evt._update_fence(fence);
+            _mtx.lock();
+        }
     }
     if (!callbacks.empty()) {
         _exec.enqueue(std::move(callbacks));
@@ -3042,6 +3309,16 @@ void Stream::_finish_batch_record(CommandBuffer &cmdbuffer) {
     // every touched mip as GENERAL, so a replayed buffer is exactly as visible as
     // an ordinarily dispatched one.
     _resource_barrier.restore_states(cmdbuffer.cmdbuffer());
+    if (device()->gpu_timeline() != nullptr || online_timing_enabled()) {
+        auto *st = cmdbuffer.states();
+        if (st->tl_cb_q_begin != 0xffffffffu &&
+            st->timestamp_pool != VK_NULL_HANDLE &&
+            st->timestamp_cursor < st->timestamp_pool_capacity) {
+            uint32_t q_end = st->timestamp_cursor++;
+            vkCmdWriteTimestamp(cmdbuffer.cmdbuffer(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, st->timestamp_pool, q_end);
+            st->tl_cb_q_end = q_end;
+        }
+    }
     cmdbuffer.end();
 }
 
@@ -3078,6 +3355,7 @@ detail::RecordedBatch Stream::record_replay_batch(
 uint64_t Stream::submit_recorded(VkCommandBuffer command_buffer,
                                 bool inqueue_limit) {
     std::lock_guard lck{_dispatch_mtx};
+    _flush_pending_waits();
     _temp_desc.clear();
     if (inqueue_limit) {
         // The in-flight bound is part of the stream's contract (plan P1.5), and a
@@ -3126,6 +3404,7 @@ bool Stream::submission_complete(uint64_t timeline_value) const noexcept {
 
 void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_update) noexcept {
     std::lock_guard lck{_dispatch_mtx};
+    _flush_pending_waits();
     _temp_desc.clear();
     if (textures_update.empty()) [[unlikely]]
         return;
@@ -3546,8 +3825,36 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
     _mtx.unlock();
     _notify_retirement_thread();
 }
+void Stream::_flush_pending_waits() {
+    if (_pending_waits.empty()) {
+        return;
+    }
+    for (auto const &w : _pending_waits) {
+        if (!w.token) { continue; }
+        std::lock_guard token_lock{w.token->mtx};
+        if (w.token->evt != nullptr) {
+            w.token->evt->_wait(*this, w.value);
+        }
+    }
+    _pending_waits.clear();
+}
 void Stream::sync() {
+    vstd::vector<EventWaitEntry> dangling_waits;
+    {
+        std::lock_guard lck{_dispatch_mtx};
+        if (!_pending_waits.empty()) {
+            dangling_waits = std::move(_pending_waits);
+            _pending_waits.clear();
+        }
+    }
     _evt.sync(_evt.last_fence());
+    for (auto const &w : dangling_waits) {
+        if (!w.token) { continue; }
+        std::lock_guard token_lock{w.token->mtx};
+        if (w.token->evt != nullptr) {
+            w.token->evt->_host_wait(w.value);
+        }
+    }
     vstd::vector<Blas *> pending;
     {
         std::lock_guard lock{_pending_compaction_mtx};
@@ -3694,6 +4001,29 @@ CommandBuffer::CommandBuffer(CommandBuffer &&rhs) noexcept
 
 void Stream::signal(Event *event, uint64_t value) {
     std::lock_guard lck{_dispatch_mtx};
+    if (device()->config_ext() == nullptr && !_pending_waits.empty()) {
+        auto fence_plan = detail::plan_timeline_value_increment(
+            _evt.last_fence(), 1u);
+        LUISA_ASSERT(
+            static_cast<bool>(fence_plan),
+            "Vulkan stream timeline fence overflow during signal.");
+        auto fence = fence_plan.value;
+        EventSignalEntry extra{event, value};
+        _evt._signal_batch(
+            *this, fence, nullptr, _pending_waits,
+            vstd::span<const EventSignalEntry>{&extra, 1u});
+        _pending_waits.clear();
+        _mtx.lock();
+        _exec.enqueue(SyncExt{&_evt, fence});
+        _exec.enqueue(SyncExt{event, value});
+        _exec.enqueue(NotifyEvt{event, value});
+        _exec.enqueue(NotifyEvt{&_evt, fence});
+        _bump_work_epoch_locked();
+        _mtx.unlock();
+        _notify_retirement_thread();
+        return;
+    }
+    _flush_pending_waits();
     event->_signal(*this, value);
     _mtx.lock();
     _exec.enqueue(SyncExt{event, value});
@@ -3707,7 +4037,11 @@ void Stream::signal(Event *event, uint64_t value) {
 }
 void Stream::wait(Event *event, uint64_t value) {
     std::lock_guard lck{_dispatch_mtx};
-    event->_wait(*this, value);
+    if (device()->config_ext() != nullptr) {
+        event->_wait(*this, value);
+        return;
+    }
+    _pending_waits.emplace_back(EventWaitEntry{event->wait_token(), value});
 }
 // File-unique namespace: the backend is built with unity (jumbo) batches, so a
 // free name at namespace scope in this file can collide with a sibling's.
@@ -3837,8 +4171,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     luisa::vector<luisa::unique_ptr<Command>> fallback_builds;
     luisa::vector<Command const *> expanded_commands;
     expanded_commands.reserve(cmds.size());
+    auto is_stream_signal_cmd = [](Command const *cmd) noexcept {
+        return cmd->tag() == Command::Tag::ECustomCommand &&
+               static_cast<CustomCommand const *>(cmd)->custom_cmd_uuid() ==
+                   to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT);
+    };
     if (device()->use_fallback_rtx()) {
         for (auto &&command : cmds) {
+            if (is_stream_signal_cmd(command.get())) { continue; }
             auto expanded = false;
             switch (command->tag()) {
                 case Command::Tag::EMeshBuildCommand: {
@@ -3883,6 +4223,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         // The fallback is off: the batch is exactly what the caller handed in,
         // and this loop only borrows the pointers.
         for (auto &&command : cmds) {
+            if (is_stream_signal_cmd(command.get())) { continue; }
             expanded_commands.emplace_back(command.get());
         }
     }
@@ -4141,7 +4482,11 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             .offset = block_offset,
             .size = emitted_layout.size()});
     };
+    const bool tl_active = (device()->gpu_timeline() != nullptr) && (_state->timestamp_pool != VK_NULL_HANDLE);
+    uint32_t tl_layer_idx = 0u;
+    uint32_t tl_prev_q_end = _state->tl_cb_q_begin;
     for (auto &&lst : cmd_lists) {
+        luisa::vector<TimelineCmdInfo> tl_layer_cmds;
         dispatch_offsets->clear();
         auto delay_clear = vstd::scope_exit([&]() {
             scratch_buffer_alloc->soft_clear();
@@ -4396,6 +4741,22 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                         "arguments on the Vulkan backend.");
                                 }
                             });
+                        } break;
+                        case to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY): {
+                            auto bc = static_cast<BatchBufferToTextureCopyCommand const *>(c);
+                            if (bc->regions().empty()) { break; }
+                            auto *buf = reinterpret_cast<Buffer const *>(bc->buffer());
+                            auto *tex = reinterpret_cast<Texture const *>(bc->texture());
+                            resource_barrier->record(
+                                BufferView{buf, bc->buffer_range_offset(), bc->buffer_range_size()},
+                                ResourceBarrier::Usage::kCopySource);
+                            for (uint32_t mip = bc->min_mip_level(); mip <= bc->max_mip_level(); ++mip) {
+                                resource_barrier->record(
+                                    TexView{tex, mip},
+                                    ResourceBarrier::Usage::kCopyDest);
+                            }
+                        } break;
+                        case to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT): {
                         } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.
@@ -5196,6 +5557,64 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         // Post process: actual start record command to commandbuffer
         for (auto i = lst; i != nullptr; i = i->p_next) {
             auto cmd = i->cmd;
+            if (tl_active) {
+                TimelineCmdInfo info{};
+                info.tag = static_cast<uint32_t>(cmd->tag());
+                switch (cmd->tag()) {
+                    case Command::Tag::EBufferUploadCommand: {
+                        auto c = static_cast<BufferUploadCommand const *>(cmd);
+                        info.handle = c->handle();
+                        info.bytes = c->size();
+                    } break;
+                    case Command::Tag::EBufferDownloadCommand: {
+                        auto c = static_cast<BufferDownloadCommand const *>(cmd);
+                        info.handle = c->handle();
+                        info.bytes = c->size();
+                    } break;
+                    case Command::Tag::EBufferCopyCommand: {
+                        auto c = static_cast<BufferCopyCommand const *>(cmd);
+                        info.handle = c->src_handle();
+                        info.dst_handle = c->dst_handle();
+                        info.bytes = c->size();
+                    } break;
+                    case Command::Tag::EBufferToTextureCopyCommand: {
+                        auto c = static_cast<BufferToTextureCopyCommand const *>(cmd);
+                        info.handle = c->buffer();
+                        info.dst_handle = c->texture();
+                    } break;
+                    case Command::Tag::EShaderDispatchCommand: {
+                        auto c = static_cast<ShaderDispatchCommand const *>(cmd);
+                        info.handle = c->handle();
+                        if (c->is_indirect()) {
+                            info.dx = 1u;
+                        } else if (c->is_multiple_dispatch()) {
+                            info.dx = static_cast<uint32_t>(c->dispatch_sizes().size());
+                        } else {
+                            auto ds = c->dispatch_size();
+                            info.dx = ds.x;
+                            info.dy = ds.y;
+                            info.dz = ds.z;
+                        }
+                    } break;
+                    case Command::Tag::EBindlessArrayUpdateCommand: {
+                        auto c = static_cast<BindlessArrayUpdateCommand const *>(cmd);
+                        info.handle = c->handle();
+                    } break;
+                    case Command::Tag::ECustomCommand: {
+                        auto c = static_cast<CustomCommand const *>(cmd);
+                        if (c->custom_cmd_uuid() == to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY)) {
+                            auto bc = static_cast<BatchBufferToTextureCopyCommand const *>(c);
+                            info.tag = static_cast<uint32_t>(Command::Tag::EBufferToTextureCopyCommand);
+                            info.handle = bc->buffer();
+                            info.dst_handle = bc->texture();
+                            info.bytes = bc->buffer_range_size();
+                            info.dx = static_cast<uint32_t>(bc->regions().size());
+                        }
+                    } break;
+                    default: break;
+                }
+                tl_layer_cmds.emplace_back(info);
+            }
             switch (cmd->tag()) {
                 case Command::Tag::EBufferUploadCommand: {
                     auto c = static_cast<BufferUploadCommand const *>(cmd);
@@ -6271,6 +6690,49 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 device(), _state.get(), _cmdbuffer,
                                 static_cast<NativeShaderDispatchCommand const *>(c));
                         } break;
+                        case to_underlying(CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY): {
+                            auto bc = static_cast<BatchBufferToTextureCopyCommand const *>(c);
+                            auto const &regions = bc->regions();
+                            if (regions.empty()) { break; }
+                            auto *buf = reinterpret_cast<Buffer const *>(bc->buffer());
+                            auto *tex = reinterpret_cast<Texture const *>(bc->texture());
+                            auto vk_buf = buf->vk_buffer();
+                            auto vk_img = tex->vk_image();
+                            auto aspect = tex->get_aspect();
+                            luisa::fixed_vector<VkBufferImageCopy2, 64> vk_regions;
+                            const uint32_t min_mip = bc->min_mip_level();
+                            const uint32_t max_mip = bc->max_mip_level();
+                            for (uint32_t mip = min_mip; mip <= max_mip; ++mip) {
+                                vk_regions.clear();
+                                for (auto const &r : regions) {
+                                    if (r.mip_level != mip) { continue; }
+                                    vk_regions.push_back(VkBufferImageCopy2{
+                                        VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+                                        nullptr,
+                                        r.buffer_offset,
+                                        r.buffer_row_length,
+                                        r.buffer_image_height,
+                                        VkImageSubresourceLayers{aspect, r.mip_level, 0u, 1u},
+                                        VkOffset3D{
+                                            static_cast<int32_t>(r.texture_offset.x),
+                                            static_cast<int32_t>(r.texture_offset.y),
+                                            static_cast<int32_t>(r.texture_offset.z)},
+                                        VkExtent3D{r.texture_extent.x, r.texture_extent.y, r.texture_extent.z}});
+                                }
+                                if (vk_regions.empty()) { continue; }
+                                VkCopyBufferToImageInfo2 copy_info{
+                                    VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
+                                    nullptr,
+                                    vk_buf,
+                                    vk_img,
+                                    resource_barrier->get_layout(tex, mip),
+                                    static_cast<uint32_t>(vk_regions.size()),
+                                    vk_regions.data()};
+                                detail::cmd_copy_buffer_to_image(_cmdbuffer, device(), &copy_info);
+                            }
+                        } break;
+                        case to_underlying(CustomCommandUUID::STREAM_SIGNAL_EVENT): {
+                        } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.
                         default: {
@@ -6287,6 +6749,24 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             "preprocessing produced {}.",
             dispatch_offset_index, dispatch_offsets->size());
         flush_all_pending();
+        if (tl_active) {
+            uint32_t q_end = 0xffffffffu;
+            if (_state->timestamp_cursor + 1u < _state->timestamp_pool_capacity) {
+                q_end = _state->timestamp_cursor++;
+                vkCmdWriteTimestamp(_cmdbuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, _state->timestamp_pool, q_end);
+            } else {
+                ++_state->tl_truncated_spans;
+            }
+            _state->tl_cmd_count += static_cast<uint32_t>(tl_layer_cmds.size());
+            ++_state->tl_layer_count;
+            _state->tl_layers.emplace_back(TimelineLayerRecord{
+                .layer_idx = tl_layer_idx,
+                .q_begin = tl_prev_q_end,
+                .q_end = q_end,
+                .cmds = std::move(tl_layer_cmds)});
+            tl_prev_q_end = q_end;
+            ++tl_layer_idx;
+        }
     }
     if (scratch_buffer_alloc->allocated_buffer().size() > 4u) {
         scratch_buffer_alloc->clear();

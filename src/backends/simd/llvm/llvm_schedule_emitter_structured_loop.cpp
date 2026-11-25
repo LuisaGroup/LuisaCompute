@@ -13,7 +13,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     const schedule::BasicBlock &header) const noexcept {
     auto force = luisa::compute::detail::env_flag(
         "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP");
-    if ((!force && _width != 8u && _width != 16u) ||
+    if ((!force && _width != 4u && _width != 8u && _width != 16u) ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP")) {
         return luisa::nullopt;

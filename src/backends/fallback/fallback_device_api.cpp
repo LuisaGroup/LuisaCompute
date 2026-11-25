@@ -159,18 +159,46 @@ void luisa_fallback_dump_api_profile_if_enabled() noexcept {
 }
 
 void luisa_bc7_read(const FallbackTextureView *tex, uint x, uint y, float4 &out) noexcept {
-    auto block_pos = make_uint2(x / 4, y / 4);
-    auto block_per_row = tex->size2d().x / 4;
+    auto size = tex->size2d();
+    if (size.x == 0u || size.y == 0u) {
+        out = {};
+        return;
+    }
+    auto clamp_coord = [](auto v, uint dim) noexcept -> uint {
+        if constexpr (std::is_signed_v<decltype(v)>) {
+            return v <= 0 ? 0u : luisa::min(static_cast<uint>(v), dim - 1u);
+        } else {
+            return luisa::min(static_cast<uint>(v), dim - 1u);
+        }
+    };
+    auto ux = clamp_coord(x, size.x);
+    auto uy = clamp_coord(y, size.y);
+    auto block_pos = make_uint2(ux / 4u, uy / 4u);
+    auto block_per_row = (size.x + 3u) / 4u;
     const bc::BC7Block *bc_block = reinterpret_cast<const bc::BC7Block *>(tex->data()) +
                                    (block_pos.x + block_pos.y * block_per_row);
-    bc_block->Decode(x % 4, y % 4, reinterpret_cast<float *>(&out));
+    bc_block->Decode(ux % 4u, uy % 4u, reinterpret_cast<float *>(&out));
 }
 
 void luisa_bc6h_read(const FallbackTextureView *tex, int x, int y, float4 &out) noexcept {
-    auto block_pos = make_uint2(x / 4, y / 4);
-    auto block_per_row = tex->size2d().x / 4;
+    auto size = tex->size2d();
+    if (size.x == 0u || size.y == 0u) {
+        out = {};
+        return;
+    }
+    auto clamp_coord = [](auto v, uint dim) noexcept -> uint {
+        if constexpr (std::is_signed_v<decltype(v)>) {
+            return v <= 0 ? 0u : luisa::min(static_cast<uint>(v), dim - 1u);
+        } else {
+            return luisa::min(static_cast<uint>(v), dim - 1u);
+        }
+    };
+    auto ux = clamp_coord(x, size.x);
+    auto uy = clamp_coord(y, size.y);
+    auto block_pos = make_uint2(ux / 4u, uy / 4u);
+    auto block_per_row = (size.x + 3u) / 4u;
     const bc::BC6HBlock *bc_block = reinterpret_cast<const bc::BC6HBlock *>(tex->data()) + (block_pos.x + block_pos.y * block_per_row);
-    bc_block->Decode(false, x % 4, y % 4, reinterpret_cast<float *>(&out));
+    bc_block->Decode(false, ux % 4u, uy % 4u, reinterpret_cast<float *>(&out));
 }
 
 [[nodiscard]] int4 luisa_fallback_texture2d_read_int(void *texture_data, uint64_t texture_data_extra, uint x, uint y) noexcept {
@@ -192,22 +220,8 @@ void luisa_bc6h_read(const FallbackTextureView *tex, int x, int y, float4 &out) 
 [[nodiscard]] float4 luisa_fallback_texture2d_read_float(void *texture_data, uint64_t texture_data_extra, uint x, uint y) noexcept {
     PackedTextureView view{texture_data, texture_data_extra};
     auto tex = reinterpret_cast<const FallbackTextureView *>(&view);
-    switch (tex->storage()) {
-        case PixelStorage::BC7: {
-            float4 out{};
-            luisa_bc7_read(tex, x, y, out);
-            return out;
-        }
-        case PixelStorage::BC6: {
-            float4 out{};
-            luisa_bc6h_read(tex, x, y, out);
-            return out;
-        }
-        default: {
-            auto v = tex->read2d<float>(make_uint2(x, y));
-            return {v.x, v.y, v.z, v.w};
-        }
-    }
+    auto v = tex->read2d<float>(make_uint2(x, y));
+    return {v.x, v.y, v.z, v.w};
 }
 
 void luisa_fallback_texture2d_write_float(void *texture_data, uint64_t texture_data_extra, uint x, uint y, float4 value) noexcept {
@@ -633,13 +647,23 @@ inline void texture_coord_linear_1d(
     auto tex = reinterpret_cast<const FallbackTexture *>(handle);
     auto s = Sampler::decode(sampler);
     auto filter = s.filter();
-    if (level <= 0.f || tex->mip_levels() == 0u || filter == Sampler::Filter::POINT) {
+    if (level <= 0.f || tex->mip_levels() <= 1u) {
         return luisa_fallback_bindless_texture2d_sample(handle, sampler, u, v);
+    }
+    if (filter == Sampler::Filter::POINT) {
+        auto level0 = std::min(static_cast<uint32_t>(std::floor(level + 0.5f)), tex->mip_levels() - 1u);
+        auto res = texture_sample_point(tex->view(level0), s.address(), make_float2(u, v));
+        return {res.x, res.y, res.z, res.w};
+    }
+    if (filter == Sampler::Filter::LINEAR_POINT) {
+        auto level0 = std::min(static_cast<uint32_t>(std::floor(level + 0.5f)), tex->mip_levels() - 1u);
+        auto v0 = texture_sample_linear(tex->view(level0), s.address(), make_float2(u, v));
+        return {v0.x, v0.y, v0.z, v0.w};
     }
     auto level0 = std::min(static_cast<uint32_t>(level), tex->mip_levels() - 1u);
     auto view0 = tex->view(level0);
     auto v0 = texture_sample_linear(view0, s.address(), make_float2(u, v));
-    if (level0 == tex->mip_levels() - 1u || filter == Sampler::Filter::LINEAR_POINT) {
+    if (level0 == tex->mip_levels() - 1u) {
         return {v0.x, v0.y, v0.z, v0.w};
     }
     auto view1 = tex->view(level0 + 1);
@@ -713,13 +737,23 @@ inline void texture_coord_linear_1d(
     auto tex = reinterpret_cast<const FallbackTexture *>(handle);
     auto s = Sampler::decode(sampler);
     auto filter = s.filter();
-    if (level <= 0.f || tex->mip_levels() == 0u || filter == Sampler::Filter::POINT) {
+    if (level <= 0.f || tex->mip_levels() <= 1u) {
         return luisa_fallback_bindless_texture3d_sample(handle, sampler, u, v, w);
+    }
+    if (filter == Sampler::Filter::POINT) {
+        auto level0 = std::min(static_cast<uint32_t>(std::floor(level + 0.5f)), tex->mip_levels() - 1u);
+        auto res = texture_sample_point(tex->view(level0), s.address(), make_float3(u, v, w));
+        return {res.x, res.y, res.z, res.w};
+    }
+    if (filter == Sampler::Filter::LINEAR_POINT) {
+        auto level0 = std::min(static_cast<uint32_t>(std::floor(level + 0.5f)), tex->mip_levels() - 1u);
+        auto v0 = texture_sample_linear(tex->view(level0), s.address(), make_float3(u, v, w));
+        return {v0.x, v0.y, v0.z, v0.w};
     }
     auto level0 = std::min(static_cast<uint32_t>(level), tex->mip_levels() - 1u);
     auto view0 = tex->view(level0);
     auto v0 = texture_sample_linear(view0, s.address(), make_float3(u, v, w));
-    if (level0 == tex->mip_levels() - 1u || filter == Sampler::Filter::LINEAR_POINT) {
+    if (level0 == tex->mip_levels() - 1u) {
         return {v0.x, v0.y, v0.z, v0.w};
     }
     auto view1 = tex->view(level0 + 1);

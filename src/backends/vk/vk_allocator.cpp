@@ -72,6 +72,15 @@ AllocatedBuffer VkAllocator::allocate_buffer(size_t byte_size, VkBufferUsageFlag
         case AccessType::kUpload:
             alloc_info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
             break;
+        case AccessType::kHostCachedUpload:
+            alloc_info.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+            alloc_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+            alloc_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            break;
+        case AccessType::kHostSequentialUpload:
+            alloc_info.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+            alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+            break;
         default:
             alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
             break;

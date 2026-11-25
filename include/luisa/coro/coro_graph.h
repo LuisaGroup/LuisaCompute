@@ -19,6 +19,16 @@ class CallableFunction;
 
 namespace luisa::compute::coro {
 
+enum class CoroStageExecutionHint : uint8_t {
+    synchronous = 0u,
+    blocking_async = 1u,
+};
+
+inline constexpr luisa::string_view kCoroScheduleBlockingAsyncAttr =
+    "luisa.coro.schedule.blocking_async";
+inline constexpr luisa::string_view kCoroScheduleAsyncDomainAttr =
+    "luisa.coro.schedule.async_domain";
+
 /// Token-based transition graph between continuation scopes.
 /// Built from coro CFG analysis, split feedback, and materialization feedback.
 class LUISA_CORO_API CoroGraph {
@@ -83,7 +93,12 @@ public:
         SlotSet required_def;
         luisa::vector<size_t> rmw_slots;
         luisa::vector<size_t> reconstruct_slots;
+        CoroStageExecutionHint execution_hint{CoroStageExecutionHint::synchronous};
+        luisa::string async_domain;
 
+        [[nodiscard]] bool is_blocking_async() const noexcept {
+            return execution_hint == CoroStageExecutionHint::blocking_async;
+        }
         [[nodiscard]] auto rmw_slot_span() const noexcept {
             return luisa::span{rmw_slots};
         }

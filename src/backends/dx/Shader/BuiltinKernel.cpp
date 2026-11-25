@@ -125,12 +125,17 @@ static ComputeShader *_load_bc_kernel(
     vstd::function<vstd::string_view()> const &include_code,
     vstd::function<vstd::string_view()> const &kernel_code,
     vstd::string_view code_path) {
+    auto inc_code = include_code();
+    auto ker_code = kernel_code();
+    vstd::string combined_src;
+    combined_src.reserve(inc_code.size() + ker_code.size());
+    combined_src << inc_code << ker_code;
+    vstd::MD5 hlsl_md5({reinterpret_cast<uint8_t const *>(combined_src.data()),
+                       combined_src.size()});
     auto func = [&] {
         hlsl::CodegenResult code;
-        auto inc_code = include_code();
-        auto ker_code = kernel_code();
-        code.result.reserve(inc_code.size() + ker_code.size());
-        code.result << inc_code << ker_code;
+        code.result.reserve(combined_src.size());
+        code.result << combined_src;
         code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
@@ -170,9 +175,9 @@ static ComputeShader *_load_bc_kernel(
         device,
         {},
         func,
+        hlsl_md5,
         {},
-        {},
-        uint3(1, 1, 1),
+        uint3(64, 1, 1),
         62,
         file_name,
         CacheType::Internal, true, false,

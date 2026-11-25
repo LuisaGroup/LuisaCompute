@@ -173,10 +173,8 @@ void test_sampler(Device &device) {
                      make_float4(cast<float>(size.x), cast<float>(size.y),
                                  0.0f, 0.0f));
     };
-    // Explicit-sampler sampling is a separate kernel: the legacy CUDA AST
-    // codegen does not implement these ops (they would hit
-    // LUISA_NOT_IMPLEMENTED), while the fallback, DX, HIP, and Metal backends
-    // lower them natively.
+    // Verify explicit-sampler overloads on all backends including CUDA (both
+    // AST and LLVM codegen paths).
     Kernel1D check_explicit_sampler = [&](BindlessVar bindless,
                                           BufferFloat4 result) noexcept {
         auto explicit_texture = bindless.tex2d(0u);
@@ -217,15 +215,25 @@ void test_sampler(Device &device) {
                          explicit_uvw, zero3, zero3, 0.0f,
                          SamplerFilter::POINT, SamplerAddress::REPEAT));
     };
-    const auto supports_explicit_sampler = device.backend_name() != "cuda";
+    Kernel1D check_explicit_modes = [&](BindlessVar bindless,
+                                        BufferFloat4 result) noexcept {
+        auto explicit_texture = bindless.tex2d(0u);
+        result.write(0u, explicit_texture.sample(outside_uv, SamplerFilter::POINT, SamplerAddress::EDGE));
+        result.write(1u, explicit_texture.sample(outside_uv, SamplerFilter::POINT, SamplerAddress::MIRROR));
+        result.write(2u, explicit_texture.sample(outside_uv, SamplerFilter::POINT, SamplerAddress::ZERO));
+        result.write(3u, explicit_texture.sample(center_uv, SamplerFilter::LINEAR_POINT, SamplerAddress::EDGE));
+        result.write(4u, explicit_texture.sample(repeat_edge_uv, SamplerFilter::LINEAR_POINT, SamplerAddress::REPEAT));
+    };
+    auto mode_output = device.create_buffer<float4>(5u);
+    std::array<float4, 5u> mode_actual{};
     auto shader = device.compile(check_sampler);
-    stream << shader(heap, output).dispatch(1u);
-    if (supports_explicit_sampler) {
-        auto explicit_shader = device.compile(check_explicit_sampler);
-        // Keep the shader's executable storage alive until its dispatch ends.
-        stream << explicit_shader(heap, output).dispatch(1u) << synchronize();
-    }
-    stream << output.copy_to(luisa::span{actual})
+    auto explicit_shader = device.compile(check_explicit_sampler);
+    auto mode_shader = device.compile(check_explicit_modes);
+    stream << shader(heap, output).dispatch(1u)
+           << explicit_shader(heap, output).dispatch(1u)
+           << mode_shader(heap, mode_output).dispatch(1u)
+           << output.copy_to(luisa::span{actual})
+           << mode_output.copy_to(luisa::span{mode_actual})
            << synchronize();
 
     std::array<float4, output_count> expected{
@@ -247,12 +255,20 @@ void test_sampler(Device &device) {
 
     constexpr auto epsilon = 1.0e-5f;
     for (auto i = 0u; i < output_count; i++) {
-        if (!supports_explicit_sampler && i >= explicit_2d) {
-            continue;// explicit-sampler slots are not written on this backend
-        }
         auto error = max_error(actual[i], expected[i]);
         expect(static_cast<bool>(error <= epsilon))
             << "sampler result " << i << " must match the host oracle; max error " << error;
+    }
+    const std::array<float4, 5u> mode_expected{
+        sample_point(outside_uv, Sampler::Address::EDGE),
+        sample_point(outside_uv, Sampler::Address::MIRROR),
+        sample_point(outside_uv, Sampler::Address::ZERO),
+        sample_linear(center_uv, Sampler::Address::EDGE),
+        sample_linear(repeat_edge_uv, Sampler::Address::REPEAT)};
+    for (auto i = 0u; i < mode_expected.size(); i++) {
+        auto error = max_error(mode_actual[i], mode_expected[i]);
+        expect(static_cast<bool>(error <= epsilon))
+            << "explicit sampler mode " << i << " must match the host oracle; max error " << error;
     }
 }
 

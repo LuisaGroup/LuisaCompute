@@ -1797,7 +1797,8 @@ luisa_compute_add_test(test_coro_wavefront_auxiliary_admission
 luisa_compute_add_test(test_coro_radix_sort     unit/coro/test_coro_radix_sort.cpp)
 luisa_compute_add_test(test_coro_all_schedulers unit/coro/test_coro_all_schedulers.cpp)
 luisa_compute_add_test(test_coro_packed_word unit/coro/test_coro_packed_word.cpp)
-foreach (_target test_coro_soa_layout test_coro_wavefront test_coro_all_schedulers)
+foreach (_target test_coro_soa_layout test_coro_wavefront test_coro_all_schedulers
+                 test_coro_wavefront_resume_annotation)
     target_compile_options(${_target} PRIVATE
             $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 endforeach ()
@@ -2287,6 +2288,8 @@ if (TARGET luisa-compute-backend-simd)
 endif ()
 
 luisa_compute_add_test(test_coro_shared_callable unit/coro/test_coro_shared_callable.cpp)
+target_compile_options(test_coro_shared_callable PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 
 if (TARGET luisa-compute-backend-metal)
     add_test(NAME test_coro_shared_callable_metal COMMAND test_coro_shared_callable metal)

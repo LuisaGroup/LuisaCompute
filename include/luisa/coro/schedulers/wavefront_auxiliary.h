@@ -128,6 +128,10 @@ public:
     [[nodiscard]] virtual bool try_predict_stage_transition(uint) noexcept {
         return false;
     }
+    [[nodiscard]] virtual bool stage_blocks_async_domain(
+        uint /*stage*/, luisa::string_view /*domain*/) const noexcept {
+        return false;
+    }
     virtual void prepare_for_producer(Stream &, uint) noexcept {}
     virtual void encode_prepare_for_producer(Stream &stream, CommandList &commands, uint required) noexcept {
         if (!commands.empty()) { stream << commands.commit(); }

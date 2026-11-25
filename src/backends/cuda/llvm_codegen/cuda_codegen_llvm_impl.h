@@ -391,6 +391,9 @@ private:
     [[nodiscard]] llvm::Value *_get_buffer_element_pointer(IB &b, llvm::Value *buffer, llvm::Value *index, size_t index_stride, size_t element_size) noexcept;
     [[nodiscard]] llvm::Value *_get_bindless_array_slot_pointer(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index) noexcept;
     [[nodiscard]] llvm::Value *_get_bindless_array_texture_handle(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index, int dim) noexcept;
+    [[nodiscard]] llvm::Value *_get_bindless_array_texture_handle_with_sampler(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index, llvm::Value *filter, llvm::Value *address, int dim) noexcept;
+    [[nodiscard]] llvm::Value *_translate_bindless_texture_sample(IB &b, const FunctionContext &func_ctx, const xir::ResourceQueryInst *inst, int dim, bool with_sampler) noexcept;
+    [[nodiscard]] llvm::Function *_get_surface_sample_function(int dim, llvm::Type *llvm_value_type) noexcept;
     [[nodiscard]] llvm::Value *_get_accel_instance_pointer(IB &b, llvm::Value *accel, llvm::Value *instance_index) noexcept;
     [[nodiscard]] llvm::Value *_get_accel_instance_motion_data(IB &b, llvm::Value *accel, llvm::Value *instance_index, llvm::Value *key_index, size_t stride) noexcept;
     void _set_accel_instance_opacity(IB &b, llvm::Value *accel, llvm::Value *instance_index, llvm::Value *is_opaque) noexcept;

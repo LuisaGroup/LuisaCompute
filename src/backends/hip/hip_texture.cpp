@@ -40,9 +40,18 @@ HIPSurface HIPTexture::binding(uint32_t level) const noexcept {
     LUISA_ASSERT(level < _levels,
                  "Invalid level {} for texture with {} level(s).",
                  level, _levels);
-    LUISA_ASSERT(!is_block_compressed(format()),
-                 "HIP block-compressed textures currently support copy operations only; "
-                 "ROCm rejected creation of a block-compressed texture resource view.");
+    const auto is_bc = is_block_compressed(format());
+    LUISA_ASSERT(!is_bc ||
+                     (format() == PixelFormat::BC1UNorm ||
+                      format() == PixelFormat::BC2UNorm ||
+                      format() == PixelFormat::BC3UNorm ||
+                      format() == PixelFormat::BC4UNorm ||
+                      format() == PixelFormat::BC5UNorm ||
+                      format() == PixelFormat::BC6HUF16 ||
+                      format() == PixelFormat::BC7UNorm ||
+                      format() == PixelFormat::BC7SRGB),
+                 "HIP block-compressed format {} cannot be used for texture sampling.",
+                 luisa::to_underlying(format()));
     LUISA_ASSERT(_direct_descriptor != nullptr,
                  "HIP direct texture descriptor is not initialized.");
     auto descriptor = reinterpret_cast<uint64_t>(_direct_descriptor);
@@ -50,7 +59,14 @@ HIPSurface HIPTexture::binding(uint32_t level) const noexcept {
                  "HIP direct texture descriptor address 0x{:016x} is not {}-byte aligned.",
                  descriptor, 1u << direct_descriptor_mip_tag_bits);
     descriptor |= static_cast<uint64_t>(level);
-    return HIPSurface{_mip_surfaces[level], descriptor};
+    auto surface_handle = _mip_surfaces[level];
+    if (is_bc) {
+        surface_handle = reinterpret_cast<hipSurfaceObject_t>(
+            reinterpret_cast<std::byte *>(_direct_descriptor) +
+            offsetof(HIPDirectTextureDescriptor, images) +
+            static_cast<size_t>(level) * sizeof(HIPImageDescriptor));
+    }
+    return HIPSurface{surface_handle, descriptor};
 }
 
 namespace {
@@ -228,6 +244,151 @@ namespace {
                               luisa::to_underlying(filter));
 }
 
+[[nodiscard]] bool hip_texture_is_bc_format(PixelFormat format) noexcept {
+    return format == PixelFormat::BC1UNorm ||
+           format == PixelFormat::BC2UNorm ||
+           format == PixelFormat::BC3UNorm ||
+           format == PixelFormat::BC4UNorm ||
+           format == PixelFormat::BC5UNorm ||
+           format == PixelFormat::BC6HUF16 ||
+           format == PixelFormat::BC7UNorm ||
+           format == PixelFormat::BC7SRGB;
+}
+
+[[nodiscard]] uint8_t parse_hip_gfx_gen(luisa::string_view arch) noexcept {
+    if (arch.starts_with("gfx12")) { return 12u; }
+    if (arch.starts_with("gfx11")) { return 11u; }
+    if (arch.starts_with("gfx10")) { return 10u; }
+    if (arch.starts_with("gfx9")) { return 9u; }
+    return 0u;
+}
+
+[[nodiscard]] uint32_t hip_bc_hw_format(PixelFormat format, uint8_t gfx_gen) noexcept {
+    // Values verified from AMD PAL gfx12_merged_enum.h and gfx9_plus_merged_enum.h.
+    if (gfx_gen == 10u) {
+        switch (format) {
+            case PixelFormat::BC1UNorm: return 0xa9u;
+            case PixelFormat::BC2UNorm: return 0xabu;
+            case PixelFormat::BC3UNorm: return 0xadu;
+            case PixelFormat::BC4UNorm: return 0xafu;
+            case PixelFormat::BC5UNorm: return 0xb1u;
+            case PixelFormat::BC6HUF16: return 0xb3u;
+            case PixelFormat::BC7UNorm: return 0xb5u;
+            case PixelFormat::BC7SRGB: return 0xb6u;
+            default: break;
+        }
+    } else {
+        // GFX11 and GFX12 share IMG_FMT_BC* numeric identifiers.
+        switch (format) {
+            case PixelFormat::BC1UNorm: return 0x6du;
+            case PixelFormat::BC2UNorm: return 0x6fu;
+            case PixelFormat::BC3UNorm: return 0x71u;
+            case PixelFormat::BC4UNorm: return 0x73u;
+            case PixelFormat::BC5UNorm: return 0x75u;
+            case PixelFormat::BC6HUF16: return 0x77u;
+            case PixelFormat::BC7UNorm: return 0x79u;
+            case PixelFormat::BC7SRGB: return 0x7au;
+            default: break;
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION("Unsupported HIP BC pixel format 0x{:02x}.",
+                              luisa::to_underlying(format));
+}
+
+void patch_bc_image_descriptor(
+    HIPImageDescriptor &desc,
+    PixelFormat format,
+    uint3 level_size,
+    uint8_t gfx_gen) noexcept {
+    LUISA_ASSERT(gfx_gen == 10u || gfx_gen == 11u || gfx_gen == 12u,
+                 "HIP hardware BC texture sampling requires GFX10/GFX11/GFX12 (got gfx{}).",
+                 gfx_gen);
+    LUISA_ASSERT((desc.words[6u] & (1u << 21u)) == 0u,
+                 "Unexpected hardware DCC compression_en on raw block HIPImageDescriptor.");
+
+    const uint32_t blocks_x = (level_size.x + 3u) / 4u;
+    const uint32_t blocks_y = (level_size.y + 3u) / 4u;
+    const uint32_t w_m1 = level_size.x - 1u;
+    const uint32_t h_m1 = level_size.y - 1u;
+    const bool is_64bpp = (format == PixelFormat::BC1UNorm || format == PixelFormat::BC4UNorm);
+    const uint32_t sw_mode = (desc.words[3u] >> 20u) & 0x1fu;
+    const uint32_t bc_fmt = hip_bc_hw_format(format, gfx_gen);
+
+    if (gfx_gen == 12u) {
+        const uint32_t expected_raw_fmt = is_64bpp ? 0x30u : 0x3du;
+        const uint32_t raw_fmt = (desc.words[1u] >> 17u) & 0xffu;
+        const uint32_t raw_w_m1 = ((desc.words[1u] >> 30u) & 0x3u) | ((desc.words[2u] & 0x3fffu) << 2u);
+        const uint32_t raw_h_m1 = (desc.words[2u] >> 14u) & 0xffffu;
+        LUISA_ASSERT(raw_fmt == expected_raw_fmt && raw_w_m1 == blocks_x - 1u && raw_h_m1 == blocks_y - 1u,
+                     "Unexpected GFX12 raw T# layout for BC patching: fmt=0x{:x} (exp 0x{:x}), w_m1={} (exp {}), h_m1={} (exp {}).",
+                     raw_fmt, expected_raw_fmt, raw_w_m1, blocks_x - 1u, raw_h_m1, blocks_y - 1u);
+        desc.words[1u] = (desc.words[1u] & ~(0xffu << 17u) & ~(0x3u << 30u)) |
+                         ((bc_fmt & 0xffu) << 17u) | ((w_m1 & 0x3u) << 30u);
+        desc.words[2u] = (desc.words[2u] & ~0x3fffu & ~(0xffffu << 14u)) |
+                         ((w_m1 >> 2u) & 0x3fffu) | ((h_m1 & 0xffffu) << 14u);
+        if (sw_mode == 0u) {
+            const uint32_t pitch_m1 = desc.words[4u] & 0xffffu;
+            const uint32_t pitch_blocks = pitch_m1 != 0u ? (pitch_m1 + 1u) : blocks_x;
+            const uint32_t pitch_pixels = pitch_blocks * 4u;
+            if (pitch_pixels > level_size.x) {
+                desc.words[4u] = (desc.words[4u] & ~0xffffu) | ((pitch_pixels - 1u) & 0xffffu);
+            }
+        }
+    } else if (gfx_gen == 11u) {
+        const uint32_t expected_raw_fmt = is_64bpp ? 0x30u : 0x3du;
+        const uint32_t raw_fmt = (desc.words[1u] >> 20u) & 0xffu;
+        const uint32_t raw_w_m1 = ((desc.words[1u] >> 30u) & 0x3u) | ((desc.words[2u] & 0x0fffu) << 2u);
+        const uint32_t raw_h_m1 = (desc.words[2u] >> 14u) & 0x3fffu;
+        LUISA_ASSERT(raw_fmt == expected_raw_fmt && raw_w_m1 == blocks_x - 1u && raw_h_m1 == blocks_y - 1u,
+                     "Unexpected GFX11 raw T# layout for BC patching: fmt=0x{:x} (exp 0x{:x}), w_m1={} (exp {}), h_m1={} (exp {}).",
+                     raw_fmt, expected_raw_fmt, raw_w_m1, blocks_x - 1u, raw_h_m1, blocks_y - 1u);
+        desc.words[1u] = (desc.words[1u] & ~(0xffu << 20u) & ~(0x3u << 30u)) |
+                         ((bc_fmt & 0xffu) << 20u) | ((w_m1 & 0x3u) << 30u);
+        desc.words[2u] = (desc.words[2u] & ~0x0fffu & ~(0x3fffu << 14u)) |
+                         ((w_m1 >> 2u) & 0x0fffu) | ((h_m1 & 0x3fffu) << 14u);
+        if (sw_mode == 0u) {
+            const uint32_t pitch_m1 = desc.words[4u] & 0x3fffu;
+            const uint32_t pitch_blocks = pitch_m1 != 0u ? (pitch_m1 + 1u) : blocks_x;
+            const uint32_t pitch_pixels = pitch_blocks * 4u;
+            if (pitch_pixels > level_size.x) {
+                desc.words[4u] = (desc.words[4u] & ~0x3fffu) | ((pitch_pixels - 1u) & 0x3fffu);
+            }
+        }
+    } else {
+        // GFX10
+        const uint32_t expected_raw_fmt = is_64bpp ? 0x3eu : 0x4bu;
+        const uint32_t raw_fmt = (desc.words[1u] >> 20u) & 0x1ffu;
+        const uint32_t raw_w_m1 = ((desc.words[1u] >> 30u) & 0x3u) | ((desc.words[2u] & 0x3fffu) << 2u);
+        const uint32_t raw_h_m1 = (desc.words[2u] >> 14u) & 0xffffu;
+        LUISA_ASSERT(raw_fmt == expected_raw_fmt && raw_w_m1 == blocks_x - 1u && raw_h_m1 == blocks_y - 1u,
+                     "Unexpected GFX10 raw T# layout for BC patching: fmt=0x{:x} (exp 0x{:x}), w_m1={} (exp {}), h_m1={} (exp {}).",
+                     raw_fmt, expected_raw_fmt, raw_w_m1, blocks_x - 1u, raw_h_m1, blocks_y - 1u);
+        desc.words[1u] = (desc.words[1u] & ~(0x1ffu << 20u) & ~(0x3u << 30u)) |
+                         ((bc_fmt & 0x1ffu) << 20u) | ((w_m1 & 0x3u) << 30u);
+        desc.words[2u] = (desc.words[2u] & ~0x3fffu & ~(0xffffu << 14u)) |
+                         ((w_m1 >> 2u) & 0x3fffu) | ((h_m1 & 0xffffu) << 14u);
+        if (sw_mode == 0u) {
+            const uint32_t pitch_m1 = desc.words[4u] & 0xffffu;
+            const uint32_t pitch_blocks = pitch_m1 != 0u ? (pitch_m1 + 1u) : blocks_x;
+            const uint32_t pitch_pixels = pitch_blocks * 4u;
+            if (pitch_pixels > level_size.x) {
+                desc.words[4u] = (desc.words[4u] & ~0xffffu) | ((pitch_pixels - 1u) & 0xffffu);
+            }
+        }
+    }
+
+    // Channel swizzle in SQ_IMG_RSRC_WORD3 [11:0] (SQ_SEL_0=0, SQ_SEL_1=1, X=4, Y=5, Z=6, W=7).
+    uint32_t dst_sel = 4u | (5u << 3u) | (6u << 6u) | (7u << 9u);
+    if (format == PixelFormat::BC4UNorm) {
+        dst_sel = 4u | (0u << 3u) | (0u << 6u) | (1u << 9u);
+    } else if (format == PixelFormat::BC5UNorm) {
+        dst_sel = 4u | (5u << 3u) | (0u << 6u) | (1u << 9u);
+    } else if (format == PixelFormat::BC6HUF16) {
+        dst_sel = 4u | (5u << 3u) | (6u << 6u) | (1u << 9u);
+    }
+    desc.words[3u] = (desc.words[3u] & ~0xfffu) | dst_sel;
+}
+
 [[nodiscard]] auto hip_texture_is_samplable(PixelFormat format) noexcept {
     return format == PixelFormat::R8UNorm ||
            format == PixelFormat::RG8UNorm ||
@@ -241,7 +402,8 @@ namespace {
            format == PixelFormat::R16F ||
            format == PixelFormat::RG16F ||
            format == PixelFormat::RGBA16F ||
-           format == PixelFormat::R10G10B10A2UNorm;
+           format == PixelFormat::R10G10B10A2UNorm ||
+           hip_texture_is_bc_format(format);
 }
 
 [[nodiscard]] auto mip_size(uint3 size, uint32_t level) noexcept {
@@ -275,9 +437,9 @@ namespace {
     tex_desc.maxAnisotropy = 0u;
     tex_desc.maxMipmapLevelClamp = 0.0f;
     tex_desc.flags = HIP_TRSF_NORMALIZED_COORDINATES;
-    if (is_srgb(format)) { tex_desc.flags |= HIP_TRSF_SRGB; }
+    if (is_srgb(format) && !hip_texture_is_bc_format(format)) { tex_desc.flags |= HIP_TRSF_SRGB; }
     hipTextureObject_t object{};
-    if (is_block_compressed(format)) {
+    if (is_block_compressed(format) && !hip_texture_is_bc_format(format)) {
         HIP_RESOURCE_VIEW_DESC view_desc{};
         view_desc.format = hip_resource_view_format(format);
         view_desc.width = level_size.x;
@@ -297,8 +459,8 @@ namespace {
 }// namespace
 
 void HIPTexture::create_texture_objects(luisa::span<hipTextureObject_t> objects, Sampler s) const noexcept {
-    LUISA_ASSERT(hip_texture_is_samplable(format()),
-                 "Pixel format {} cannot be used for texture sampling.",
+    LUISA_ASSERT(hip_texture_is_samplable(format()) && !is_block_compressed(format()),
+                 "Pixel format {} cannot be used for raw hipTextureObject_t sampling.",
                  luisa::to_underlying(format()));
     LUISA_ASSERT(objects.size() >= _levels,
                  "Texture object span size {} is smaller than texture level count {}.",
@@ -319,14 +481,19 @@ void HIPTexture::copy_image_descriptors(luisa::span<HIPImageDescriptor> descript
                  "Image descriptor span size {} is smaller than texture level count {}.",
                  descriptors.size(), _levels);
     auto base_size = size();
+    const bool patch_bc = hip_texture_is_bc_format(format());
     for (auto level = 0u; level < _levels; level++) {
+        const auto level_ext = mip_size(base_size, level);
         auto object = create_texture_object(
             _mip_arrays[level], format(), _dimension,
-            mip_size(base_size, level), Sampler::point_edge());
+            level_ext, Sampler::point_edge());
         auto address = reinterpret_cast<hipDeviceptr_t>(object);
         LUISA_CHECK_HIP(hipMemcpyDtoH(&descriptors[level], address,
                                       sizeof(HIPImageDescriptor)));
         LUISA_CHECK_HIP(hipTexObjectDestroy(object));
+        if (patch_bc) {
+            patch_bc_image_descriptor(descriptors[level], format(), level_ext, _gfx_gen);
+        }
     }
 }
 
@@ -376,12 +543,18 @@ void HIPTexture::_initialize_direct_descriptor() noexcept {
         _direct_descriptor, &host_descriptor, sizeof(host_descriptor)));
 }
 
-HIPTexture *HIPTexture::create_device_texture(PixelFormat format, uint dim, uint3 size, uint32_t mip_levels) noexcept {
+HIPTexture *HIPTexture::create_device_texture(PixelFormat format, uint dim, uint3 size, uint32_t mip_levels, luisa::string_view amdgpu_arch) noexcept {
     LUISA_ASSERT(dim == 2u || dim == 3u,
                  "HIPTexture::create_device_texture() only supports 2D and 3D textures.");
     LUISA_ASSERT(mip_levels >= 1u && mip_levels <= max_level_count,
                  "HIPTexture::create_device_texture() mip levels {} out of range [1, {}].",
                  mip_levels, max_level_count);
+    auto is_bc = is_block_compressed(format);
+    if (is_bc) {
+        LUISA_ASSERT(dim == 2u && hip_texture_is_bc_format(format),
+                     "Unsupported HIP block-compressed texture format {} (dim={}).",
+                     luisa::to_underlying(format), dim);
+    }
     auto t = luisa::new_with_allocator<HIPTexture>();
     t->_size[0] = static_cast<uint16_t>(size.x);
     t->_size[1] = static_cast<uint16_t>(size.y);
@@ -389,7 +562,7 @@ HIPTexture *HIPTexture::create_device_texture(PixelFormat format, uint dim, uint
     t->_format = static_cast<uint8_t>(format);
     t->_levels = static_cast<uint8_t>(mip_levels);
     t->_dimension = static_cast<uint8_t>(dim);
-    auto is_bc = is_block_compressed(format);
+    t->_gfx_gen = parse_hip_gfx_gen(amdgpu_arch);
     for (auto i = 0u; i < mip_levels; i++) {
         auto level_size = mip_size(size, i);
         HIP_ARRAY3D_DESCRIPTOR array_desc{};

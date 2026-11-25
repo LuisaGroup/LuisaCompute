@@ -181,6 +181,14 @@ void block_package5( out uint4 block, uint rotation, uint threadBase );
 void block_package6( out uint4 block, uint threadBase );
 void block_package7( out uint4 block, uint partition, uint threadBase );
 
+float4 LoadInputClamped(uint x, uint y)
+{
+ uint tex_w = 0, tex_h = 0, mip_levels = 0;
+ g_Input.GetDimensions(g_mip_level, tex_w, tex_h, mip_levels);
+ uint cx = min(x, max(tex_w, 1u) - 1u);
+ uint cy = min(y, max(tex_h, 1u) - 1u);
+ return g_Input.Load(uint3(cx, cy, g_mip_level));
+}
 
 void swap(inout uint4 lhs, inout uint4 rhs)
 {

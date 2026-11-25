@@ -442,9 +442,9 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 }  // namespace cuda_device_detail_3
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 30 omits unused custom intersection programs on triangle-only ray queries.
+// Revision 31 adds explicit-sampler and direct-texture sampling ops.
 namespace cuda_device_detail_2 {
-static constexpr uint64_t cuda_llvm_cache_revision = 30u;
+static constexpr uint64_t cuda_llvm_cache_revision = 31u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -696,9 +696,45 @@ CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
 CUDADevice::~CUDADevice() noexcept {
     with_handle([this] {
         LUISA_CHECK_CUDA(cuCtxSynchronize());
+        {
+            std::scoped_lock lock{_sampler_table_mutex};
+            for (auto chunk : _sampler_table_chunks) {
+                LUISA_CHECK_CUDA(cuMemFree(chunk));
+            }
+            _sampler_table_chunks.clear();
+            _sampler_table_free_list.clear();
+        }
         if (_builtin_kernel_module)
             LUISA_CHECK_CUDA(cuModuleUnload(_builtin_kernel_module));
     });
+}
+
+CUdeviceptr CUDADevice::allocate_sampler_table() noexcept {
+    std::scoped_lock lock{_sampler_table_mutex};
+    if (_sampler_table_free_list.empty()) {
+        constexpr size_t table_stride = 16u * sizeof(uint64_t);
+        constexpr size_t tables_per_chunk = 512u;
+        constexpr size_t chunk_bytes = table_stride * tables_per_chunk;
+        CUdeviceptr chunk{};
+        with_handle([&] {
+            LUISA_CHECK_CUDA(cuMemAlloc(&chunk, chunk_bytes));
+            LUISA_CHECK_CUDA(cuMemsetD8(chunk, 0u, chunk_bytes));
+        });
+        _sampler_table_chunks.emplace_back(chunk);
+        _sampler_table_free_list.reserve(_sampler_table_free_list.size() + tables_per_chunk);
+        for (auto i = tables_per_chunk; i > 0u; --i) {
+            _sampler_table_free_list.emplace_back(chunk + (i - 1u) * table_stride);
+        }
+    }
+    auto ptr = _sampler_table_free_list.back();
+    _sampler_table_free_list.pop_back();
+    return ptr;
+}
+
+void CUDADevice::deallocate_sampler_table(CUdeviceptr ptr) noexcept {
+    if (ptr == 0ull) { return; }
+    std::scoped_lock lock{_sampler_table_mutex};
+    _sampler_table_free_list.emplace_back(ptr);
 }
 
 lc::fallback_rtx::FallbackRtxDevice *CUDADevice::fallback_rtx() noexcept {
@@ -846,7 +882,7 @@ void CUDADevice::destroy_texture(uint64_t handle) noexcept {
 
 ResourceCreationInfo CUDADevice::create_bindless_array(size_t size, BindlessSlotType type) noexcept {
     LUISA_ASSERT(type == BindlessSlotType::MULTIPLE);
-    auto p = with_handle([size] { return new_with_allocator<CUDABindlessArray>(size); });
+    auto p = with_handle([this, size] { return new_with_allocator<CUDABindlessArray>(this, size); });
     return {.handle = reinterpret_cast<uint64_t>(p),
             .native_handle = reinterpret_cast<void *>(p->handle())};
 }
@@ -1399,9 +1435,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
         if (generate_ptx) {
             auto hash = cuda_device_detail_2::cuda_llvm_shader_hash(kernel, option, _handle.compute_capability());
-            // OptiX IR revision 17 legalizes integer atomicrmw sub and lanemask_* intrinsics.
+            // OptiX IR revision 18 emits O3 optimization and fast-math container scalars.
             return code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR ?
-                       luisa::hash_combine({static_cast<uint64_t>(code_format), 17u}, hash) : hash;
+                       luisa::hash_combine({static_cast<uint64_t>(code_format), 18u}, hash) : hash;
         }
 #endif
         return CUDACompiler::compute_hash(scratch.string(), nvrtc_options);

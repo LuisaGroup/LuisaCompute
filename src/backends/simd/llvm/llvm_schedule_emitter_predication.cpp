@@ -1687,8 +1687,8 @@ ScheduleEmitter::_find_coherent_all_on_region(
     static constexpr auto max_block_count = size_t{4u};
     static constexpr auto max_weighted_cost = size_t{24u};
     static constexpr auto max_region_count = size_t{1u};
-    static constexpr auto min_w8_block_count = size_t{3u};
-    auto enabled_width = _width == 2u || _width == 8u;
+    static constexpr auto min_wide_block_count = size_t{3u};
+    auto enabled_width = _width == 2u || _width == 4u || _width == 8u;
     if (_result.all_on_region_version_count >= max_region_count ||
         !enabled_width || !control.convergence ||
         entry_edge.loop_back || !entry_edge.joins.empty() ||
@@ -1856,8 +1856,8 @@ ScheduleEmitter::_find_coherent_all_on_region(
             // measurements show that W8 does not amortize that cost over a
             // two-block region, while W2 does. Keep this structural and
             // fail-closed: W8 needs at least one additional scheduler edge.
-            if (_width == 8u &&
-                region.blocks.size() < min_w8_block_count) {
+            if (_width >= 4u &&
+                region.blocks.size() < min_wide_block_count) {
                 return luisa::nullopt;
             }
             return region;

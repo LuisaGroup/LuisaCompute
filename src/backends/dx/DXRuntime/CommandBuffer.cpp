@@ -173,8 +173,8 @@ CommandBufferBuilder::CopyInfo CommandBufferBuilder::get_copy_texture_buffer_siz
     TextureBase *texture,
     uint3 size) {
     if (Resource::IsBCtex(texture->Format())) {
-        size.x /= 4;
-        size.y /= 4;
+        size.x = (size.x + 3u) / 4u;
+        size.y = (size.y + 3u) / 4u;
     }
     auto pureLineSize = size.x * Resource::GetTexturePixelSize(texture->Format());
     auto lineSize = CalcConstantBufferByteSize(pureLineSize);
@@ -197,10 +197,14 @@ void CommandBufferBuilder::copy_buffer_texture(
     sourceLocation.pResource = buffer.buffer->GetResource();
     sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     sourceLocation.PlacedFootprint.Offset = buffer.offset;
-    auto rowPitch = size.x / (Resource::IsBCtex(texture->Format()) ? 4u : 1u) * Resource::GetTexturePixelSize(texture->Format());
+    const bool is_bc = Resource::IsBCtex(texture->Format());
+    const uint copy_w = is_bc ? ((size.x + 3u) & ~3u) : size.x;
+    const uint copy_h = is_bc ? ((size.y + 3u) & ~3u) : size.y;
+    const uint row_elems = is_bc ? (copy_w / 4u) : size.x;
+    auto rowPitch = row_elems * Resource::GetTexturePixelSize(texture->Format());
     if (checkAlign) {
         if ((rowPitch & (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)) != 0) [[unlikely]] {
-            LUISA_ERROR("Texture's row must be aligned as {}, current value row-size({}) x pixel-size({}) = {}.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, size.x / (Resource::IsBCtex(texture->Format()) ? 4u : 1u), Resource::GetTexturePixelSize(texture->Format()), rowPitch);
+            LUISA_ERROR("Texture's row must be aligned as {}, current value row-size({}) x pixel-size({}) = {}.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, row_elems, Resource::GetTexturePixelSize(texture->Format()), rowPitch);
         }
         if ((buffer.offset & (D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1)) != 0) [[unlikely]] {
             LUISA_ERROR("Buffer offset must be aligned as {}, current value is {}", D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, buffer.offset);
@@ -211,8 +215,8 @@ void CommandBufferBuilder::copy_buffer_texture(
     sourceLocation.PlacedFootprint.Footprint =
         {
             (DXGI_FORMAT)texture->Format(),//DXGI_FORMAT Format;
-            size.x,                        //uint Width;
-            size.y,                        //uint Height;
+            copy_w,                        //uint Width;
+            copy_h,                        //uint Height;
             size.z,                        //uint Depth;
             static_cast<uint>(rowPitch)};
 

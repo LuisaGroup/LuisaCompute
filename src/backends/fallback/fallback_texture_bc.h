@@ -5,7 +5,9 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <luisa/core/logging.h>
+#include <luisa/runtime/rhi/pixel.h>
 
 namespace luisa::compute::fallback::bc {
 extern const int g_aWeights2[];
@@ -425,5 +427,20 @@ private:
 
     static const ModeInfo ms_aInfo[c_NumModes];
 };
+
+void decode_bc1(const void *block, uint32_t x, uint32_t y, float *out) noexcept;
+void decode_bc2(const void *block, uint32_t x, uint32_t y, float *out) noexcept;
+void decode_bc3(const void *block, uint32_t x, uint32_t y, float *out) noexcept;
+void decode_bc4(const void *block, uint32_t x, uint32_t y, float *out) noexcept;
+void decode_bc5(const void *block, uint32_t x, uint32_t y, float *out) noexcept;
+
+void decode_bc_pixel(
+    PixelStorage storage,
+    const std::byte *data,
+    uint32_t width,
+    uint32_t height,
+    uint32_t x,
+    uint32_t y,
+    float *out) noexcept;
 
 }// namespace luisa::compute::fallback::bc

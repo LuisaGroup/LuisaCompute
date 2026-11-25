@@ -1090,7 +1090,7 @@ ResourceCreationInfo HIPDevice::create_texture(PixelFormat format, uint dimensio
         return external_native_handle == nullptr ?
                    HIPTexture::create_device_texture(format, dimension,
                                                      make_uint3(width, height, depth),
-                                                     mipmap_levels) :
+                                                     mipmap_levels, _amdgpu_arch) :
                    HIPTexture::import_external_texture(
                        reinterpret_cast<uint64_t>(external_native_handle),
                        format, dimension,

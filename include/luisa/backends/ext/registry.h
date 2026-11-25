@@ -30,6 +30,10 @@ enum struct CustomCommandUUID : uint32_t {
     NATIVE_SHADER_EXT_BEGIN = 0x0600u,
     NATIVE_SHADER_DISPATCH = NATIVE_SHADER_EXT_BEGIN,
 
+    BATCH_COPY_EXT_BEGIN = 0x0700u,
+    BATCH_BUFFER_TO_TEXTURE_COPY = BATCH_COPY_EXT_BEGIN,
+    STREAM_SIGNAL_EVENT,
+
     REGISTERED_END = 0xffffu,
 };
 
@@ -47,6 +51,8 @@ namespace luisa {
         case compute::CustomCommandUUID::CUDA_LCUB_COMMAND: return "CUDA_LCUB_COMMAND";
         case compute::CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL: return "VK_CUDA_LAUNCH_KERNEL";
         case compute::CustomCommandUUID::NATIVE_SHADER_DISPATCH: return "NATIVE_SHADER_DISPATCH";
+        case compute::CustomCommandUUID::BATCH_BUFFER_TO_TEXTURE_COPY: return "BATCH_BUFFER_TO_TEXTURE_COPY";
+        case compute::CustomCommandUUID::STREAM_SIGNAL_EVENT: return "STREAM_SIGNAL_EVENT";
         default: break;
     }
     return "UNKNOWN";

@@ -12,6 +12,8 @@ namespace luisa::compute {
 
 struct PinnedMemoryOption {
     bool write_combined{false};
+    bool host_cached_upload{false};
+    bool prefer_host{false};
 };
 
 class PinnedMemoryExt : public DeviceExtension {

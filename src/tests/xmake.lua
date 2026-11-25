@@ -826,7 +826,7 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_coro_packed_word", "unit/coro/test_coro_packed_word.cpp", true)
     coro_xir_test_proj("test_coro_wavefront_integration", "unit/coro/test_coro_wavefront_integration.cpp", true)
     coro_xir_test_proj("test_coro_callable_rendering", "integration/runtime/test_coro_callable_rendering.cpp")
-    coro_xir_test_proj("test_coro_shared_callable", "unit/coro/test_coro_shared_callable.cpp")
+    coro_xir_test_proj("test_coro_shared_callable", "unit/coro/test_coro_shared_callable.cpp", true)
     coro_xir_test_proj("test_coro_pipeline_1suspend", "unit/coro/test_coro_pipeline_1suspend.cpp")
     coro_xir_test_proj("test_coro_pipeline_3suspend", "unit/coro/test_coro_pipeline_3suspend.cpp")
     coro_xir_test_proj("test_xir_coro_cfg_distill", "unit/xir/test_coro_cfg_distill.cpp")

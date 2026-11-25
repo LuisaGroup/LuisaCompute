@@ -251,7 +251,7 @@ ScheduleEmitter::_find_chained_predicated_region(
         }
         if (!found) { break; }
     }
-    if (enable_chaining && _width == 8u &&
+    if (enable_chaining && (_width == 4u || _width == 8u) &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL")) {
         auto target = region.merge;

@@ -34,60 +34,58 @@ emit_mirror_linear_coordinate(
     auto *half = float_vector_constant(builder, width, 0.5f);
     auto *one = float_vector_constant(builder, width, 1.0f);
     auto *two = float_vector_constant(builder, width, 2.0f);
-    auto *one_minus_epsilon = float_vector_constant(
-        builder, width, 0x1.fffffep-1f);
     auto *infinity = ::llvm::ConstantVector::getSplat(
         ::llvm::ElementCount::getFixed(width),
         ::llvm::ConstantFP::getInfinity(builder.getFloatTy()));
-    auto *absolute = builder.CreateUnaryIntrinsic(
-        ::llvm::Intrinsic::fabs, coordinate);
-    auto *finite = builder.CreateFCmpOLT(
-        absolute, infinity, "bindless.texture.byte1.finite");
-    auto *half_inverse_size = builder.CreateFDiv(half, size);
-
-    auto mirror = [&](::llvm::Value *value) {
-        value = builder.CreateUnaryIntrinsic(
-            ::llvm::Intrinsic::fabs, value);
-        auto *period = builder.CreateUnaryIntrinsic(
-            ::llvm::Intrinsic::floor,
-            builder.CreateFMul(value, half));
-        value = builder.CreateFSub(
-            value, builder.CreateFMul(period, two));
-        value = builder.CreateSelect(
-            builder.CreateFCmpOLT(value, one), value,
-            builder.CreateFSub(two, value));
-        value = builder.CreateMinNum(value, one_minus_epsilon);
-        return builder.CreateFMul(value, size);
-    };
-    auto *a = mirror(builder.CreateFSub(
-        coordinate, half_inverse_size));
-    auto *b = mirror(builder.CreateFAdd(
-        coordinate, half_inverse_size));
-    auto *lo = builder.CreateMinNum(a, b);
-    auto *hi = builder.CreateMaxNum(a, b);
-    auto *reduced_in_range = builder.CreateAnd(
-        builder.CreateAnd(
-            builder.CreateFCmpOGE(lo, zero),
-            builder.CreateFCmpOLT(lo, size)),
-        builder.CreateAnd(
-            builder.CreateFCmpOGE(hi, zero),
-            builder.CreateFCmpOLT(hi, size)));
-    auto *valid = builder.CreateAnd(
-        finite, reduced_in_range,
-        "bindless.texture.byte1.reduced.valid");
-    auto *safe_lo = builder.CreateSelect(valid, lo, zero);
-    auto *safe_hi = builder.CreateSelect(valid, hi, zero);
     auto *i32_lanes = ::llvm::FixedVectorType::get(
         builder.getInt32Ty(), width);
-    auto *lo_index = builder.CreateFPToUI(
-        safe_lo, i32_lanes,
-        "bindless.texture.byte1.linear.lo");
-    auto *hi_index = builder.CreateFPToUI(
-        safe_hi, i32_lanes,
-        "bindless.texture.byte1.linear.hi");
+    auto *sz_minus_1_f = builder.CreateFSub(size, one);
+
+    auto *raw_a = builder.CreateUnaryIntrinsic(
+        ::llvm::Intrinsic::fabs, coordinate);
+    auto *finite = builder.CreateFCmpOLT(
+        raw_a, infinity, "bindless.texture.byte1.finite");
+    auto *positive_size = builder.CreateFCmpOGE(size, one);
+    auto *valid = builder.CreateAnd(
+        finite, positive_size, "bindless.texture.byte1.reduced.valid");
+    auto *safe_raw_a = builder.CreateSelect(valid, raw_a, zero);
+    auto *period = builder.CreateUnaryIntrinsic(
+        ::llvm::Intrinsic::floor,
+        builder.CreateFMul(safe_raw_a, half));
+    auto *a_raw = builder.CreateFSub(
+        safe_raw_a, builder.CreateFMul(period, two));
+    auto *a_valid = builder.CreateAnd(
+        builder.CreateFCmpOGE(a_raw, zero),
+        builder.CreateFCmpOLT(a_raw, two));
+    auto *a = builder.CreateSelect(a_valid, a_raw, zero);
+    auto *folded = builder.CreateSelect(
+        builder.CreateFCmpOLT(a, one), a,
+        builder.CreateFSub(two, a));
+    auto *px = builder.CreateFSub(
+        builder.CreateFMul(folded, size), half);
+    auto *px_clamped = builder.CreateMinNum(
+        builder.CreateMaxNum(px, zero),
+        builder.CreateMaxNum(sz_minus_1_f, zero));
+    auto *safe_px = builder.CreateSelect(valid, px_clamped, zero);
+    auto *fl = builder.CreateUnaryIntrinsic(
+        ::llvm::Intrinsic::floor, safe_px);
     auto *fraction = builder.CreateFSub(
-        safe_hi, builder.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, safe_hi),
-        "bindless.texture.byte1.linear.fraction");
+        safe_px, fl, "bindless.texture.byte1.linear.fraction");
+    auto *i0 = builder.CreateFPToUI(fl, i32_lanes);
+    auto *sz_i32 = builder.CreateFPToUI(size, i32_lanes);
+    auto *max_idx = builder.CreateSub(
+        sz_i32, ::llvm::ConstantVector::getSplat(
+                    ::llvm::ElementCount::getFixed(width),
+                    builder.getInt32(1u)));
+    auto *lo_index = builder.CreateSelect(
+        builder.CreateICmpULT(i0, sz_i32), i0, max_idx,
+        "bindless.texture.byte1.linear.lo");
+    auto *i1 = builder.CreateAdd(
+        i0, ::llvm::ConstantVector::getSplat(
+                ::llvm::ElementCount::getFixed(width), builder.getInt32(1u)));
+    auto *hi_index = builder.CreateSelect(
+        builder.CreateICmpULT(i1, sz_i32), i1, max_idx,
+        "bindless.texture.byte1.linear.hi");
     return {lo_index, hi_index, fraction, valid};
 }
 
@@ -449,46 +447,37 @@ void emit_byte1_linear_mirror_sample(
 
     b.SetInsertPoint(general_bb);
     auto *zero4 = float_vector_constant(b, 4u, 0.0f);
-    auto *half4 = float_vector_constant(b, 4u, 0.5f);
-    auto *one4 = float_vector_constant(b, 4u, 1.0f);
-    auto *two4 = float_vector_constant(b, 4u, 2.0f);
-    auto *one_minus_eps4 = float_vector_constant(b, 4u, 0x1.fffffep-1f);
+    auto *zero2_g = float_vector_constant(b, 2u, 0.0f);
+    auto *half2_g = float_vector_constant(b, 2u, 0.5f);
+    auto *minus_half2_g = float_vector_constant(b, 2u, -0.5f);
+    auto *one2_g = float_vector_constant(b, 2u, 1.0f);
+    auto *two2_g = float_vector_constant(b, 2u, 2.0f);
     auto *inf_f = ::llvm::ConstantFP::getInfinity(f32_ty);
+    auto *i1x2_ty = ::llvm::FixedVectorType::get(b.getInt1Ty(), 2u);
+    auto *zero2_i32 = ::llvm::Constant::getNullValue(i32x2_ty);
+    auto *one2_i32 = ::llvm::ConstantVector::getSplat(
+        ::llvm::ElementCount::getFixed(2u), b.getInt32(1u));
 
-    // Pack [u - 0.5/w, u + 0.5/w, v - 0.5/h, v + 0.5/h] into one <4 x float>
-    // so both axes share a single SIMD coordinate reduction and single switch.
     auto *w_f = b.CreateUIToFP(width_val, f32_ty);
     auto *h_f = b.CreateUIToFP(height_val, f32_ty);
-    ::llvm::Value *size4 = ::llvm::PoisonValue::get(f32x4_ty);
-    size4 = b.CreateInsertElement(size4, w_f, b.getInt32(0u));
-    size4 = b.CreateInsertElement(size4, w_f, b.getInt32(1u));
-    size4 = b.CreateInsertElement(size4, h_f, b.getInt32(2u));
-    size4 = b.CreateInsertElement(size4, h_f, b.getInt32(3u));
-    auto *half_inv4 = b.CreateFDiv(half4, size4);
-    auto *sign_mask = ::llvm::ConstantVector::get({
-        ::llvm::ConstantFP::get(f32_ty, -1.0f),
-        ::llvm::ConstantFP::get(f32_ty, 1.0f),
-        ::llvm::ConstantFP::get(f32_ty, -1.0f),
-        ::llvm::ConstantFP::get(f32_ty, 1.0f),
-    });
-    ::llvm::Value *uv4 = ::llvm::PoisonValue::get(f32x4_ty);
-    uv4 = b.CreateInsertElement(uv4, u_arg, b.getInt32(0u));
-    uv4 = b.CreateInsertElement(uv4, u_arg, b.getInt32(1u));
-    uv4 = b.CreateInsertElement(uv4, v_arg, b.getInt32(2u));
-    uv4 = b.CreateInsertElement(uv4, v_arg, b.getInt32(3u));
-    auto *coords_in = b.CreateIntrinsic(
-        ::llvm::Intrinsic::fma, {f32x4_ty}, {half_inv4, sign_mask, uv4});
+    ::llvm::Value *uv2_g = ::llvm::PoisonValue::get(f32x2_ty);
+    uv2_g = b.CreateInsertElement(uv2_g, u_arg, b.getInt32(0u));
+    uv2_g = b.CreateInsertElement(uv2_g, v_arg, b.getInt32(1u));
+    ::llvm::Value *size2 = ::llvm::PoisonValue::get(f32x2_ty);
+    size2 = b.CreateInsertElement(size2, w_f, b.getInt32(0u));
+    size2 = b.CreateInsertElement(size2, h_f, b.getInt32(1u));
+    ::llvm::Value *size2_i = ::llvm::PoisonValue::get(i32x2_ty);
+    size2_i = b.CreateInsertElement(size2_i, width_val, b.getInt32(0u));
+    size2_i = b.CreateInsertElement(size2_i, height_val, b.getInt32(1u));
+    auto *max_idx2 = b.CreateSub(size2_i, one2_i32);
 
     auto *fin_u = b.CreateFCmpOLT(
         b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, u_arg), inf_f);
     auto *fin_v = b.CreateFCmpOLT(
         b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, v_arg), inf_f);
-    auto *i1x4_ty = ::llvm::FixedVectorType::get(b.getInt1Ty(), 4u);
-    ::llvm::Value *fin4 = ::llvm::PoisonValue::get(i1x4_ty);
-    fin4 = b.CreateInsertElement(fin4, fin_u, b.getInt32(0u));
-    fin4 = b.CreateInsertElement(fin4, fin_u, b.getInt32(1u));
-    fin4 = b.CreateInsertElement(fin4, fin_v, b.getInt32(2u));
-    fin4 = b.CreateInsertElement(fin4, fin_v, b.getInt32(3u));
+    ::llvm::Value *fin2 = ::llvm::PoisonValue::get(i1x2_ty);
+    fin2 = b.CreateInsertElement(fin2, fin_u, b.getInt32(0u));
+    fin2 = b.CreateInsertElement(fin2, fin_v, b.getInt32(1u));
 
     auto *repeat_bb = ::llvm::BasicBlock::Create(ctx, "repeat", fn);
     auto *edge_bb = ::llvm::BasicBlock::Create(ctx, "edge", fn);
@@ -501,52 +490,85 @@ void emit_byte1_linear_mirror_sample(
 
     // REPEAT (1)
     b.SetInsertPoint(repeat_bb);
-    auto *rep_pos = b.CreateFMul(
-        b.CreateFSub(
-            coords_in, b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, coords_in)),
-        size4);
+    auto *safe_rep = b.CreateSelect(fin2, uv2_g, zero2_g);
+    auto *frac_raw_g = b.CreateFSub(
+        safe_rep, b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, safe_rep));
+    auto *frac_ok_g = b.CreateAnd(
+        b.CreateFCmpOGE(frac_raw_g, zero2_g),
+        b.CreateFCmpOLT(frac_raw_g, one2_g));
+    auto *f_rep = b.CreateSelect(frac_ok_g, frac_raw_g, zero2_g);
+    auto *px_rep = b.CreateIntrinsic(
+        ::llvm::Intrinsic::fma, {f32x2_ty}, {f_rep, size2, minus_half2_g});
+    auto *fl_rep = b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, px_rep);
+    auto *t_rep = b.CreateFSub(px_rep, fl_rep);
+    auto *i0_rep = b.CreateFPToSI(b.CreateSelect(fin2, fl_rep, zero2_g), i32x2_ty);
+    auto *i1_rep = b.CreateAdd(i0_rep, one2_i32);
+    auto *lo_rep = b.CreateSelect(
+        b.CreateICmpSLT(i0_rep, zero2_i32), max_idx2,
+        b.CreateSelect(b.CreateICmpSGE(i0_rep, size2_i), max_idx2, i0_rep));
+    auto *hi_rep = b.CreateSelect(
+        b.CreateICmpSLT(i1_rep, zero2_i32), zero2_i32,
+        b.CreateSelect(b.CreateICmpSGE(i1_rep, size2_i), zero2_i32, i1_rep));
     b.CreateBr(merge_bb);
+
+    auto emit_w1_clamped = [&](::llvm::Value *folded) {
+        auto *safe_c = b.CreateSelect(fin2, folded, zero2_g);
+        auto *px = b.CreateIntrinsic(
+            ::llvm::Intrinsic::fma, {f32x2_ty}, {safe_c, size2, minus_half2_g});
+        auto *max_f = b.CreateMaxNum(b.CreateFSub(size2, one2_g), zero2_g);
+        auto *px_c = b.CreateMinNum(b.CreateMaxNum(px, zero2_g), max_f);
+        auto *fl = b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, px_c);
+        auto *t = b.CreateFSub(px_c, fl);
+        auto *i0 = b.CreateFPToUI(b.CreateSelect(fin2, fl, zero2_g), i32x2_ty);
+        auto *i1 = b.CreateAdd(i0, one2_i32);
+        auto *lo = b.CreateSelect(b.CreateICmpULT(i0, size2_i), i0, max_idx2);
+        auto *hi = b.CreateSelect(b.CreateICmpULT(i1, size2_i), i1, max_idx2);
+        return std::tuple{lo, hi, t};
+    };
 
     // EDGE (0)
     b.SetInsertPoint(edge_bb);
-    auto *edge_pos = b.CreateFMul(
-        b.CreateMinNum(b.CreateMaxNum(coords_in, zero4), one_minus_eps4), size4);
+    auto [lo_edge, hi_edge, t_edge] = emit_w1_clamped(uv2_g);
     b.CreateBr(merge_bb);
 
     // MIRROR (2)
     b.SetInsertPoint(mirror_bb);
-    auto *mir_abs = b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, coords_in);
+    auto *mir_abs = b.CreateSelect(
+        fin2, b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, uv2_g), zero2_g);
     auto *mir_per = b.CreateUnaryIntrinsic(
-        ::llvm::Intrinsic::floor, b.CreateFMul(mir_abs, half4));
-    auto *mir_fold = b.CreateFSub(mir_abs, b.CreateFMul(mir_per, two4));
-    mir_fold = b.CreateSelect(
-        b.CreateFCmpOLT(mir_fold, one4), mir_fold, b.CreateFSub(two4, mir_fold));
-    auto *mir_scaled = b.CreateFMul(
-        b.CreateMinNum(mir_fold, one_minus_eps4), size4);
-    auto *mir_swap = b.CreateShuffleVector(mir_scaled, {1, 0, 3, 2});
-    auto *mir_min = b.CreateMinNum(mir_scaled, mir_swap);
-    auto *mir_max = b.CreateMaxNum(mir_scaled, mir_swap);
-    auto *mir_pos = b.CreateShuffleVector(mir_min, mir_max, {0, 5, 2, 7});
+        ::llvm::Intrinsic::floor, b.CreateFMul(mir_abs, half2_g));
+    auto *mir_raw = b.CreateFSub(mir_abs, b.CreateFMul(mir_per, two2_g));
+    auto *mir_ok = b.CreateAnd(
+        b.CreateFCmpOGE(mir_raw, zero2_g), b.CreateFCmpOLT(mir_raw, two2_g));
+    auto *mir_a = b.CreateSelect(mir_ok, mir_raw, zero2_g);
+    auto *mir_fold = b.CreateSelect(
+        b.CreateFCmpOLT(mir_a, one2_g), mir_a, b.CreateFSub(two2_g, mir_a));
+    auto [lo_mir, hi_mir, t_mir] = emit_w1_clamped(mir_fold);
     b.CreateBr(merge_bb);
 
     b.SetInsertPoint(merge_bb);
-    auto *pos4 = b.CreatePHI(f32x4_ty, 3u);
-    pos4->addIncoming(rep_pos, repeat_bb);
-    pos4->addIncoming(edge_pos, edge_bb);
-    pos4->addIncoming(mir_pos, mirror_bb);
+    auto *lo2 = b.CreatePHI(i32x2_ty, 3u);
+    lo2->addIncoming(lo_rep, repeat_bb);
+    lo2->addIncoming(lo_edge, edge_bb);
+    lo2->addIncoming(lo_mir, mirror_bb);
+    auto *hi2 = b.CreatePHI(i32x2_ty, 3u);
+    hi2->addIncoming(hi_rep, repeat_bb);
+    hi2->addIncoming(hi_edge, edge_bb);
+    hi2->addIncoming(hi_mir, mirror_bb);
+    auto *t2 = b.CreatePHI(f32x2_ty, 3u);
+    t2->addIncoming(t_rep, repeat_bb);
+    t2->addIncoming(t_edge, edge_bb);
+    t2->addIncoming(t_mir, mirror_bb);
 
-    auto *valid4 = b.CreateAnd(
-        fin4, b.CreateAnd(b.CreateFCmpOGE(pos4, zero4), b.CreateFCmpOLT(pos4, size4)));
-    auto *safe_pos4 = b.CreateSelect(valid4, pos4, zero4);
-    auto *idx4 = b.CreateFPToUI(safe_pos4, i32x4_ty);
-    auto *frac4 = b.CreateFSub(safe_pos4, b.CreateUIToFP(idx4, f32x4_ty));
-    auto *xt_v4 = b.CreateShuffleVector(frac4, {1, 1, 1, 1});
-    auto *yt_v4 = b.CreateShuffleVector(frac4, {3, 3, 3, 3});
+    auto *xt_v4 = b.CreateVectorSplat(
+        4u, b.CreateExtractElement(t2, b.getInt32(0u)));
+    auto *yt_v4 = b.CreateVectorSplat(
+        4u, b.CreateExtractElement(t2, b.getInt32(1u)));
 
-    auto *u_lo = b.CreateZExt(b.CreateExtractElement(idx4, b.getInt32(0u)), i64_ty);
-    auto *u_hi = b.CreateZExt(b.CreateExtractElement(idx4, b.getInt32(1u)), i64_ty);
-    auto *v_lo = b.CreateZExt(b.CreateExtractElement(idx4, b.getInt32(2u)), i64_ty);
-    auto *v_hi = b.CreateZExt(b.CreateExtractElement(idx4, b.getInt32(3u)), i64_ty);
+    auto *u_lo = b.CreateZExt(b.CreateExtractElement(lo2, b.getInt32(0u)), i64_ty);
+    auto *u_hi = b.CreateZExt(b.CreateExtractElement(hi2, b.getInt32(0u)), i64_ty);
+    auto *v_lo = b.CreateZExt(b.CreateExtractElement(lo2, b.getInt32(1u)), i64_ty);
+    auto *v_hi = b.CreateZExt(b.CreateExtractElement(hi2, b.getInt32(1u)), i64_ty);
     auto *w64 = b.CreateZExt(width_val, i64_ty);
     auto *row0_base = b.CreateMul(v_lo, w64);
     auto *row1_base = b.CreateMul(v_hi, w64);
@@ -568,60 +590,23 @@ void emit_byte1_linear_mirror_sample(
         return b.CreateUIToFP(b.CreateZExt(bytes, i32x4_ty), f32x4_ty);
     };
 
-    auto *all_valid = b.CreateAndReduce(valid4);
+    auto *all_valid = b.CreateAnd(
+        b.CreateAnd(fin_u, fin_v),
+        b.CreateAnd(
+            b.CreateICmpNE(width_val, b.getInt32(0u)),
+            b.CreateICmpNE(height_val, b.getInt32(0u))));
     auto *fast_bb = ::llvm::BasicBlock::Create(ctx, "fast", fn);
-    auto *slow_bb = ::llvm::BasicBlock::Create(ctx, "slow", fn);
-    auto *blend_bb = ::llvm::BasicBlock::Create(ctx, "blend", fn);
-    auto *br = b.CreateCondBr(all_valid, fast_bb, slow_bb);
+    auto *invalid_bb = ::llvm::BasicBlock::Create(ctx, "invalid", fn);
+    auto *br = b.CreateCondBr(all_valid, fast_bb, invalid_bb);
     br->setMetadata(
         ::llvm::LLVMContext::MD_prof,
         ::llvm::MDBuilder{ctx}.createBranchWeights(1000000u, 1u));
 
     b.SetInsertPoint(fast_bb);
-    auto *f00 = load_texel(off00);
-    auto *f01 = load_texel(off01);
-    auto *f10 = load_texel(off10);
-    auto *f11 = load_texel(off11);
-    b.CreateBr(blend_bb);
-
-    b.SetInsertPoint(slow_bb);
-    auto load_guarded = [&](::llvm::Value *cond, ::llvm::Value *off,
-                            const char *name) -> ::llvm::Value * {
-        auto *cur = b.GetInsertBlock();
-        auto *ld_bb = ::llvm::BasicBlock::Create(ctx, std::string{name} + ".ld", fn);
-        auto *dn_bb = ::llvm::BasicBlock::Create(ctx, std::string{name} + ".dn", fn);
-        b.CreateCondBr(cond, ld_bb, dn_bb);
-        b.SetInsertPoint(ld_bb);
-        auto *val = load_texel(off);
-        b.CreateBr(dn_bb);
-        b.SetInsertPoint(dn_bb);
-        auto *phi = b.CreatePHI(f32x4_ty, 2u);
-        phi->addIncoming(zero4, cur);
-        phi->addIncoming(val, ld_bb);
-        return phi;
-    };
-    auto *vu0 = b.CreateExtractElement(valid4, b.getInt32(0u));
-    auto *vu1 = b.CreateExtractElement(valid4, b.getInt32(1u));
-    auto *vv0 = b.CreateExtractElement(valid4, b.getInt32(2u));
-    auto *vv1 = b.CreateExtractElement(valid4, b.getInt32(3u));
-    auto *s00 = load_guarded(b.CreateAnd(vu0, vv0), off00, "t00");
-    auto *s01 = load_guarded(b.CreateAnd(vu1, vv0), off01, "t01");
-    auto *s10 = load_guarded(b.CreateAnd(vu0, vv1), off10, "t10");
-    auto *s11 = load_guarded(b.CreateAnd(vu1, vv1), off11, "t11");
-    auto *slow_end = b.GetInsertBlock();
-    b.CreateBr(blend_bb);
-
-    b.SetInsertPoint(blend_bb);
-    auto make_phi = [&](::llvm::Value *fv, ::llvm::Value *sv) {
-        auto *p = b.CreatePHI(f32x4_ty, 2u);
-        p->addIncoming(fv, fast_bb);
-        p->addIncoming(sv, slow_end);
-        return p;
-    };
-    auto *c00 = make_phi(f00, s00);
-    auto *c01 = make_phi(f01, s01);
-    auto *c10 = make_phi(f10, s10);
-    auto *c11 = make_phi(f11, s11);
+    auto *c00 = load_texel(off00);
+    auto *c01 = load_texel(off01);
+    auto *c10 = load_texel(off10);
+    auto *c11 = load_texel(off11);
     auto lerp4 = [&](::llvm::Value *lhs, ::llvm::Value *rhs, ::llvm::Value *t) {
         return b.CreateIntrinsic(
             ::llvm::Intrinsic::fma, {f32x4_ty}, {b.CreateFSub(rhs, lhs), t, lhs});
@@ -631,6 +616,9 @@ void emit_byte1_linear_mirror_sample(
         res = b.CreateFMul(res, float_vector_constant(b, 4u, 1.0f / 255.0f));
     }
     b.CreateRet(res);
+
+    b.SetInsertPoint(invalid_bb);
+    b.CreateRet(zero4);
     return fn;
 }
 
@@ -686,29 +674,30 @@ void emit_byte1_linear_mirror_sample(
     auto *half = float_vector_constant(b, width, 0.5f);
     auto *one = float_vector_constant(b, width, 1.0f);
     auto *two = float_vector_constant(b, width, 2.0f);
-    auto *one_minus_eps = float_vector_constant(b, width, 0x1.fffffep-1f);
     auto *inf_vec = ::llvm::ConstantVector::getSplat(
         ::llvm::ElementCount::getFixed(width),
         ::llvm::ConstantFP::getInfinity(f32_ty));
+    auto *zero_i32_vec = ::llvm::Constant::getNullValue(i32_lanes);
+    auto *one_i32_vec = ::llvm::ConstantVector::getSplat(
+        ::llvm::ElementCount::getFixed(width), b.getInt32(1u));
 
-    auto *w_f_s = b.CreateUIToFP(width_val, f32_ty);
-    auto *h_f_s = b.CreateUIToFP(height_val, f32_ty);
-    auto *w_f = b.CreateVectorSplat(width, w_f_s);
-    auto *h_f = b.CreateVectorSplat(width, h_f_s);
+    auto *w_i32 = b.CreateVectorSplat(width, width_val);
+    auto *h_i32 = b.CreateVectorSplat(width, height_val);
+    auto *w_f = b.CreateVectorSplat(width, b.CreateUIToFP(width_val, f32_ty));
+    auto *h_f = b.CreateVectorSplat(width, b.CreateUIToFP(height_val, f32_ty));
     auto *u_fin = b.CreateFCmpOLT(
         b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, u_arg), inf_vec);
     auto *v_fin = b.CreateFCmpOLT(
         b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, v_arg), inf_vec);
-    auto *hu = b.CreateVectorSplat(
-        width, b.CreateFDiv(::llvm::ConstantFP::get(f32_ty, 0.5f), w_f_s));
-    auto *hv = b.CreateVectorSplat(
-        width, b.CreateFDiv(::llvm::ConstantFP::get(f32_ty, 0.5f), h_f_s));
-    auto *u_lo_in = b.CreateFSub(u_arg, hu);
-    auto *u_hi_in = b.CreateFAdd(u_arg, hu);
-    auto *v_lo_in = b.CreateFSub(v_arg, hv);
-    auto *v_hi_in = b.CreateFAdd(v_arg, hv);
 
-    // Single address-mode switch covering both U and V axes.
+    struct AxisCoord {
+        ::llvm::Value *lo_idx;
+        ::llvm::Value *hi_idx;
+        ::llvm::Value *t;
+        ::llvm::Value *valid;
+    };
+
+    // Single address-mode switch covering both U and V axes in exact texel space.
     auto *repeat_bb = ::llvm::BasicBlock::Create(ctx, "uv.repeat", fn);
     auto *edge_bb = ::llvm::BasicBlock::Create(ctx, "uv.edge", fn);
     auto *mirror_bb = ::llvm::BasicBlock::Create(ctx, "uv.mirror", fn);
@@ -718,94 +707,110 @@ void emit_byte1_linear_mirror_sample(
     sw->addCase(b.getInt32(0u), edge_bb);
     sw->addCase(b.getInt32(2u), mirror_bb);
 
+    auto build_repeat_axis = [&](::llvm::Value *coord, ::llvm::Value *sz_f,
+                                 ::llvm::Value *sz_i, ::llvm::Value *fin) -> AxisCoord {
+        auto *safe_c = b.CreateSelect(fin, coord, zero);
+        auto *frac_raw = b.CreateFSub(
+            safe_c, b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, safe_c));
+        auto *frac_ok = b.CreateAnd(
+            b.CreateFCmpOGE(frac_raw, zero),
+            b.CreateFCmpOLT(frac_raw, one));
+        auto *f = b.CreateSelect(frac_ok, frac_raw, zero);
+        auto *px = b.CreateFSub(b.CreateFMul(f, sz_f), half);
+        auto *fl = b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, px);
+        auto *t = b.CreateFSub(px, fl);
+        auto *i0 = b.CreateFPToSI(b.CreateSelect(fin, fl, zero), i32_lanes);
+        auto *i1 = b.CreateAdd(i0, one_i32_vec);
+        auto *max_idx = b.CreateSub(sz_i, one_i32_vec);
+        auto *lo = b.CreateSelect(
+            b.CreateICmpSLT(i0, zero_i32_vec), max_idx,
+            b.CreateSelect(b.CreateICmpSGE(i0, sz_i), max_idx, i0));
+        auto *hi = b.CreateSelect(
+            b.CreateICmpSLT(i1, zero_i32_vec), zero_i32_vec,
+            b.CreateSelect(b.CreateICmpSGE(i1, sz_i), zero_i32_vec, i1));
+        return {lo, hi, t, fin};
+    };
+
+    auto build_edge_or_mirror_axis = [&](::llvm::Value *folded, ::llvm::Value *sz_f,
+                                         ::llvm::Value *sz_i, ::llvm::Value *fin) -> AxisCoord {
+        auto *safe_c = b.CreateSelect(fin, folded, zero);
+        auto *px = b.CreateFSub(b.CreateFMul(safe_c, sz_f), half);
+        auto *max_f = b.CreateMaxNum(b.CreateFSub(sz_f, one), zero);
+        auto *px_c = b.CreateMinNum(b.CreateMaxNum(px, zero), max_f);
+        auto *fl = b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, px_c);
+        auto *t = b.CreateFSub(px_c, fl);
+        auto *i0 = b.CreateFPToUI(b.CreateSelect(fin, fl, zero), i32_lanes);
+        auto *i1 = b.CreateAdd(i0, one_i32_vec);
+        auto *max_idx = b.CreateSub(sz_i, one_i32_vec);
+        auto *lo = b.CreateSelect(b.CreateICmpULT(i0, sz_i), i0, max_idx);
+        auto *hi = b.CreateSelect(b.CreateICmpULT(i1, sz_i), i1, max_idx);
+        return {lo, hi, t, fin};
+    };
+
     // REPEAT (1)
     b.SetInsertPoint(repeat_bb);
-    auto repeat_one = [&](::llvm::Value *c, ::llvm::Value *sz) {
-        return b.CreateFMul(
-            b.CreateFSub(c, b.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, c)),
-            sz);
-    };
-    auto *rep_ulo = repeat_one(u_lo_in, w_f);
-    auto *rep_uhi = repeat_one(u_hi_in, w_f);
-    auto *rep_vlo = repeat_one(v_lo_in, h_f);
-    auto *rep_vhi = repeat_one(v_hi_in, h_f);
+    auto rep_x = build_repeat_axis(u_arg, w_f, w_i32, u_fin);
+    auto rep_y = build_repeat_axis(v_arg, h_f, h_i32, v_fin);
     b.CreateBr(merge_bb);
 
     // EDGE (0)
     b.SetInsertPoint(edge_bb);
-    auto edge_one = [&](::llvm::Value *c, ::llvm::Value *sz) {
-        return b.CreateFMul(
-            b.CreateMinNum(b.CreateMaxNum(c, zero), one_minus_eps), sz);
-    };
-    auto *edge_ulo = edge_one(u_lo_in, w_f);
-    auto *edge_uhi = edge_one(u_hi_in, w_f);
-    auto *edge_vlo = edge_one(v_lo_in, h_f);
-    auto *edge_vhi = edge_one(v_hi_in, h_f);
+    auto edge_x = build_edge_or_mirror_axis(u_arg, w_f, w_i32, u_fin);
+    auto edge_y = build_edge_or_mirror_axis(v_arg, h_f, h_i32, v_fin);
     b.CreateBr(merge_bb);
 
     // MIRROR (2)
     b.SetInsertPoint(mirror_bb);
-    auto mirror_one = [&](::llvm::Value *val, ::llvm::Value *sz) {
-        val = b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, val);
+    auto fold_mirror = [&](::llvm::Value *val, ::llvm::Value *fin) {
+        auto *raw_a = b.CreateSelect(
+            fin, b.CreateUnaryIntrinsic(::llvm::Intrinsic::fabs, val), zero);
         auto *period = b.CreateUnaryIntrinsic(
-            ::llvm::Intrinsic::floor, b.CreateFMul(val, half));
-        val = b.CreateFSub(val, b.CreateFMul(period, two));
-        val = b.CreateSelect(
-            b.CreateFCmpOLT(val, one), val, b.CreateFSub(two, val));
-        return b.CreateFMul(b.CreateMinNum(val, one_minus_eps), sz);
+            ::llvm::Intrinsic::floor, b.CreateFMul(raw_a, half));
+        auto *a_raw = b.CreateFSub(raw_a, b.CreateFMul(period, two));
+        auto *a_ok = b.CreateAnd(
+            b.CreateFCmpOGE(a_raw, zero), b.CreateFCmpOLT(a_raw, two));
+        auto *a = b.CreateSelect(a_ok, a_raw, zero);
+        return b.CreateSelect(
+            b.CreateFCmpOLT(a, one), a, b.CreateFSub(two, a));
     };
-    auto *mu_a = mirror_one(u_lo_in, w_f);
-    auto *mu_b = mirror_one(u_hi_in, w_f);
-    auto *mir_ulo = b.CreateMinNum(mu_a, mu_b);
-    auto *mir_uhi = b.CreateMaxNum(mu_a, mu_b);
-    auto *mv_a = mirror_one(v_lo_in, h_f);
-    auto *mv_b = mirror_one(v_hi_in, h_f);
-    auto *mir_vlo = b.CreateMinNum(mv_a, mv_b);
-    auto *mir_vhi = b.CreateMaxNum(mv_a, mv_b);
+    auto mir_x = build_edge_or_mirror_axis(fold_mirror(u_arg, u_fin), w_f, w_i32, u_fin);
+    auto mir_y = build_edge_or_mirror_axis(fold_mirror(v_arg, v_fin), h_f, h_i32, v_fin);
     b.CreateBr(merge_bb);
 
     b.SetInsertPoint(merge_bb);
-    auto make_phi = [&](::llvm::Value *rv, ::llvm::Value *ev, ::llvm::Value *mv) {
+    auto make_phi_f = [&](::llvm::Value *rv, ::llvm::Value *ev, ::llvm::Value *mv) {
         auto *p = b.CreatePHI(f32_lanes, 3u);
         p->addIncoming(rv, repeat_bb);
         p->addIncoming(ev, edge_bb);
         p->addIncoming(mv, mirror_bb);
         return p;
     };
-    struct AxisCoord {
-        ::llvm::Value *lo_idx;
-        ::llvm::Value *hi_idx;
-        ::llvm::Value *t;
-        ::llvm::Value *lo_valid;
-        ::llvm::Value *hi_valid;
+    auto make_phi_i = [&](::llvm::Value *rv, ::llvm::Value *ev, ::llvm::Value *mv) {
+        auto *p = b.CreatePHI(i32_lanes, 3u);
+        p->addIncoming(rv, repeat_bb);
+        p->addIncoming(ev, edge_bb);
+        p->addIncoming(mv, mirror_bb);
+        return p;
     };
-    auto finish_axis = [&](::llvm::Value *lo_f, ::llvm::Value *hi_f,
-                           ::llvm::Value *sz, ::llvm::Value *fin) -> AxisCoord {
-        auto *lo_valid = b.CreateAnd(
-            fin, b.CreateAnd(b.CreateFCmpOGE(lo_f, zero), b.CreateFCmpOLT(lo_f, sz)));
-        auto *hi_valid = b.CreateAnd(
-            fin, b.CreateAnd(b.CreateFCmpOGE(hi_f, zero), b.CreateFCmpOLT(hi_f, sz)));
-        auto *safe_lo = b.CreateSelect(lo_valid, lo_f, zero);
-        auto *safe_hi = b.CreateSelect(hi_valid, hi_f, zero);
-        auto *lo_idx = b.CreateFPToUI(safe_lo, i32_lanes);
-        auto *hi_idx = b.CreateFPToUI(safe_hi, i32_lanes);
-        auto *frac = b.CreateFSub(safe_hi, b.CreateUIToFP(hi_idx, f32_lanes));
-        return {lo_idx, hi_idx, frac, lo_valid, hi_valid};
-    };
-    auto *ulo_f = make_phi(rep_ulo, edge_ulo, mir_ulo);
-    auto *uhi_f = make_phi(rep_uhi, edge_uhi, mir_uhi);
-    auto *vlo_f = make_phi(rep_vlo, edge_vlo, mir_vlo);
-    auto *vhi_f = make_phi(rep_vhi, edge_vhi, mir_vhi);
-    auto x = finish_axis(ulo_f, uhi_f, w_f, u_fin);
-    auto y = finish_axis(vlo_f, vhi_f, h_f, v_fin);
+    AxisCoord x{
+        make_phi_i(rep_x.lo_idx, edge_x.lo_idx, mir_x.lo_idx),
+        make_phi_i(rep_x.hi_idx, edge_x.hi_idx, mir_x.hi_idx),
+        make_phi_f(rep_x.t, edge_x.t, mir_x.t),
+        u_fin};
+    AxisCoord y{
+        make_phi_i(rep_y.lo_idx, edge_y.lo_idx, mir_y.lo_idx),
+        make_phi_i(rep_y.hi_idx, edge_y.hi_idx, mir_y.hi_idx),
+        make_phi_f(rep_y.t, edge_y.t, mir_y.t),
+        v_fin};
 
     auto *width_i64 = b.CreateVectorSplat(
         width, b.CreateZExt(width_val, b.getInt64Ty()));
     auto *data_lanes = b.CreateVectorSplat(width, data);
-    auto *m00 = b.CreateAnd(active_mask, b.CreateAnd(x.lo_valid, y.lo_valid));
-    auto *m01 = b.CreateAnd(active_mask, b.CreateAnd(x.hi_valid, y.lo_valid));
-    auto *m10 = b.CreateAnd(active_mask, b.CreateAnd(x.lo_valid, y.hi_valid));
-    auto *m11 = b.CreateAnd(active_mask, b.CreateAnd(x.hi_valid, y.hi_valid));
+    auto *finite_mask = b.CreateAnd(active_mask, b.CreateAnd(x.valid, y.valid));
+    auto *m00 = finite_mask;
+    auto *m01 = finite_mask;
+    auto *m10 = finite_mask;
+    auto *m11 = finite_mask;
     auto *row0_i64 = b.CreateMul(b.CreateZExt(y.lo_idx, i64_lanes), width_i64);
     auto *row1_i64 = b.CreateMul(b.CreateZExt(y.hi_idx, i64_lanes), width_i64);
     auto *x_lo_i64 = b.CreateZExt(x.lo_idx, i64_lanes);

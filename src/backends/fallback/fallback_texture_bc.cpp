@@ -3,6 +3,8 @@
 //
 
 #include "fallback_texture_bc.h"
+#include <cmath>
+#include <cstring>
 #include <luisa/core/stl/algorithm.h>
 #if defined(_WIN32) && defined(_DEBUG)
 #define NOMINMAX
@@ -2578,6 +2580,201 @@ void BC6HBlock::Decode(bool bSigned, int x, int y, float *out) const noexcept {
         }
     } else {
         ZeroOutPixel(out);
+    }
+}
+
+namespace {
+
+[[nodiscard]] inline uint8_t decode_bc4_scalar(const uint8_t *block, uint32_t texel_idx) noexcept {
+    const uint32_t a0 = block[0u];
+    const uint32_t a1 = block[1u];
+    uint64_t idx_bits = 0ull;
+    for (uint32_t i = 0u; i < 6u; ++i) {
+        idx_bits |= static_cast<uint64_t>(block[2u + i]) << (8u * i);
+    }
+    const uint32_t code = static_cast<uint32_t>((idx_bits >> (3u * texel_idx)) & 0x7ull);
+    if (code == 0u) { return static_cast<uint8_t>(a0); }
+    if (code == 1u) { return static_cast<uint8_t>(a1); }
+    if (a0 > a1) {
+        return static_cast<uint8_t>(((8u - code) * a0 + (code - 1u) * a1 + 3u) / 7u);
+    }
+    if (code == 6u) { return 0u; }
+    if (code == 7u) { return 255u; }
+    return static_cast<uint8_t>(((6u - code) * a0 + (code - 1u) * a1 + 2u) / 5u);
+}
+
+inline void decode_bc1_rgb(
+    const void *block,
+    uint32_t texel_idx,
+    bool allow_transparent,
+    float *out_rgb,
+    float &out_a) noexcept {
+    const auto *b = static_cast<const uint8_t *>(block);
+    const uint16_t c0 = static_cast<uint16_t>(b[0u]) | (static_cast<uint16_t>(b[1u]) << 8u);
+    const uint16_t c1 = static_cast<uint16_t>(b[2u]) | (static_cast<uint16_t>(b[3u]) << 8u);
+    const uint32_t bits = static_cast<uint32_t>(b[4u]) |
+                          (static_cast<uint32_t>(b[5u]) << 8u) |
+                          (static_cast<uint32_t>(b[6u]) << 16u) |
+                          (static_cast<uint32_t>(b[7u]) << 24u);
+    const uint32_t code = (bits >> (2u * texel_idx)) & 0x3u;
+
+    auto unpack565 = [](uint16_t c, uint32_t &r, uint32_t &g, uint32_t &bl) noexcept {
+        const uint32_t r5 = (c >> 11u) & 0x1fu;
+        const uint32_t g6 = (c >> 5u) & 0x3fu;
+        const uint32_t b5 = c & 0x1fu;
+        r = (r5 << 3u) | (r5 >> 2u);
+        g = (g6 << 2u) | (g6 >> 4u);
+        bl = (b5 << 3u) | (b5 >> 2u);
+    };
+    uint32_t r0 = 0u, g0 = 0u, b0 = 0u;
+    uint32_t r1 = 0u, g1 = 0u, b1 = 0u;
+    unpack565(c0, r0, g0, b0);
+    unpack565(c1, r1, g1, b1);
+
+    uint32_t r = 0u, g = 0u, bl = 0u;
+    out_a = 1.0f;
+    if (!allow_transparent || c0 > c1) {
+        switch (code) {
+            case 0u: r = r0; g = g0; bl = b0; break;
+            case 1u: r = r1; g = g1; bl = b1; break;
+            case 2u:
+                r = (2u * r0 + r1 + 1u) / 3u;
+                g = (2u * g0 + g1 + 1u) / 3u;
+                bl = (2u * b0 + b1 + 1u) / 3u;
+                break;
+            default:
+                r = (r0 + 2u * r1 + 1u) / 3u;
+                g = (g0 + 2u * g1 + 1u) / 3u;
+                bl = (b0 + 2u * b1 + 1u) / 3u;
+                break;
+        }
+    } else {
+        switch (code) {
+            case 0u: r = r0; g = g0; bl = b0; break;
+            case 1u: r = r1; g = g1; bl = b1; break;
+            case 2u:
+                r = (r0 + r1) >> 1u;
+                g = (g0 + g1) >> 1u;
+                bl = (b0 + b1) >> 1u;
+                break;
+            default:
+                r = 0u; g = 0u; bl = 0u;
+                out_a = 0.0f;
+                break;
+        }
+    }
+    constexpr float inv_255 = 1.0f / 255.0f;
+    out_rgb[0u] = static_cast<float>(r) * inv_255;
+    out_rgb[1u] = static_cast<float>(g) * inv_255;
+    out_rgb[2u] = static_cast<float>(bl) * inv_255;
+}
+
+[[nodiscard]] inline float bc_srgb_to_linear(float c) noexcept {
+    return c <= 0.04045f ? c * (1.0f / 12.92f) : std::pow((c + 0.055f) * (1.0f / 1.055f), 2.4f);
+}
+
+}// namespace
+
+void decode_bc1(const void *block, uint32_t x, uint32_t y, float *out) noexcept {
+    decode_bc1_rgb(block, y * 4u + x, true, out, out[3u]);
+}
+
+void decode_bc2(const void *block, uint32_t x, uint32_t y, float *out) noexcept {
+    const auto *b = static_cast<const uint8_t *>(block);
+    const uint32_t p = y * 4u + x;
+    float dummy_a = 1.0f;
+    decode_bc1_rgb(b + 8u, p, false, out, dummy_a);
+    const uint8_t alpha_byte = b[p >> 1u];
+    const uint32_t a4 = (alpha_byte >> ((p & 1u) * 4u)) & 0xfu;
+    out[3u] = static_cast<float>(a4) * (1.0f / 15.0f);
+}
+
+void decode_bc3(const void *block, uint32_t x, uint32_t y, float *out) noexcept {
+    const auto *b = static_cast<const uint8_t *>(block);
+    const uint32_t p = y * 4u + x;
+    float dummy_a = 1.0f;
+    decode_bc1_rgb(b + 8u, p, false, out, dummy_a);
+    out[3u] = static_cast<float>(decode_bc4_scalar(b, p)) * (1.0f / 255.0f);
+}
+
+void decode_bc4(const void *block, uint32_t x, uint32_t y, float *out) noexcept {
+    const auto *b = static_cast<const uint8_t *>(block);
+    out[0u] = static_cast<float>(decode_bc4_scalar(b, y * 4u + x)) * (1.0f / 255.0f);
+    out[1u] = 0.0f;
+    out[2u] = 0.0f;
+    out[3u] = 1.0f;
+}
+
+void decode_bc5(const void *block, uint32_t x, uint32_t y, float *out) noexcept {
+    const auto *b = static_cast<const uint8_t *>(block);
+    const uint32_t p = y * 4u + x;
+    out[0u] = static_cast<float>(decode_bc4_scalar(b, p)) * (1.0f / 255.0f);
+    out[1u] = static_cast<float>(decode_bc4_scalar(b + 8u, p)) * (1.0f / 255.0f);
+    out[2u] = 0.0f;
+    out[3u] = 1.0f;
+}
+
+void decode_bc_pixel(
+    PixelStorage storage,
+    const std::byte *data,
+    uint32_t width,
+    uint32_t height,
+    uint32_t x,
+    uint32_t y,
+    float *out) noexcept {
+    if (width == 0u || height == 0u || data == nullptr) {
+        out[0u] = 0.0f;
+        out[1u] = 0.0f;
+        out[2u] = 0.0f;
+        out[3u] = 0.0f;
+        return;
+    }
+    const uint32_t ux = std::min(x, width - 1u);
+    const uint32_t uy = std::min(y, height - 1u);
+    const uint32_t bx = ux >> 2u;
+    const uint32_t by = uy >> 2u;
+    const uint32_t lx = ux & 3u;
+    const uint32_t ly = uy & 3u;
+    const size_t blocks_per_row = (static_cast<size_t>(width) + 3u) >> 2u;
+    const size_t block_idx = static_cast<size_t>(by) * blocks_per_row + bx;
+    switch (storage) {
+        case PixelStorage::BC1:
+            decode_bc1(data + block_idx * 8u, lx, ly, out);
+            break;
+        case PixelStorage::BC2:
+            decode_bc2(data + block_idx * 16u, lx, ly, out);
+            break;
+        case PixelStorage::BC3:
+            decode_bc3(data + block_idx * 16u, lx, ly, out);
+            break;
+        case PixelStorage::BC4:
+            decode_bc4(data + block_idx * 8u, lx, ly, out);
+            break;
+        case PixelStorage::BC5:
+            decode_bc5(data + block_idx * 16u, lx, ly, out);
+            break;
+        case PixelStorage::BC6:
+            reinterpret_cast<const BC6HBlock *>(data)[block_idx].Decode(
+                false, static_cast<int>(lx), static_cast<int>(ly), out);
+            break;
+        case PixelStorage::BC7:
+            reinterpret_cast<const BC7Block *>(data)[block_idx].Decode(
+                static_cast<int>(lx), static_cast<int>(ly), out);
+            break;
+        case PixelStorage::BC7_SRGB: {
+            reinterpret_cast<const BC7Block *>(data)[block_idx].Decode(
+                static_cast<int>(lx), static_cast<int>(ly), out);
+            out[0u] = bc_srgb_to_linear(out[0u]);
+            out[1u] = bc_srgb_to_linear(out[1u]);
+            out[2u] = bc_srgb_to_linear(out[2u]);
+            break;
+        }
+        default:
+            out[0u] = 0.0f;
+            out[1u] = 0.0f;
+            out[2u] = 0.0f;
+            out[3u] = 0.0f;
+            break;
     }
 }
 

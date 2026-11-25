@@ -240,7 +240,7 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
     static constexpr auto max_region_instruction_count = size_t{24u};
     if (!_enable_interleaved_scalar_buffer_reads ||
         _entry_abi != ScheduleEntryABI::packet ||
-        (_width != 8u && _width != 16u) ||
+        (_width != 4u && _width != 8u && _width != 16u) ||
         _static_block_size[0u] < _width ||
         _static_block_size[0u] % _width != 0u ||
         begin_instruction >= block.instructions.size()) {

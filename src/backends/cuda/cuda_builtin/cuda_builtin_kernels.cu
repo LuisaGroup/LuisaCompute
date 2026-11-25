@@ -129,10 +129,12 @@ struct alignas(16) SlotModification {
         unsigned long long handle;
         unsigned long long size;
         unsigned int op;
+        unsigned int _padding;
     };
     struct Texture {
         unsigned long long handle;
-        unsigned int sampler;// not used; processed on host
+        unsigned long long sampler_table;
+        unsigned int payload_index;
         unsigned int op;
     };
     unsigned long long slot;
@@ -141,10 +143,12 @@ struct alignas(16) SlotModification {
     Texture tex3d;
 };
 
-static_assert(sizeof(SlotModification) == 64u, "");
+static_assert(sizeof(SlotModification) == 80u, "");
 
 extern "C" __global__ void update_bindless_array(BindlessSlot *__restrict__ array,
+                                                 unsigned long long capacity,
                                                  const SlotModification *__restrict__ mods,
+                                                 const unsigned long long *__restrict__ sampler_payloads,
                                                  unsigned int n) {
     constexpr auto op_none = 0u;
     constexpr auto op_update = 1u;
@@ -154,6 +158,8 @@ extern "C" __global__ void update_bindless_array(BindlessSlot *__restrict__ arra
         auto m = mods[tid];
         auto slot_id = m.slot;
         auto slot = array[slot_id];
+        auto *tex2d_tables = reinterpret_cast<unsigned long long *>(array + capacity);
+        auto *tex3d_tables = tex2d_tables + capacity;
         if (m.buffer.op == op_update) {
             slot.buffer = m.buffer.handle;
             slot.buffer_size = m.buffer.size;
@@ -163,13 +169,23 @@ extern "C" __global__ void update_bindless_array(BindlessSlot *__restrict__ arra
         }
         if (m.tex2d.op == op_update) {
             slot.tex2d = m.tex2d.handle;
+            tex2d_tables[slot_id] = m.tex2d.sampler_table;
+            auto *dst = reinterpret_cast<unsigned long long *>(m.tex2d.sampler_table);
+            const auto *src = sampler_payloads + static_cast<size_t>(m.tex2d.payload_index) * 16u;
+            for (unsigned int i = 0u; i < 16u; ++i) { dst[i] = src[i]; }
         } else if (m.tex2d.op == op_remove) {
             slot.tex2d = 0u;
+            tex2d_tables[slot_id] = 0u;
         }
         if (m.tex3d.op == op_update) {
             slot.tex3d = m.tex3d.handle;
+            tex3d_tables[slot_id] = m.tex3d.sampler_table;
+            auto *dst = reinterpret_cast<unsigned long long *>(m.tex3d.sampler_table);
+            const auto *src = sampler_payloads + static_cast<size_t>(m.tex3d.payload_index) * 16u;
+            for (unsigned int i = 0u; i < 16u; ++i) { dst[i] = src[i]; }
         } else if (m.tex3d.op == op_remove) {
             slot.tex3d = 0u;
+            tex3d_tables[slot_id] = 0u;
         }
         array[slot_id] = slot;
     }

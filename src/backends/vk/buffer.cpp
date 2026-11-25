@@ -185,7 +185,7 @@ void vma_defragment(Device *device) {
                    stats.deviceMemoryBlocksFreed);
     }
 }
-UploadBuffer::UploadBuffer(Device *device, size_t size_bytes)
+UploadBuffer::UploadBuffer(Device *device, size_t size_bytes, AccessType access)
     : Buffer{device, size_bytes, word_addressable_size(size_bytes),
              device->enable_device_address()},
       _res{
@@ -199,7 +199,7 @@ UploadBuffer::UploadBuffer(Device *device, size_t size_bytes)
                       (device->enable_device_address() ?
                            static_cast<uint>(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) :
                            0u)),
-                  AccessType::kUpload)} {
+                  access)} {
     VK_CHECK_RESULT(vmaMapMemory(
         device->allocator().allocator(),
         _res.allocation,

@@ -188,9 +188,10 @@ ScheduleEmitter::_get_or_create_zero_read_buffer(size_t min_bytes) {
     return gv;
 }
 
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_aos_chunked_w8(
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_aos_chunked(
     ::llvm::Value *base, ::llvm::Value *offsets, const Type *type) {
-    if (_width != 8u || type == nullptr || type->size() == 0u) {
+    if ((_width != 4u && _width != 8u) || type == nullptr ||
+        type->size() == 0u) {
         return nullptr;
     }
     auto *zero_buf = _get_or_create_zero_read_buffer(type->size());
@@ -234,19 +235,19 @@ ScheduleEmitter::_get_or_create_zero_read_buffer(size_t min_bytes) {
     auto *i32_ty = _builder.getInt32Ty();
     auto *v2i32_ty = ::llvm::FixedVectorType::get(i32_ty, 2u);
     auto *v4i32_ty = ::llvm::FixedVectorType::get(i32_ty, 4u);
-    auto *v8i32_ty = ::llvm::FixedVectorType::get(i32_ty, 8u);
-    auto *v8f32_ty = ::llvm::FixedVectorType::get(_builder.getFloatTy(), 8u);
+    auto *vi32_ty = ::llvm::FixedVectorType::get(i32_ty, _width);
+    auto *vf32_ty = ::llvm::FixedVectorType::get(_builder.getFloatTy(), _width);
 
     auto *raw_ptrs = _builder.CreateGEP(
         i8_ty, base, offsets, "buffer.aos.raw.ptrs");
     auto *safe_ptrs = _builder.CreateSelect(
-        _active_mask, raw_ptrs, _builder.CreateVectorSplat(8u, zero_buf),
+        _active_mask, raw_ptrs, _builder.CreateVectorSplat(_width, zero_buf),
         "buffer.aos.safe.ptrs");
 
     auto emit_varying_leaves = [&]() -> std::vector<::llvm::Value *> {
         std::vector<::llvm::Value *> vals(leaves.size(), nullptr);
         std::array<::llvm::Value *, 8u> lane_ptrs{};
-        for (uint32_t l = 0u; l < 8u; l++) {
+        for (uint32_t l = 0u; l < _width; l++) {
             lane_ptrs[l] = _builder.CreateExtractElement(
                 safe_ptrs, _builder.getInt32(l));
         }
@@ -257,37 +258,56 @@ ScheduleEmitter::_get_or_create_zero_read_buffer(size_t min_bytes) {
                            i8_ty, lane_ptrs[lane], _builder.getInt64(off));
         };
         auto finish_i32_vec = [&](::llvm::Value *vec, const Type *lt) -> ::llvm::Value * {
-            return lt->is_float32() ? _builder.CreateBitCast(vec, v8f32_ty) : vec;
+            return lt->is_float32() ? _builder.CreateBitCast(vec, vf32_ty) : vec;
         };
 
         size_t pos = 0u;
         while (pos < sorted_offsets32.size()) {
             const size_t off = sorted_offsets32[pos];
-            // Prefer 16-byte (4 x 32-bit) chunk + zero-cross-lane 8x4 transpose.
+            // Prefer 16-byte (4 x 32-bit) chunk + 8x4 or 4x4 transpose.
             size_t cnt4 = 0u;
             for (size_t k = 0u; k < 4u; k++) {
                 cnt4 += leaf32_by_offset.contains(off + k * 4u) ? 1u : 0u;
             }
             if (cnt4 >= 3u && off + 16u <= type->size()) {
-                std::array<::llvm::Value *, 8u> v{};
-                for (uint32_t l = 0u; l < 8u; l++) {
-                    v[l] = _builder.CreateAlignedLoad(
-                        v4i32_ty, ptr_at(l, off), ::llvm::Align{1u});
+                std::array<::llvm::Value *, 4u> cols{};
+                if (_width == 8u) {
+                    std::array<::llvm::Value *, 8u> v{};
+                    for (uint32_t l = 0u; l < 8u; l++) {
+                        v[l] = _builder.CreateAlignedLoad(
+                            v4i32_ty, ptr_at(l, off), ::llvm::Align{1u});
+                    }
+                    auto *r04 = _builder.CreateShuffleVector(v[0u], v[4u], {0, 1, 2, 3, 4, 5, 6, 7});
+                    auto *r15 = _builder.CreateShuffleVector(v[1u], v[5u], {0, 1, 2, 3, 4, 5, 6, 7});
+                    auto *r26 = _builder.CreateShuffleVector(v[2u], v[6u], {0, 1, 2, 3, 4, 5, 6, 7});
+                    auto *r37 = _builder.CreateShuffleVector(v[3u], v[7u], {0, 1, 2, 3, 4, 5, 6, 7});
+                    auto *t0 = _builder.CreateShuffleVector(r04, r15, {0, 8, 1, 9, 4, 12, 5, 13});
+                    auto *t1 = _builder.CreateShuffleVector(r04, r15, {2, 10, 3, 11, 6, 14, 7, 15});
+                    auto *t2 = _builder.CreateShuffleVector(r26, r37, {0, 8, 1, 9, 4, 12, 5, 13});
+                    auto *t3 = _builder.CreateShuffleVector(r26, r37, {2, 10, 3, 11, 6, 14, 7, 15});
+                    cols = {
+                        _builder.CreateShuffleVector(t0, t2, {0, 1, 8, 9, 4, 5, 12, 13}),
+                        _builder.CreateShuffleVector(t0, t2, {2, 3, 10, 11, 6, 7, 14, 15}),
+                        _builder.CreateShuffleVector(t1, t3, {0, 1, 8, 9, 4, 5, 12, 13}),
+                        _builder.CreateShuffleVector(t1, t3, {2, 3, 10, 11, 6, 7, 14, 15}),
+                    };
+                } else {
+                    std::array<::llvm::Value *, 4u> v{};
+                    for (uint32_t l = 0u; l < 4u; l++) {
+                        v[l] = _builder.CreateAlignedLoad(
+                            v4i32_ty, ptr_at(l, off), ::llvm::Align{1u});
+                    }
+                    auto *t0 = _builder.CreateShuffleVector(v[0u], v[1u], {0, 4, 1, 5});
+                    auto *t1 = _builder.CreateShuffleVector(v[0u], v[1u], {2, 6, 3, 7});
+                    auto *t2 = _builder.CreateShuffleVector(v[2u], v[3u], {0, 4, 1, 5});
+                    auto *t3 = _builder.CreateShuffleVector(v[2u], v[3u], {2, 6, 3, 7});
+                    cols = {
+                        _builder.CreateShuffleVector(t0, t2, {0, 1, 4, 5}),
+                        _builder.CreateShuffleVector(t0, t2, {2, 3, 6, 7}),
+                        _builder.CreateShuffleVector(t1, t3, {0, 1, 4, 5}),
+                        _builder.CreateShuffleVector(t1, t3, {2, 3, 6, 7}),
+                    };
                 }
-                auto *r04 = _builder.CreateShuffleVector(v[0u], v[4u], {0, 1, 2, 3, 4, 5, 6, 7});
-                auto *r15 = _builder.CreateShuffleVector(v[1u], v[5u], {0, 1, 2, 3, 4, 5, 6, 7});
-                auto *r26 = _builder.CreateShuffleVector(v[2u], v[6u], {0, 1, 2, 3, 4, 5, 6, 7});
-                auto *r37 = _builder.CreateShuffleVector(v[3u], v[7u], {0, 1, 2, 3, 4, 5, 6, 7});
-                auto *t0 = _builder.CreateShuffleVector(r04, r15, {0, 8, 1, 9, 4, 12, 5, 13});
-                auto *t1 = _builder.CreateShuffleVector(r04, r15, {2, 10, 3, 11, 6, 14, 7, 15});
-                auto *t2 = _builder.CreateShuffleVector(r26, r37, {0, 8, 1, 9, 4, 12, 5, 13});
-                auto *t3 = _builder.CreateShuffleVector(r26, r37, {2, 10, 3, 11, 6, 14, 7, 15});
-                std::array<::llvm::Value *, 4u> cols{
-                    _builder.CreateShuffleVector(t0, t2, {0, 1, 8, 9, 4, 5, 12, 13}),
-                    _builder.CreateShuffleVector(t0, t2, {2, 3, 10, 11, 6, 7, 14, 15}),
-                    _builder.CreateShuffleVector(t1, t3, {0, 1, 8, 9, 4, 5, 12, 13}),
-                    _builder.CreateShuffleVector(t1, t3, {2, 3, 10, 11, 6, 7, 14, 15}),
-                };
                 for (size_t k = 0u; k < 4u; k++) {
                     if (auto it = leaf32_by_offset.find(off + k * 4u);
                         it != leaf32_by_offset.end()) {
@@ -299,21 +319,35 @@ ScheduleEmitter::_get_or_create_zero_read_buffer(size_t min_bytes) {
                 }
                 continue;
             }
-            // 8-byte (2 x 32-bit) chunk + 8x2 deinterleave.
+            // 8-byte (2 x 32-bit) chunk + 8x2 or 4x2 deinterleave.
             if (leaf32_by_offset.contains(off + 4u) && off + 8u <= type->size()) {
-                std::array<::llvm::Value *, 8u> v{};
-                for (uint32_t l = 0u; l < 8u; l++) {
-                    v[l] = _builder.CreateAlignedLoad(
-                        v2i32_ty, ptr_at(l, off), ::llvm::Align{1u});
+                ::llvm::Value *c0 = nullptr;
+                ::llvm::Value *c1 = nullptr;
+                if (_width == 8u) {
+                    std::array<::llvm::Value *, 8u> v{};
+                    for (uint32_t l = 0u; l < 8u; l++) {
+                        v[l] = _builder.CreateAlignedLoad(
+                            v2i32_ty, ptr_at(l, off), ::llvm::Align{1u});
+                    }
+                    auto *p01 = _builder.CreateShuffleVector(v[0u], v[1u], {0, 1, 2, 3});
+                    auto *p23 = _builder.CreateShuffleVector(v[2u], v[3u], {0, 1, 2, 3});
+                    auto *p45 = _builder.CreateShuffleVector(v[4u], v[5u], {0, 1, 2, 3});
+                    auto *p67 = _builder.CreateShuffleVector(v[6u], v[7u], {0, 1, 2, 3});
+                    auto *lo = _builder.CreateShuffleVector(p01, p23, {0, 1, 2, 3, 4, 5, 6, 7});
+                    auto *hi = _builder.CreateShuffleVector(p45, p67, {0, 1, 2, 3, 4, 5, 6, 7});
+                    c0 = _builder.CreateShuffleVector(lo, hi, {0, 2, 4, 6, 8, 10, 12, 14});
+                    c1 = _builder.CreateShuffleVector(lo, hi, {1, 3, 5, 7, 9, 11, 13, 15});
+                } else {
+                    std::array<::llvm::Value *, 4u> v{};
+                    for (uint32_t l = 0u; l < 4u; l++) {
+                        v[l] = _builder.CreateAlignedLoad(
+                            v2i32_ty, ptr_at(l, off), ::llvm::Align{1u});
+                    }
+                    auto *p01 = _builder.CreateShuffleVector(v[0u], v[1u], {0, 1, 2, 3});
+                    auto *p23 = _builder.CreateShuffleVector(v[2u], v[3u], {0, 1, 2, 3});
+                    c0 = _builder.CreateShuffleVector(p01, p23, {0, 2, 4, 6});
+                    c1 = _builder.CreateShuffleVector(p01, p23, {1, 3, 5, 7});
                 }
-                auto *p01 = _builder.CreateShuffleVector(v[0u], v[1u], {0, 1, 2, 3});
-                auto *p23 = _builder.CreateShuffleVector(v[2u], v[3u], {0, 1, 2, 3});
-                auto *p45 = _builder.CreateShuffleVector(v[4u], v[5u], {0, 1, 2, 3});
-                auto *p67 = _builder.CreateShuffleVector(v[6u], v[7u], {0, 1, 2, 3});
-                auto *lo = _builder.CreateShuffleVector(p01, p23, {0, 1, 2, 3, 4, 5, 6, 7});
-                auto *hi = _builder.CreateShuffleVector(p45, p67, {0, 1, 2, 3, 4, 5, 6, 7});
-                auto *c0 = _builder.CreateShuffleVector(lo, hi, {0, 2, 4, 6, 8, 10, 12, 14});
-                auto *c1 = _builder.CreateShuffleVector(lo, hi, {1, 3, 5, 7, 9, 11, 13, 15});
                 auto it0 = leaf32_by_offset.find(off);
                 auto it1 = leaf32_by_offset.find(off + 4u);
                 vals[it0->second] = finish_i32_vec(c0, leaves[it0->second].type);
@@ -324,8 +358,8 @@ ScheduleEmitter::_get_or_create_zero_read_buffer(size_t min_bytes) {
                 continue;
             }
             // Single leftover 32-bit leaf: load directly via lane_ptrs.
-            ::llvm::Value *vec = ::llvm::PoisonValue::get(v8i32_ty);
-            for (uint32_t l = 0u; l < 8u; l++) {
+            ::llvm::Value *vec = ::llvm::PoisonValue::get(vi32_ty);
+            for (uint32_t l = 0u; l < _width; l++) {
                 auto *s = _builder.CreateAlignedLoad(
                     i32_ty, ptr_at(l, off), ::llvm::Align{1u});
                 vec = _builder.CreateInsertElement(vec, s, _builder.getInt32(l));
@@ -356,7 +390,7 @@ ScheduleEmitter::_get_or_create_zero_read_buffer(size_t min_bytes) {
             safe_ptrs, first_lane, "buffer.aos.seed.ptr");
         auto *same_lanes = _builder.CreateOr(
             _builder.CreateICmpEQ(
-                safe_ptrs, _builder.CreateVectorSplat(8u, seed_ptr)),
+                safe_ptrs, _builder.CreateVectorSplat(_width, seed_ptr)),
             _builder.CreateNot(_active_mask));
         auto *all_same = _builder.CreateAndReduce(same_lanes);
 
@@ -386,7 +420,7 @@ ScheduleEmitter::_get_or_create_zero_read_buffer(size_t min_bytes) {
                 loaded = _builder.CreateICmpNE(
                     loaded, ::llvm::Constant::getNullValue(elem_ty));
             }
-            uniform_leaves[i] = _builder.CreateVectorSplat(8u, loaded);
+            uniform_leaves[i] = _builder.CreateVectorSplat(_width, loaded);
         }
         auto *uniform_end = _builder.GetInsertBlock();
         _builder.CreateBr(merge_bb);
@@ -1029,13 +1063,13 @@ void ScheduleEmitter::_store_contiguous_vector_data(
         return _gather_paired_vector_data(
             base, offsets, result_value->type);
     }
-    if (_width == 8u &&
+    if ((_width == 4u || _width == 8u) &&
         op == xir::ResourceReadOp::BUFFER_READ &&
         buffer_value->type->element() == result_value->type &&
         !result_value->type->is_scalar() &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_AOS_TRANSPOSE_GATHER")) {
-        if (auto *transposed = _gather_aos_chunked_w8(
+        if (auto *transposed = _gather_aos_chunked(
                 base, offsets, result_value->type)) {
             return transposed;
         }
