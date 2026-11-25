@@ -150,6 +150,9 @@ namespace detail {
         case ArithmeticOp::CROSS:
         case ArithmeticOp::DOT:
         case ArithmeticOp::DOT2ADD:
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_U:
+        case ArithmeticOp::DOT4X8_SU:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::FACEFORWARD:

@@ -94,7 +94,9 @@ ReplayGraph::~ReplayGraph() noexcept {
     }
     pipeline_layout_ids.clear();
     for (auto id : desc_set_layout_ids) {
-        interner.release_descriptor_set_layout(id, vk_device);
+        // The device records the destruction when this drops the final reference,
+        // so cached CommandBufferState descriptor-set buckets evict the layout.
+        (void)device->release_descriptor_set_layout(id);
     }
     desc_set_layout_ids.clear();
 }

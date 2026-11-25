@@ -570,6 +570,36 @@ public:
     // cooperative-matrix instruction yet.
     const char *cooperative_matrix_extension{nullptr};
     bool cooperative_matrix_workgroup_scope : 1 {false};
+    // Enumerated VkCooperativeMatrixPropertiesKHR entries: how many the driver
+    // reported, and whether the three configurations a quantized GEMM or a
+    // FlashAttention tile actually needs are among them (16x16x16
+    // BF16*BF16+FP32->FP32, 16x16x16 FP16*FP16+FP32->FP32, and a
+    // SINT8*SINT8+SINT32->SINT32 16x16xK shape). Everything is reported
+    // verbatim through VulkanExtensionStatusExt::cooperative_status() so a run
+    // log states what this specific device enumerated instead of guessing.
+    bool matrix_bf16_supported : 1 {false};
+    bool matrix_fp16_supported : 1 {false};
+    bool matrix_int8_supported : 1 {false};
+    uint32_t matrix_bf16_m{0u};
+    uint32_t matrix_bf16_n{0u};
+    uint32_t matrix_bf16_k{0u};
+    uint32_t matrix_int8_m{0u};
+    uint32_t matrix_int8_n{0u};
+    uint32_t matrix_int8_k{0u};
+    uint32_t matrix_config_count{0u};
+    // VK_KHR_shader_integer_dot_product (Vulkan 1.3 core): the logical device
+    // enabled shaderIntegerDotProduct, so the native SPIR-V codegen may emit
+    // OpSDot/OpUDot/OpSUDot with PackedVectorFormat4x8Bit.
+    bool integer_dot_product_enabled : 1 {false};
+    // shaderBFloat16CooperativeMatrix / shaderFloat8CooperativeMatrix were
+    // requested on the logical device on top of the cooperative-matrix
+    // extension (they are only valid when that extension is enabled).
+    bool bfloat16_coopmat_enabled : 1 {false};
+    bool float8_coopmat_enabled : 1 {false};
+    // vulkanMemoryModel + vulkanMemoryModelDeviceScope were enabled for a
+    // cooperative path (vector requires them; matrix needs them for the
+    // workgroup-scope forms).
+    bool vulkan_memory_model_enabled : 1 {false};
     bool shader_untyped_pointers_enabled : 1 {false};
     bool async_copy_enabled : 1 {false};
     bool sampler_anisotropy_enabled : 1 {false};
@@ -795,6 +825,17 @@ public:
     // those objects.
     [[nodiscard]] detail::LayoutInterner &layout_interner() noexcept {
         return _layout_interner;
+    }
+    // Releases one reference to an interned descriptor-set layout and records its
+    // destruction when this drops the final reference so cached CommandBufferState
+    // descriptor-set buckets evict it.
+    uint64_t release_descriptor_set_layout(uint64_t layout_id) noexcept {
+        auto destroyed = _layout_interner.release_descriptor_set_layout(
+            layout_id, logic_device());
+        if (destroyed != 0u) {
+            note_shader_layout_destroyed(layout_id);
+        }
+        return destroyed;
     }
     // Replayable recording (plan P4). `replay_registry()` is the device-owned
     // graph registry: the extension bookkeeps through it, and every lifetime path

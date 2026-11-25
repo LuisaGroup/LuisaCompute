@@ -109,6 +109,17 @@ struct SpirvTargetFeatures {
     // the codegen declares none and the driver default applies.
     bool denorm_preserve_float32{false};
     bool denorm_flush_float32{false};
+    // VK_KHR_shader_integer_dot_product (core in Vulkan 1.3): the device
+    // reported shaderIntegerDotProduct == VK_TRUE, so a module may declare
+    // DotProductKHR/DotProductInput4x8BitPackedKHR and emit OpSDot/OpUDot/
+    // OpSUDot with PackedVectorFormat4x8Bit. When it is false, integer dot
+    // products lower to the portable exact bitfield sequence instead.
+    bool shader_integer_dot_product{false};
+    // VK_KHR_cooperative_matrix / VK_NV_cooperative_matrix: the logical device
+    // enabled cooperativeMatrix, so a module may declare CooperativeMatrixKHR
+    // (or CooperativeMatrixNV) and use the OpTypeCooperativeMatrix*/
+    // OpCooperativeMatrix* instructions.
+    bool cooperative_matrix{false};
     SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
         SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
     // Default to the contract-preserving portable sequence; see SpirvRoundPolicy.
@@ -220,6 +231,10 @@ struct SpirvTargetFeatures {
                target_feature::denorm_preserve_float32);
         enable(denorm_flush_float32,
                target_feature::denorm_flush_float32);
+        enable(shader_integer_dot_product,
+               target_feature::shader_integer_dot_product);
+        enable(cooperative_matrix,
+               target_feature::cooperative_matrix);
         return mask;
     }
 
@@ -329,7 +344,11 @@ struct SpirvTargetFeatures {
               .denorm_preserve_float32 =
                   has(target_feature::denorm_preserve_float32),
               .denorm_flush_float32 =
-                  has(target_feature::denorm_flush_float32)};
+                  has(target_feature::denorm_flush_float32),
+              .shader_integer_dot_product =
+                  has(target_feature::shader_integer_dot_product),
+              .cooperative_matrix =
+                  has(target_feature::cooperative_matrix)};
     }
 };
 

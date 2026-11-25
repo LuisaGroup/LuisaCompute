@@ -180,6 +180,20 @@ GlslCompileResult compile_glsl_to_spirv(
     glslang_compiler_detail::GlslFileIncluder includer{include_dirs};
     glslang::TShader shader{lang};
     shader.setStrings(strings.data(), static_cast<int>(strings.size()));
+    // State the Vulkan 1.3 / SPIR-V 1.6 environment explicitly. A native GLSL
+    // shader that uses GL_KHR_cooperative_matrix, GL_EXT_integer_dot_product,
+    // GL_EXT_bfloat16 or GL_EXT_shader_explicit_arithmetic_types_int8 needs the
+    // matching environment: the default (Vulkan 1.0 / SPIR-V 1.0) makes glslang
+    // reject the extensions themselves, and the SPIR-V header version follows
+    // this target. The result is still consumed as SPIR-V 1.6, which every
+    // Vulkan 1.2+ driver accepts (memoryModel and capability checks are done by
+    // the backend at pipeline creation).
+    shader.setEnvInput(glslang::EShSourceGlsl, lang,
+                       glslang::EShClientVulkan, 100);
+    shader.setEnvClient(glslang::EShClientVulkan,
+                        glslang::EShTargetVulkan_1_3);
+    shader.setEnvTarget(glslang::EShTargetSpv,
+                        glslang::EShTargetSpv_1_6);
     auto resources = *GetDefaultResources();
     auto messages = static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
     if (debug) {

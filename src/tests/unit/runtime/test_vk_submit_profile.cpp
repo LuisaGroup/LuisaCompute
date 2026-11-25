@@ -484,7 +484,7 @@ void check_restore_shape(const Counters &d, uint64_t restores,
     "tracker held";
     expect(images <= state_mips && memory <= calls)
         << what << ": the restore cannot record more image structs than tracked "
-                   "mips or more bindless memory structs than calls";
+                   "mips or more memory structs than calls";
     expect(memory + buffers + images <= funnel_structs)
         << what << ": the restore's structs are a subset of the barriers the "
                    "batch recorded";
@@ -530,6 +530,20 @@ Kernel1D write_even_slot = [](BufferFloat out, UInt index) noexcept {
     out.write(index * static_cast<uint32_t>(kThreadsPerDispatch) +
                   dispatch_id().x,
               cast<float>(index) * 2.0f + 2.0f);
+};
+
+// One dispatch that writes the same value through a regular storage buffer and
+// through a bindless array slot. The restore of such a batch has to publish the
+// coalesced tracked buffer *and* the bindless memory state, which is exactly the
+// case that must not record two VkMemoryBarrier2 structs (see
+// `detail::plan_restore_memory_barrier`).
+Kernel1D write_buffer_and_bindless = [](BufferFloat out, BindlessVar heap,
+                                       UInt index) noexcept {
+    auto slot = index * static_cast<uint32_t>(kThreadsPerDispatch) +
+                dispatch_id().x;
+    auto value = cast<float>(index) + 1.0f;
+    out.write(slot, value);
+    heap.buffer<float>(0u).write(slot, value);
 };
 
 // A deliberately GPU-bound kernel: 32 back-to-back batches of it cannot retire
@@ -937,6 +951,48 @@ void reg_decode_shaped_batch(Device &device) {
           luisa::vector<float> host(dispatch_count * kThreadsPerDispatch, -1.0f);
           stream << buffer.copy_to(luisa::span{host}) << synchronize();
           check_dispatch_indices(host, dispatch_count, "decode-shaped batch");
+      };
+
+      // F5: both sources of one restore are one struct. A batch that touches a
+      // regular storage buffer and a bindless array tracks the coalesced buffer
+      // *and* the bindless memory state, so a restore that emits one struct per
+      // source breaks `memory structs <= restore calls`.
+      "vk_profile_restore_coalesced_buffer_and_bindless"_test = [&device] {
+          auto shader = device.compile(write_buffer_and_bindless);
+          Buffer<float> buffer =
+              device.create_buffer<float>(kThreadsPerDispatch);
+          Buffer<float> slot_buffer =
+              device.create_buffer<float>(kThreadsPerDispatch);
+          BindlessArray heap = device.create_bindless_array(1u);
+          Stream stream = device.create_stream();
+          // The upload is its own batch, so it stays outside the window.
+          stream << heap.emplace_on_update(0u, slot_buffer).update()
+                 << synchronize();
+          auto before = read_counters(device);
+          stream << shader(buffer, heap, 0u).dispatch(kThreadsPerDispatch)
+                 << synchronize();
+          auto after = read_counters(device);
+          auto d = difference(before, after);
+          check_restore_shape(d, 1u, "restore-coalesced-buffer-and-bindless");
+          expect(value(d, Counter::restore_memory_barriers) == 1u)
+              << "the coalesced tracked buffer and the bindless memory state of "
+                 "one batch must be published by exactly one VkMemoryBarrier2";
+          expect(value(d, Counter::restore_coalesced_buffers) >= 1u)
+              << "the ordinary tracked buffer has to stay covered by the "
+                 "coalesced barrier, so the merged struct drops nothing";
+          // Both writes must be visible: that is what the merged scope promises.
+          luisa::vector<float> host(kThreadsPerDispatch, -1.0f);
+          luisa::vector<float> bindless_host(kThreadsPerDispatch, -1.0f);
+          stream << buffer.copy_to(luisa::span{host})
+                 << slot_buffer.copy_to(luisa::span{bindless_host})
+                 << synchronize();
+          auto const written = [](float value) noexcept {
+              return value == 1.0f;
+          };
+          expect(std::all_of(host.begin(), host.end(), written) &&
+                 std::all_of(bindless_host.begin(), bindless_host.end(), written))
+              << "the dispatch must leave the same value in the storage buffer "
+                 "and in the bindless slot";
       };
   }
 

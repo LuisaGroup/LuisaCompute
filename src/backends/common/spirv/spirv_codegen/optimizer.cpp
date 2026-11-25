@@ -456,7 +456,15 @@ constexpr auto capability_owned_target_features =
     target_feature::shader_mixed_float_dot_product_float16_acc_float32 |
     target_feature::shader_split_barrier |
     target_feature::shader_replicated_composites |
-    target_feature::shader_expect_assume;
+    target_feature::shader_expect_assume |
+    // DotProductKHR/DotProductInput4x8BitPackedKHR own nothing but the integer
+    // dot-product instructions, so the declared capability is an exact
+    // requirement. The vendored trim pass does not know these capabilities, so
+    // can_safely_trim_capabilities() keeps the declaration (and this bit) live.
+    target_feature::shader_integer_dot_product |
+    // CooperativeMatrixKHR/CooperativeMatrixNV likewise own only their own
+    // opcodes, and the trim allowlist excludes them as well.
+    target_feature::cooperative_matrix;
 
 [[nodiscard]] constexpr SpirvTargetFeatureMask
 target_feature_from_capability(spv::Capability capability) noexcept {
@@ -542,6 +550,21 @@ target_feature_from_capability(spv::Capability capability) noexcept {
             // trim pass does not list this capability either, which keeps the
             // declaration (and therefore this bit) live.
             return target_feature::shader_replicated_composites;
+        case spv::Capability::DotProductKHR:
+        case spv::Capability::DotProductInput4x8BitPackedKHR:
+        case spv::Capability::DotProductInputAllKHR:
+        case spv::Capability::DotProductInput4x8BitKHR:
+            // SPV_KHR_integer_dot_product: every one of the four capabilities
+            // describes the same device feature, and Vulkan requires
+            // shaderIntegerDotProduct for each of them.
+            return target_feature::shader_integer_dot_product;
+        case spv::Capability::CooperativeMatrixKHR:
+        case spv::Capability::CooperativeMatrixNV:
+            // VK_KHR_cooperative_matrix (Vulkan 1.3 core) and the NV prototype
+            // are separate device features; both are published through the one
+            // artifact bit, so a cooperative-matrix module cannot load on a
+            // device that negotiated neither.
+            return target_feature::cooperative_matrix;
         case spv::Capability::ExpectAssumeKHR:
             // SPV_KHR_expect_assume owns OpExpectKHR/OpAssumeTrueKHR. Only the
             // backend-owned dispatch-bounds predicate emits OpExpectKHR, so a

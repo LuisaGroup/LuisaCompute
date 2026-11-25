@@ -1714,6 +1714,43 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     bool enable_subgroup_size_control = false;
     bool enable_subgroup_extended_types = false;
     bool enable_shader_device_clock = false;
+    // VK_KHR_shader_integer_dot_product (core in Vulkan 1.3). The feature
+    // struct is probed below and chained into vkCreateDevice when the physical
+    // device reports shaderIntegerDotProduct == VK_TRUE; the extension name is
+    // requested only when the loader exposes it (it does not on a 1.3 driver
+    // that promoted the feature).
+    VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR integer_dot_product_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES_KHR,
+        .pNext = nullptr,
+        .shaderIntegerDotProduct = VK_FALSE};
+    bool enable_integer_dot_product = false;
+    // Cooperative-matrix sub-features probed with the base extension below:
+    // BF16 (VK_KHR_shader_bfloat16) and FP8 (VK_EXT_shader_float8) cooperative
+    // matrix component types. Both are only legal on top of an enabled
+    // cooperative-matrix extension.
+    bool bfloat16_cooperative_matrix_supported = false;
+    bool float8_cooperative_matrix_supported = false;
+    bool bfloat16_coopmat_enabled = false;
+    bool float8_coopmat_enabled = false;
+    // vulkanMemoryModel + vulkanMemoryModelDeviceScope: the SPIR-V memory model
+    // SPV_NV_cooperative_vector requires and the workgroup-scope cooperative
+    // matrix forms need. Probed once, unconditionally, because either
+    // cooperative path may need it.
+    bool vulkan_memory_model_supported = false;
+    bool vulkan_memory_model_enabled = false;
+    // Enumerated VK_KHR_cooperative_matrix configurations (KHR/NV2 spelling
+    // only). Kept in locals until after the imported-device reset below, so an
+    // imported VkDevice cannot inherit matrix shapes it never attested.
+    uint32_t coopmat_config_count = 0u;
+    bool coopmat_bf16_supported = false;
+    bool coopmat_fp16_supported = false;
+    bool coopmat_int8_supported = false;
+    uint32_t coopmat_bf16_m = 0u;
+    uint32_t coopmat_bf16_n = 0u;
+    uint32_t coopmat_bf16_k = 0u;
+    uint32_t coopmat_int8_m = 0u;
+    uint32_t coopmat_int8_n = 0u;
+    uint32_t coopmat_int8_k = 0u;
     {
         VkPhysicalDeviceVulkan12Features vk12_atomic_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -1769,6 +1806,8 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
             .pNext = &supported_float8};
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        float8_cooperative_matrix_supported =
+            supported_float8.shaderFloat8CooperativeMatrix == VK_TRUE;
         if (supported_float8.shaderFloat8 == VK_TRUE) {
             enable_device_extension(VK_EXT_SHADER_FLOAT8_EXTENSION_NAME);
             enable_float8 = true;
@@ -1784,11 +1823,57 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
             .pNext = &supported_bfloat16};
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        bfloat16_cooperative_matrix_supported =
+            supported_bfloat16.shaderBFloat16CooperativeMatrix == VK_TRUE;
         if (supported_bfloat16.shaderBFloat16Type == VK_TRUE) {
             enable_device_extension(VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME);
             enable_bfloat16 = true;
-            LUISA_INFO("VK_KHR_shader_bfloat16 type support enabled on device.");
+            LUISA_INFO("VK_KHR_shader_bfloat16 type support enabled on device "
+                       "(shaderBFloat16CooperativeMatrix={}).",
+                       bfloat16_cooperative_matrix_supported);
         }
+    }
+    // VK_KHR_shader_integer_dot_product: probe the promoted-or-extension
+    // feature. Vulkan 1.3 makes shaderIntegerDotProduct core, so the feature
+    // struct is the single source of truth and the extension name is only
+    // requested when the loader still exposes it. Without this bit the codegen
+    // falls back to an exact bitfield multiply-accumulate, which is why the
+    // probe never fails the device.
+    {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &integer_dot_product_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        enable_integer_dot_product =
+            integer_dot_product_features.shaderIntegerDotProduct == VK_TRUE;
+        if (enable_integer_dot_product &&
+            supports_device_extension(
+                VK_KHR_SHADER_INTEGER_DOT_PRODUCT_EXTENSION_NAME)) {
+            enable_device_extension(
+                VK_KHR_SHADER_INTEGER_DOT_PRODUCT_EXTENSION_NAME);
+        }
+        LUISA_INFO("VK_KHR_shader_integer_dot_product: "
+                   "shaderIntegerDotProduct={}{}.",
+                   enable_integer_dot_product,
+                   enable_integer_dot_product ?
+                       " (DP4A available)" :
+                       " (DP4A falls back to the portable bitfield sequence)");
+    }
+    // ------------------------------------------------------------------
+    // vulkanMemoryModel: SPV_NV_cooperative_vector requires it and the
+    // workgroup-scope cooperative matrix forms need it, so probe it once here
+    // and let either cooperative path enable it below.
+    // ------------------------------------------------------------------
+    {
+        VkPhysicalDeviceVulkan12Features vk12_vmm_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        VkPhysicalDeviceFeatures2 vmm_features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk12_vmm_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &vmm_features2);
+        vulkan_memory_model_supported =
+            vk12_vmm_features.vulkanMemoryModel == VK_TRUE &&
+            vk12_vmm_features.vulkanMemoryModelDeviceScope == VK_TRUE;
     }
 #ifndef NDEBUG
     if (supported_ext.find(VK_KHR_SHADER_CLOCK_EXTENSION_NAME) !=
@@ -1980,6 +2065,84 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_device_extension(VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME);
         }
     }
+    // Enumerate the VK_KHR_cooperative_matrix configurations once the twin is
+    // chosen. Only the KHR-spelled query exists for a KHR/NV2 device; the
+    // legacy VK_NV_cooperative_matrix device answers through its own NV query
+    // and is deliberately not turned into KHR shapes here. The three shapes
+    // recorded are exactly the ones a quantized prefill GEMM or a
+    // FlashAttention tile would need (P0-2 step 3 / P1-1).
+    if (enabled_cooperative_matrix_ext == CooperativeMatrixExt::KHR ||
+        enabled_cooperative_matrix_ext == CooperativeMatrixExt::KHRAndNV2) {
+        uint32_t property_count = 0u;
+        if (vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
+                physical_device, &property_count, nullptr) == VK_SUCCESS &&
+            property_count > 0u) {
+            vstd::vector<VkCooperativeMatrixPropertiesKHR> properties(
+                property_count);
+            for (auto &property : properties) {
+                property = VkCooperativeMatrixPropertiesKHR{
+                    .sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR,
+                    .pNext = nullptr};
+            }
+            auto query_count = property_count;
+            auto query_result = vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
+                physical_device, &query_count, properties.data());
+            if (query_result == VK_SUCCESS ||
+                query_result == VK_INCOMPLETE) {
+                coopmat_config_count = query_count;
+                for (uint32_t i = 0u; i < query_count; ++i) {
+                    auto const &p = properties[i];
+                    auto subgroup_scope = p.scope == VK_SCOPE_SUBGROUP_KHR;
+                    auto fp32_accumulate =
+                        p.CType == VK_COMPONENT_TYPE_FLOAT32_KHR &&
+                        p.ResultType == VK_COMPONENT_TYPE_FLOAT32_KHR;
+                    if (subgroup_scope && fp32_accumulate &&
+                        p.MSize == 16u && p.NSize == 16u && p.KSize == 16u &&
+                        p.AType == VK_COMPONENT_TYPE_BFLOAT16_KHR &&
+                        p.BType == VK_COMPONENT_TYPE_BFLOAT16_KHR &&
+                        !coopmat_bf16_supported) {
+                        coopmat_bf16_supported = true;
+                        coopmat_bf16_m = p.MSize;
+                        coopmat_bf16_n = p.NSize;
+                        coopmat_bf16_k = p.KSize;
+                    }
+                    if (subgroup_scope && fp32_accumulate &&
+                        p.MSize == 16u && p.NSize == 16u && p.KSize == 16u &&
+                        p.AType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
+                        p.BType == VK_COMPONENT_TYPE_FLOAT16_KHR) {
+                        coopmat_fp16_supported = true;
+                    }
+                    // SINT8 x SINT8 + SINT32 -> SINT32: the K size is driver
+                    // dependent (16 on AMD/Intel, 32 on NVIDIA), so both are
+                    // accepted and the exact shape is recorded.
+                    if (subgroup_scope &&
+                        p.MSize == 16u && p.NSize == 16u &&
+                        p.AType == VK_COMPONENT_TYPE_SINT8_KHR &&
+                        p.BType == VK_COMPONENT_TYPE_SINT8_KHR &&
+                        p.CType == VK_COMPONENT_TYPE_SINT32_KHR &&
+                        p.ResultType == VK_COMPONENT_TYPE_SINT32_KHR &&
+                        (p.KSize == 16u || p.KSize == 32u) &&
+                        !coopmat_int8_supported) {
+                        coopmat_int8_supported = true;
+                        coopmat_int8_m = p.MSize;
+                        coopmat_int8_n = p.NSize;
+                        coopmat_int8_k = p.KSize;
+                    }
+                }
+                LUISA_INFO(
+                    "VK_KHR_cooperative_matrix: {} configuration(s) enumerated "
+                    "(bf16={}x{}x{}, fp16_16x16x16={}, int8={}x{}x{}).",
+                    coopmat_config_count,
+                    coopmat_bf16_supported ? coopmat_bf16_m : 0u,
+                    coopmat_bf16_supported ? coopmat_bf16_n : 0u,
+                    coopmat_bf16_supported ? coopmat_bf16_k : 0u,
+                    coopmat_fp16_supported,
+                    coopmat_int8_supported ? coopmat_int8_m : 0u,
+                    coopmat_int8_supported ? coopmat_int8_n : 0u,
+                    coopmat_int8_supported ? coopmat_int8_k : 0u);
+            }
+        }
+    }
     // Probe VK_EXT_shader_replicated_composites on its own. The extension lets
     // SPIR-V lower an exact splat composite to one replicated instruction, which
     // is a pure instruction-size optimization for every shader and has an
@@ -2007,6 +2170,9 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     // SPV_NV_cooperative_vector requires the Vulkan memory model, and splat
     // construction goes through SPV_EXT_replicated_composites, so the
     // extension is only usable when both prerequisites are supported.
+    // vulkanMemoryModel/vulkanMemoryModelDeviceScope were probed once above
+    // (`vulkan_memory_model_supported`); this flag records whether they end up
+    // requested on the logical device for either cooperative path.
     bool enable_vulkan_memory_model = false;
     VkPhysicalDeviceCooperativeVectorFeaturesNV cooperative_vector_features_nv{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV,
@@ -2026,14 +2192,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         vkGetPhysicalDeviceProperties2(physical_device, &properties2);
         if (cooperative_vector_features_nv.cooperativeVector == VK_TRUE &&
             (cooperative_vector_properties_nv.cooperativeVectorSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u) {
-            VkPhysicalDeviceVulkan12Features vk12_vmm_features{
-                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-            VkPhysicalDeviceFeatures2 vmm_features2{
-                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-                .pNext = &vk12_vmm_features};
-            vkGetPhysicalDeviceFeatures2(physical_device, &vmm_features2);
-            enable_vulkan_memory_model = vk12_vmm_features.vulkanMemoryModel == VK_TRUE &&
-                                         vk12_vmm_features.vulkanMemoryModelDeviceScope == VK_TRUE;
+            enable_vulkan_memory_model = vulkan_memory_model_supported;
             // The replicated-composites prerequisite is the standalone probe
             // above; do not re-probe or re-enable the extension here.
             // Query the list of supported cooperative-vector configurations.
@@ -2492,6 +2651,23 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
           cooperative_vector_replicated_composites = false;
           shader_replicated_composites_enabled = false;
           cooperative_vector_config_count = 0u;
+          // The integer-dot-product and cooperative-matrix answers are
+          // republished from the physical-device probes below only for an
+          // owned logical device, so clear them here first.
+          integer_dot_product_enabled = false;
+          this->bfloat16_coopmat_enabled = false;
+          this->float8_coopmat_enabled = false;
+          this->vulkan_memory_model_enabled = false;
+          matrix_config_count = 0u;
+          matrix_bf16_supported = false;
+          matrix_fp16_supported = false;
+          matrix_int8_supported = false;
+          matrix_bf16_m = 0u;
+          matrix_bf16_n = 0u;
+          matrix_bf16_k = 0u;
+          matrix_int8_m = 0u;
+          matrix_int8_n = 0u;
+          matrix_int8_k = 0u;
           shader_untyped_pointers_enabled = false;
 #if ENABLE_HIDDEN_FEATURES
           async_copy_enabled = false;
@@ -2524,6 +2700,22 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
               cooperative_matrix_workgroup_scope = false;
               break;
     }
+    // Publish the negotiation results that
+    // VulkanExtensionStatusExt::cooperative_status() reports. Everything is
+    // gated on `!external_device`: an imported VkDevice's enabled feature chain
+    // cannot be attested, so it must not claim DP4A or a matrix shape.
+    integer_dot_product_enabled =
+        !external_device && enable_integer_dot_product;
+    matrix_config_count = external_device ? 0u : coopmat_config_count;
+    matrix_bf16_supported = !external_device && coopmat_bf16_supported;
+    matrix_fp16_supported = !external_device && coopmat_fp16_supported;
+    matrix_int8_supported = !external_device && coopmat_int8_supported;
+    matrix_bf16_m = matrix_bf16_supported ? coopmat_bf16_m : 0u;
+    matrix_bf16_n = matrix_bf16_supported ? coopmat_bf16_n : 0u;
+    matrix_bf16_k = matrix_bf16_supported ? coopmat_bf16_k : 0u;
+    matrix_int8_m = matrix_int8_supported ? coopmat_int8_m : 0u;
+    matrix_int8_n = matrix_int8_supported ? coopmat_int8_n : 0u;
+    matrix_int8_k = matrix_int8_supported ? coopmat_int8_k : 0u;
     // Cluster (mega-geometry) acceleration structures: decided here, next to
     // the ray-query decision they depend on (the extension's only dependency is
     // VK_KHR_acceleration_structure, which the ray-query path already enables)
@@ -2825,12 +3017,26 @@ if (_optional_extensions.requested(
         enable_shared_float32_atomic_min_max) {
         feature_next = &float_atomic2_features;
     }
+    // The *_CooperativeMatrix bits are only legal when a cooperative-matrix
+    // extension is enabled, and only when the physical device reported them, so
+    // they are requested exactly for the intersection. A BF16/FP8
+    // cooperative-matrix configuration is what a prefill GEMM or a
+    // FlashAttention tile would use, hence the extra probe.
+    float8_coopmat_enabled =
+        enable_float8 &&
+        enabled_cooperative_matrix_ext != CooperativeMatrixExt::None &&
+        float8_cooperative_matrix_supported;
+    bfloat16_coopmat_enabled =
+        enable_bfloat16 &&
+        enabled_cooperative_matrix_ext != CooperativeMatrixExt::None &&
+        bfloat16_cooperative_matrix_supported;
     VkPhysicalDeviceShaderFloat8FeaturesEXT float8_features{
         .sType =
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT,
         .pNext = feature_next,
         .shaderFloat8 = enable_float8 ? VK_TRUE : VK_FALSE,
-        .shaderFloat8CooperativeMatrix = VK_FALSE};
+        .shaderFloat8CooperativeMatrix =
+            float8_coopmat_enabled ? VK_TRUE : VK_FALSE};
     if (enable_float8) {
         feature_next = &float8_features;
     }
@@ -2840,9 +3046,18 @@ if (_optional_extensions.requested(
         .pNext = feature_next,
         .shaderBFloat16Type = enable_bfloat16 ? VK_TRUE : VK_FALSE,
         .shaderBFloat16DotProduct = VK_FALSE,
-        .shaderBFloat16CooperativeMatrix = VK_FALSE};
+        .shaderBFloat16CooperativeMatrix =
+            bfloat16_coopmat_enabled ? VK_TRUE : VK_FALSE};
     if (enable_bfloat16) {
         feature_next = &bfloat16_features;
+    }
+    // VK_KHR_shader_integer_dot_product: chain the feature whenever the
+    // physical device reported it. A Vulkan 1.3 driver promotes the feature, so
+    // the struct is required even when the extension name was not requested.
+    if (enable_integer_dot_product) {
+        integer_dot_product_features.pNext = feature_next;
+        integer_dot_product_features.shaderIntegerDotProduct = VK_TRUE;
+        feature_next = &integer_dot_product_features;
     }
 #ifndef NDEBUG
     VkPhysicalDeviceShaderClockFeaturesKHR shader_clock_features{
@@ -3000,9 +3215,34 @@ if (_optional_extensions.requested(
         // enable the memory-model features only when the extension is fully
         // usable. On devices missing any prerequisite, keep the pre-existing
         // GLSL450 device-scope behavior instead of toggling the memory model.
-        .vulkanMemoryModel = cooperative_vector_enabled ? VK_TRUE : VK_FALSE,
+        // A cooperative-matrix extension needs the same pair for its
+        // workgroup-scope forms, so either path enables it -- but only when the
+        // physical device really reported both feature bits.
+        .vulkanMemoryModel =
+            (cooperative_vector_enabled ||
+             enabled_cooperative_matrix_ext != CooperativeMatrixExt::None) &&
+                    vulkan_memory_model_supported ?
+                VK_TRUE :
+                VK_FALSE,
         .vulkanMemoryModelDeviceScope =
-            cooperative_vector_enabled ? VK_TRUE : VK_FALSE};
+            (cooperative_vector_enabled ||
+             enabled_cooperative_matrix_ext != CooperativeMatrixExt::None) &&
+                    vulkan_memory_model_supported ?
+                VK_TRUE :
+                VK_FALSE};
+    vulkan_memory_model_enabled =
+        !external_device &&
+        (cooperative_vector_enabled ||
+         enabled_cooperative_matrix_ext != CooperativeMatrixExt::None) &&
+        vulkan_memory_model_supported;
+    // Publish the two cooperative-matrix component-type negotiations. An
+    // imported VkDevice never attests them (the locals above are only set from
+    // physical-device probes, but the enabled feature chain is the fact that
+    // matters).
+    this->bfloat16_coopmat_enabled =
+        !external_device && bfloat16_coopmat_enabled;
+    this->float8_coopmat_enabled =
+        !external_device && float8_coopmat_enabled;
     VK_CHECK_RESULT(_vk_device->create_logical_device(device_features, _enable_device_exts, &vk12_feature, surface_enabled));
     if (external_device != VK_NULL_HANDLE) {
         _vk_device->queue_family_indices.graphics =
@@ -4279,6 +4519,17 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_untyped_pointers);
     enable(owned_logical_device && cooperative_vector_enabled,
            target_feature::cooperative_vector);
+    // VK_KHR_shader_integer_dot_product: the logical device enabled
+    // shaderIntegerDotProduct, so an artifact may declare DotProductKHR /
+    // DotProductInput4x8BitPackedKHR and emit OpSDot/OpUDot/OpSUDot. Without
+    // this bit the codegen keeps the portable bitfield sequence.
+    enable(owned_logical_device && integer_dot_product_enabled,
+           target_feature::shader_integer_dot_product);
+    // VK_KHR_cooperative_matrix / VK_NV_cooperative_matrix: a module that
+    // declares CooperativeMatrixKHR/NV may only load where one of the two
+    // extensions is enabled on the logical device.
+    enable(owned_logical_device && cooperative_matrix_extension != nullptr,
+           target_feature::cooperative_matrix);
     enable(owned_logical_device && shader_replicated_composites_enabled,
            target_feature::shader_replicated_composites);
     // Optional shader capability extensions. `optional_extension_enabled` is
@@ -5693,6 +5944,24 @@ Device::VulkanExtensionStatusExtImpl::cooperative_status() const noexcept {
     status.vector_enabled = device.cooperative_vector_enabled;
     status.vector_fp32_config = device.cooperative_vector_fp32_enabled;
     status.vector_config_count = device.cooperative_vector_config_count;
+    // Enumerated cooperative-matrix configurations, verbatim from the
+    // negotiation so a run log can state which shapes this device really
+    // offers (P0-2 step 3 / P1-1 gate on these, never on `matrix_enabled`).
+    status.matrix_config_count = device.matrix_config_count;
+    status.matrix_bf16_supported = device.matrix_bf16_supported;
+    status.matrix_fp16_supported = device.matrix_fp16_supported;
+    status.matrix_int8_supported = device.matrix_int8_supported;
+    status.matrix_bf16_m = device.matrix_bf16_m;
+    status.matrix_bf16_n = device.matrix_bf16_n;
+    status.matrix_bf16_k = device.matrix_bf16_k;
+    status.matrix_int8_m = device.matrix_int8_m;
+    status.matrix_int8_n = device.matrix_int8_n;
+    status.matrix_int8_k = device.matrix_int8_k;
+    // VK_KHR_shader_integer_dot_product and the BF16 cooperative-matrix
+    // component type. Both are reported here because neither is a registry
+    // extension on a Vulkan 1.3 driver.
+    status.integer_dot_product_enabled = device.integer_dot_product_enabled;
+    status.bfloat16_coopmat_enabled = device.bfloat16_coopmat_enabled;
     return status;
 }
 VulkanCapabilityStatus

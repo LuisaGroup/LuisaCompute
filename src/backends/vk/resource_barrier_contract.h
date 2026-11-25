@@ -244,6 +244,56 @@ inline constexpr VkAccessFlags2 write_access_mask =
     return (access & write_access_mask) != 0u;
 }
 
+// The end-of-batch restore publishes two unrelated things: the ordinary tracked
+// buffers (coalesced into one whole-memory barrier, Phase 3B opt D) and the
+// bindless memory state of this frame (the descriptor arrays the dispatches
+// wrote through). Both carry the same stage pair (ALL_COMMANDS ->
+// ALL_COMMANDS) and, whenever a write happened, the same destination scope, so
+// two VkMemoryBarrier2 structs would publish exactly what one struct with the
+// union of their source scopes publishes - and would violate the
+// `memory structs <= restore calls` invariant.
+//
+// The plan below is the single decision point for that barrier:
+//   * nothing tracked -> no struct at all;
+//   * read-only buffers only -> an execution-only barrier (src = dst = NONE),
+//     which is all a read/read restore needs;
+//   * a written buffer and/or active bindless state -> the union of the write
+//     sources published to MEMORY_READ|MEMORY_WRITE.
+// `plan_restore_memory_barrier` is a pure function of the tracker's state, so a
+// host test can pin every case without a device.
+struct RestoreMemoryBarrierPlan {
+    bool emit{false};
+    VkAccessFlags2 src_access{VK_ACCESS_2_NONE};
+    VkAccessFlags2 dst_access{VK_ACCESS_2_NONE};
+};
+
+// Coalesces the end-of-batch restore of ordinary tracked buffers and any active
+// bindless memory state into at most one ALL_COMMANDS -> ALL_COMMANDS
+// VkMemoryBarrier2.
+[[nodiscard]] constexpr RestoreMemoryBarrierPlan
+plan_restore_memory_barrier(bool has_coalesced_buffers,
+                            VkAccessFlags2 coalesced_buffer_src_access,
+                            bool bindless_active,
+                            VkAccessFlags2 bindless_src_access) noexcept {
+    if (!has_coalesced_buffers && !bindless_active) {
+        return {};
+    }
+    auto const wrote_buffers =
+        has_coalesced_buffers && has_write_access(coalesced_buffer_src_access);
+    auto src_access = wrote_buffers ? coalesced_buffer_src_access : VK_ACCESS_2_NONE;
+    auto dst_access = wrote_buffers ?
+                          (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT) :
+                          VK_ACCESS_2_NONE;
+    if (bindless_active) {
+        src_access |= bindless_src_access;
+        dst_access |= VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    }
+    return RestoreMemoryBarrierPlan{
+        .emit = true,
+        .src_access = src_access,
+        .dst_access = dst_access};
+}
+
 // The NVIDIA copy-source workaround (see `ResourceBarrier::_update_state`
 // for the observed behavior): a readback copy whose destination scope is only
 // VK_PIPELINE_STAGE_2_COPY_BIT / VK_ACCESS_2_TRANSFER_READ_BIT can observe the

@@ -682,6 +682,31 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
             }
             break;
         }
+        case CallOp::DOT4X8:
+        case CallOp::DOT4X8_SU: {
+            // Both signed shapes take two packed uint32 words and a *signed*
+            // 32-bit accumulator, and return that same signed result type.
+            if (!(return_type == Type::of<int>() &&
+                  args.size() == 3u &&
+                  args[0]->type() == Type::of<uint>() &&
+                  args[1]->type() == Type::of<uint>() &&
+                  args[2]->type() == Type::of<int>())) [[unlikely]] {
+                LUISA_ERROR("DOT4X8/DOT4X8_SU expect (uint a, uint b, int acc) and return int.");
+            }
+            break;
+        }
+        case CallOp::DOT4X8_U: {
+            // The unsigned shape keeps the accumulator and the result unsigned
+            // so that no implicit reinterpretation is needed anywhere.
+            if (!(return_type == Type::of<uint>() &&
+                  args.size() == 3u &&
+                  args[0]->type() == Type::of<uint>() &&
+                  args[1]->type() == Type::of<uint>() &&
+                  args[2]->type() == Type::of<uint>())) [[unlikely]] {
+                LUISA_ERROR("DOT4X8_U expects (uint a, uint b, uint acc) and returns uint.");
+            }
+            break;
+        }
         default: break;
     }
 }

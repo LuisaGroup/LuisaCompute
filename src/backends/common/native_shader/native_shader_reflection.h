@@ -192,6 +192,23 @@ namespace detail {
         case 39u: return target_feature::shader_int8;              // Int8
         case 55u: return target_feature::storage_image_read_without_format;
         case 56u: return target_feature::storage_image_write_without_format;
+        // SPV_KHR_integer_dot_product input capabilities (6016
+        // DotProductInputAll, 6017 DotProductInput4x8Bit, 6018
+        // DotProductInput4x8BitPacked) and the feature capability itself (6019
+        // DotProduct). All four are Vulkan `shaderIntegerDotProduct` features,
+        // so a module that declares any of them must fail closed (R12) unless
+        // the logical device enabled the extension or the Vulkan 1.3 core
+        // feature.
+        case 6016u:
+        case 6017u:
+        case 6018u:
+        case 6019u: return target_feature::shader_integer_dot_product;
+        // CooperativeMatrixNV (5357) and CooperativeMatrixKHR (6022): the two
+        // device features are distinct, but the artifact bit is the same, so a
+        // cooperative-matrix module cannot be created on a device that
+        // negotiated neither.
+        case 5357u:
+        case 6022u: return target_feature::cooperative_matrix;
         default: return 0u;
     }
 }

@@ -277,6 +277,12 @@ bool is_arithmetic_op_safe_to_speculate(ArithmeticOp op) noexcept {
         // DOT2ADD is a total value computation on its exact
         // (half2, half2, float) -> float shape: no traps, no memory.
         case ArithmeticOp::DOT2ADD:
+        // Integer dot products are total 32-bit value computations as well:
+        // multiplying two sign/zero-extended 8-bit lanes cannot trap and the
+        // accumulator simply wraps.
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_U:
+        case ArithmeticOp::DOT4X8_SU:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:

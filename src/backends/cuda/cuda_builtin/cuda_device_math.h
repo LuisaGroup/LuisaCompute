@@ -5261,6 +5261,57 @@ template<typename I>
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
+// Integer dot product of four packed 8-bit lanes with a 32-bit accumulator
+// (the DP4A family). `__dp4a` needs compute capability 6.1, so the portable
+// two's-complement decode below is used on older targets: it is exact, because
+// each product of two sign/zero-extended 8-bit lanes fits in 32 bits and the
+// only overflow is the wrapping accumulator add.
+[[nodiscard]] __device__ inline int lc_dot4x8_lane_signed(lc_uint v, lc_uint shift) noexcept {
+    // Move the requested byte (at bit offset `shift`) to the top and let the
+    // arithmetic shift sign-extend it, i.e. exactly the decode IDP4A performs.
+    return static_cast<int>(v << (24u - shift)) >> 24;
+}
+
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 610
+[[nodiscard]] __device__ inline int lc_dot4x8(lc_uint a, lc_uint b, int acc) noexcept {
+    return __dp4a(static_cast<int>(a), static_cast<int>(b), acc);
+}
+[[nodiscard]] __device__ inline lc_uint lc_dot4x8_u(lc_uint a, lc_uint b, lc_uint acc) noexcept {
+    return __dp4a(a, b, acc);
+}
+#else
+[[nodiscard]] __device__ inline int lc_dot4x8(lc_uint a, lc_uint b, int acc) noexcept {
+    auto result = acc;
+    result += lc_dot4x8_lane_signed(a, 0u) * lc_dot4x8_lane_signed(b, 0u);
+    result += lc_dot4x8_lane_signed(a, 8u) * lc_dot4x8_lane_signed(b, 8u);
+    result += lc_dot4x8_lane_signed(a, 16u) * lc_dot4x8_lane_signed(b, 16u);
+    result += lc_dot4x8_lane_signed(a, 24u) * lc_dot4x8_lane_signed(b, 24u);
+    return result;
+}
+[[nodiscard]] __device__ inline lc_uint lc_dot4x8_u(lc_uint a, lc_uint b, lc_uint acc) noexcept {
+    auto result = acc;
+    result += ((a >> 0u) & 255u) * ((b >> 0u) & 255u);
+    result += ((a >> 8u) & 255u) * ((b >> 8u) & 255u);
+    result += ((a >> 16u) & 255u) * ((b >> 16u) & 255u);
+    result += ((a >> 24u) & 255u) * ((b >> 24u) & 255u);
+    return result;
+}
+#endif
+
+// Mixed signed/unsigned form. CUDA C++ has no `__dp4a` overload for it, and
+// casting the unsigned word to int would make the intrinsic sign-extend lanes
+// that must stay zero-extended, so the exact decode is used on every
+// architecture: the signed lane is sign-extended, the unsigned one
+// zero-extended, and each product fits in int32 on its own.
+[[nodiscard]] __device__ inline int lc_dot4x8_su(lc_uint a, lc_uint b, int acc) noexcept {
+    auto result = acc;
+    result += lc_dot4x8_lane_signed(a, 0u) * static_cast<int>((b >> 0u) & 255u);
+    result += lc_dot4x8_lane_signed(a, 8u) * static_cast<int>((b >> 8u) & 255u);
+    result += lc_dot4x8_lane_signed(a, 16u) * static_cast<int>((b >> 16u) & 255u);
+    result += lc_dot4x8_lane_signed(a, 24u) * static_cast<int>((b >> 24u) & 255u);
+    return result;
+}
+
 [[nodiscard]] __device__ inline lc_float lc_dot2add(lc_half2 a, lc_half2 b, lc_float acc) noexcept {
     // Match dot2add's unfused semantics: round the products to half, then
     // widen and accumulate in float with ordered round-to-nearest adds.

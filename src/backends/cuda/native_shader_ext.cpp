@@ -229,6 +229,7 @@ NativeShaderCompileResult CUDANativeShaderExt::compile(
     detail::native_shader_canonicalize_bindings(result.bindings);
     result.block_size = block_size;
     result.push_constant_size = merged.uniform_bytes;
+    result.dynamic_shared_memory_bytes = info.dynamic_shared_memory_bytes;
     result.entry_point = std::move(merged.entry_point);
     result.binary = std::move(ptx);
     return result;
@@ -240,6 +241,10 @@ NativeShaderMetadata CUDANativeShaderExt::load(
     NativeShaderMetadata metadata;
     metadata.language = NativeShaderLanguage::CUDA_NVRTC;
     metadata.push_constant_size = result.push_constant_size;
+    // Dynamic shared memory is a device capability, so it is only published
+    // once load() succeeded; keeping it in the result makes load()
+    // self-contained (like push_constant_size).
+    metadata.dynamic_shared_memory_bytes = result.dynamic_shared_memory_bytes;
     if (!result.ok()) {
         LUISA_WARNING("Native shader load() called with a failed compile "
                       "result: {}",
@@ -345,14 +350,19 @@ NativeShaderMetadata CUDANativeShaderExt::load(
         luisa::string error;
         auto p = CUDANativeShader::create(
             result.binary, module.entry_point, block_size,
-            std::move(parameters), error);
+            std::move(parameters), result.dynamic_shared_memory_bytes, error);
         if (p == nullptr) {
             LUISA_WARNING("Native CUDA shader '{}' could not be loaded: {}",
                           module.entry_point, error);
         }
         return p;
     });
-    if (shader == nullptr) { return metadata; }
+    if (shader == nullptr) {
+        // The dynamic shared-memory opt-in is the one load-time failure that
+        // leaves the compile result valid, so keep the metadata invalid (no
+        // handle) and report the concrete device limit.
+        return metadata;
+    }
     metadata.block_size = block_size;
     metadata.handle = reinterpret_cast<uint64_t>(shader);
     {
@@ -360,10 +370,12 @@ NativeShaderMetadata CUDANativeShaderExt::load(
         _shaders.emplace(metadata.handle, shader);
     }
     LUISA_VERBOSE("Loaded native CUDA shader '{}' ({} buffer binding(s), {} "
-                  "byte(s) of scalar parameters, block size {}x{}x{}).",
+                  "byte(s) of scalar parameters, {} byte(s) of dynamic shared "
+                  "memory, block size {}x{}x{}).",
                   shader->entry(), shader->buffer_parameter_count(),
-                  shader->uniform_bytes(), block_size.x, block_size.y,
-                  block_size.z);
+                  shader->uniform_bytes(),
+                  shader->default_dynamic_shared_bytes(), block_size.x,
+                  block_size.y, block_size.z);
     return metadata;
 }
 

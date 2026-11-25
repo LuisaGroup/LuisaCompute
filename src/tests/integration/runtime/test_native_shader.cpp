@@ -519,6 +519,73 @@ __global__ void mangled(float *dst) { dst[0] = 1.0f; }
             launcher.set_allow_usage_override(true);
             expect(launcher.validate().empty()) << launcher.validate().c_str();
         };
+        "native_shader_cuda_dynamic_shared_memory"_test = [&] {
+            // A tiled kernel that needs more than the 48 KiB static `__shared__`
+            // limit has to opt into dynamic (extern) shared memory. The compile
+            // info declares the byte count, load() applies
+            // CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES after checking
+            // CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN (fail
+            // closed), and every launch passes the same value to
+            // cuLaunchKernel.
+            constexpr auto dynamic_bytes = 64u * 1024u;// deliberately > 48 KiB
+            NativeShaderCompileInfo cuda_info;
+            cuda_info.language = NativeShaderLanguage::CUDA_NVRTC;
+            cuda_info.source = R"(
+extern "C" __global__ void tile_stage(float *dst, float k) {
+    extern __shared__ float tile[];
+    auto block = blockIdx.x * blockDim.x;
+    tile[threadIdx.x] = static_cast<float>(block + threadIdx.x) * k;
+    __syncthreads();
+    dst[block + threadIdx.x] = tile[(threadIdx.x + 1u) % blockDim.x];
+}
+)";
+            cuda_info.entry_point = "tile_stage";
+            cuda_info.block_size = cuda_bs;
+            cuda_info.push_constant_size = sizeof(float);
+            cuda_info.dynamic_shared_memory_bytes = dynamic_bytes;
+            auto result = ext->compile(cuda_info);
+            expect(result.ok()) << result.error.c_str();
+            expect(result.dynamic_shared_memory_bytes == dynamic_bytes);
+            auto metadata = ext->load(result);
+            expect(metadata.valid())
+                << "the 64 KiB dynamic shared-memory opt-in must succeed on "
+                   "this device";
+            expect(metadata.dynamic_shared_memory_bytes == dynamic_bytes);
+            if (!metadata.valid()) { return; }
+            NativeShader shader{*ext, std::move(metadata)};
+            auto buffer = device.create_buffer<float>(element_count);
+            auto launcher = shader.launcher();
+            launcher.add_buffer_by_index(0u, buffer.view(), Usage::WRITE)
+                .add_uniform(2.0f)
+                .set_dynamic_shared_memory(dynamic_bytes);
+            expect(launcher.validate().empty()) << launcher.validate().c_str();
+            auto stream = device.create_stream();
+            auto command =
+                std::move(launcher).build(uint3{element_count, 1u, 1u});
+            expect(command->dynamic_shared_memory_bytes() == dynamic_bytes);
+            stream << std::move(command) << synchronize();
+            luisa::vector<float> host(element_count);
+            stream << buffer.copy_to(luisa::span{host}) << synchronize();
+            for (auto i = 0u; i < element_count; i++) {
+                auto block = (i / cuda_bs.x) * cuda_bs.x;
+                auto expected =
+                    static_cast<float>(block +
+                                       (i % cuda_bs.x + 1u) % cuda_bs.x) *
+                    2.0f;
+                expect(host[i] == expected)
+                    << "dynamic shared-memory mismatch at " << i << ": "
+                    << host[i] << " vs " << expected;
+            }
+            // An oversized request must fail closed at load() instead of
+            // reaching cuLaunchKernel.
+            cuda_info.dynamic_shared_memory_bytes = 1u << 30u;
+            auto oversized = ext->compile(cuda_info);
+            expect(oversized.ok()) << oversized.error.c_str();
+            auto rejected = ext->load(oversized);
+            expect(!rejected.valid())
+                << "a dynamic shared-memory request above the device opt-in "
+                   "limit must be rejected";
+        };
     }
     // ---- dispatch --------------------------------------------------------
     {

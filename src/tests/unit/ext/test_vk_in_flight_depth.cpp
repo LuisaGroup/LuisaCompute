@@ -244,6 +244,107 @@ void reg_present_path_shares_the_engine() {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Strict spin-budget parsing (`LUISA_VK_SYNC_SPIN_US` / `LUISA_VK_RETIRE_SPIN_US`)
+// ---------------------------------------------------------------------------
+void reg_spin_pause_budget_parsing() {
+    "vk_spin_pause_budget_is_parsed_strictly"_test = [] {
+        // The two knobs default to 20 ms (`Event::sync`) and 200 us (the stream's
+        // retirement spin); only the parsing is covered here, not the polling.
+        constexpr auto default_us = uint64_t{20'000u};
+        constexpr auto default_pauses = uint32_t{2'000'000u};
+        constexpr auto max_pauses =
+            static_cast<uint32_t>(vk_detail::kMaxSpinBudgetUs * vk_detail::kPausesPerUs);
+        static_assert(vk_detail::kMaxSpinBudgetUs == 100'000ull);
+        static_assert(vk_detail::kPausesPerUs == 100ull);
+
+        // Unset and empty both mean "use the backend default".
+        expect(eq(vk_detail::parse_spin_pause_iterations(nullptr, default_us),
+                  default_pauses))
+            << "an unset variable must fall back to the backend default";
+        expect(eq(vk_detail::parse_spin_pause_iterations("", default_us),
+                  default_pauses))
+            << "an empty variable must fall back to the backend default";
+
+        // "0" is a value, not an absent one: it is the documented way to turn the
+        // busy-spin off, and silently replacing it with the default made
+        // `LUISA_VK_SYNC_SPIN_US=0` a no-op.
+        expect(eq(vk_detail::parse_spin_pause_iterations("0", default_us), 0u))
+            << "'0' must disable spinning instead of being read as 'unset'";
+        expect(eq(vk_detail::parse_spin_pause_iterations("1", default_us), 100u));
+        expect(eq(vk_detail::parse_spin_pause_iterations("500", default_us), 50'000u));
+        expect(eq(vk_detail::parse_spin_pause_iterations("0000010", default_us), 1'000u))
+            << "leading zeros are still digits";
+
+        // The cap: a value at the cap is accepted, anything above saturates.
+        expect(eq(vk_detail::parse_spin_pause_iterations("100000", default_us),
+                  max_pauses));
+        expect(eq(vk_detail::parse_spin_pause_iterations("100001", default_us),
+                  max_pauses))
+            << "a budget above the cap must clamp instead of wrapping";
+        expect(eq(vk_detail::parse_spin_pause_iterations(
+                      "999999999999999999999999", default_us),
+                  max_pauses))
+            << "a value far beyond 64 bits must clamp, never overflow";
+
+        // Anything that is not a plain unsigned decimal falls back: a negative
+        // value used to become UINT64_MAX and then 100 ms of busy-spinning.
+        for (auto rejected : {std::string_view{"-1"},
+                              std::string_view{"-0"},
+                              std::string_view{"abc"},
+                              std::string_view{"10abc"},
+                              std::string_view{" 10"},
+                              std::string_view{"10 "},
+                              std::string_view{"+10"},
+                              std::string_view{"1e3"},
+                              std::string_view{"0x10"}}) {
+            expect(eq(vk_detail::parse_spin_pause_iterations(rejected, default_us),
+                      default_pauses))
+                << "a malformed value must fall back to the default: '" << rejected
+                << "'";
+        }
+
+        // The fallback is clamped as well, so no caller can sneak a budget above
+        // the cap in through the default argument.
+        expect(eq(vk_detail::parse_spin_pause_iterations(nullptr, 1'000'000u),
+                  max_pauses));
+        expect(eq(vk_detail::parse_spin_pause_iterations("", 1'000'000u),
+                  max_pauses));
+        expect(eq(vk_detail::parse_spin_pause_iterations("junk", 1'000'000u),
+                  max_pauses));
+    };
+}
+
+// ---------------------------------------------------------------------------
+// When the orphaned descriptor sets force a descriptor-pool reset
+// ---------------------------------------------------------------------------
+void reg_descriptor_pool_orphan_reset_policy() {
+    "vk_descriptor_pool_orphan_reset_policy"_test = [] {
+        constexpr auto threshold = vk_detail::kDescriptorPoolOrphanResetThreshold;
+        expect(eq(threshold, size_t{1024u}))
+            << "the orphan threshold the backend budgets for is 1024 sets";
+        // Rewinding the cursors is only equivalent to a reset while the cache owns
+        // every set and no overflow pool was touched.
+        expect(!vk_detail::should_reset_descriptor_pools(false, 0u, 0u))
+            << "an empty, fully cached state must not pay for a pool reset";
+        expect(!vk_detail::should_reset_descriptor_pools(false, 0u, 1023u))
+            << "one set below the threshold is still reclaimed by rewinding";
+        // The threshold itself forces the reset, i.e. the comparison is >=.
+        expect(vk_detail::should_reset_descriptor_pools(false, 0u, threshold));
+        expect(vk_detail::should_reset_descriptor_pools(false, 0u, 1024u));
+        expect(vk_detail::should_reset_descriptor_pools(false, 0u, 2048u))
+            << "the reset stays forced above the threshold";
+        // An allocation outside the cache cannot be reclaimed by rewinding.
+        expect(vk_detail::should_reset_descriptor_pools(true, 0u, 0u))
+            << "an uncached descriptor allocation forces the reset";
+        // An overflow pool was used: the cache does not record which pool a set
+        // came from, so only a native reset can hand it out again.
+        expect(vk_detail::should_reset_descriptor_pools(false, 1u, 0u))
+            << "touching the first overflow pool forces the reset";
+        expect(vk_detail::should_reset_descriptor_pools(true, 1u, threshold));
+    };
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -256,5 +357,7 @@ int main(int argc, char *argv[]) {
     reg_depth_three_adds_one_batch();
     reg_targets_are_well_formed();
     reg_present_path_shares_the_engine();
+    reg_spin_pause_budget_parsing();
+    reg_descriptor_pool_orphan_reset_policy();
     return 0;
 }

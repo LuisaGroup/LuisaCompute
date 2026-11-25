@@ -1397,6 +1397,103 @@ void reg_device_teardown(Device &device) {
     };
 }
 
+// ---------------------------------------------------------------------------
+// The graph's final layout release is a destruction the cache must observe
+// ---------------------------------------------------------------------------
+void reg_graph_layout_release(Device &device) {
+    "replay_graph_destroy_releases_layout_reference"_test = [&device] {
+        auto *ext = replay_ext(device);
+        if (ext == nullptr) { return; }
+        constexpr auto n = 128u;
+        Buffer<float> a = device.create_buffer<float>(n);
+        Buffer<float> b = device.create_buffer<float>(n);
+        Buffer<float> d = device.create_buffer<float>(n);
+        Stream stream = device.create_stream();
+        luisa::vector<float> host(n, 1.0f);
+        stream << a.copy_from(luisa::span{host})
+               << b.copy_from(luisa::span{host})
+               << synchronize();
+        VulkanReplayRecordResult recorded{};
+        {
+            auto shader = device.compile(add_kernel);
+            // An ordinary dispatch first: it populates the stream's cached
+            // descriptor-set bucket for this shader's interned layout.
+            stream << shader(a, b, d, 2.0f).dispatch(n) << synchronize();
+            luisa::vector<float> before(n, -1.0f);
+            stream << d.copy_to(luisa::span{before}) << synchronize();
+            auto before_ok = true;
+            for (auto value : before) { before_ok &= std::abs(value - 4.0f) < 1e-5f; }
+            expect(before_ok) << "the cached ordinary dispatch (1 + 1 + 2)";
+            CommandList list;
+            list << shader(a, b, d, 3.0f).dispatch(n);
+            recorded = ext->record(stream.handle(), std::move(list));
+            expect(recorded.status == VulkanReplayStatus::SUCCESS);
+        }// the shader is destroyed while the graph still retains its layouts
+        if (recorded.status != VulkanReplayStatus::SUCCESS) { return; }
+        expect(ext->replay(recorded.handle).status == VulkanReplayStatus::SUCCESS);
+        luisa::vector<float> replayed(n, -1.0f);
+        stream << d.copy_to(luisa::span{replayed}) << synchronize();
+        auto replayed_ok = true;
+        for (auto value : replayed) { replayed_ok &= std::abs(value - 5.0f) < 1e-5f; }
+        expect(replayed_ok) << "the replay after the shader's death (1 + 1 + 3)";
+        // The graph held the last reference to the interned layouts, so this release
+        // destroys them. `ReplayGraph::~ReplayGraph` has to record that destruction
+        // (`Device::note_shader_layout_destroyed`), otherwise the stream's cached
+        // descriptor-set bucket for the dead layout survives the recycle.
+        auto live_before = ext->live_replay_count();
+        expect(ext->destroy(recorded.handle) == VulkanReplayStatus::SUCCESS);
+        expect(ext->live_replay_count() + 1u == live_before)
+            << "the graph must be gone after destroy()";
+        // A fresh shader on the same stream: the state recycles here, and a bucket
+        // that was not evicted would hand out descriptor sets created from the
+        // destroyed layout instead of the new one.
+        auto fresh = device.compile(add_kernel);
+        stream << fresh(a, b, d, 4.0f).dispatch(n) << synchronize();
+        luisa::vector<float> after(n, -1.0f);
+        stream << d.copy_to(luisa::span{after}) << synchronize();
+        auto after_ok = true;
+        for (auto value : after) { after_ok &= std::abs(value - 6.0f) < 1e-5f; }
+        expect(after_ok) << "an ordinary dispatch after the graph's release (1 + 1 + 4)";
+    };
+}
+
+// ---------------------------------------------------------------------------
+// `Event::_notify()` / `~Event()` lifetime under immediate destruction
+// ---------------------------------------------------------------------------
+void reg_event_destroy_stress(Device &device) {
+    "replay_timeline_event_destroyed_right_after_synchronize"_test = [&device] {
+        constexpr auto iterations = 256u;
+        // A fresh `TimelineEvent` per iteration, signalled on the stream and
+        // synchronised on the test thread. `~Event` therefore runs inside the window
+        // in which the retirement thread's `_notify()` has published the fence value
+        // and still has to execute `notify_all()`: with the notification outside
+        // `_event_mtx`, that wakeup touched the freed counter.
+        Stream stream = device.create_stream();
+        for (auto i = uint32_t{0u}; i < iterations; ++i) {
+            {
+                auto event = device.create_timeline_event();
+                // Every timeline starts at zero, so the first value is always 1.
+                constexpr auto fence = uint64_t{1u};
+                stream << event.signal(fence);
+                event.synchronize(fence);
+            }// destroyed here, immediately after it was observed as finished
+        }
+        LUISA_INFO("{} timeline event(s) created, synchronised and destroyed",
+                   iterations);
+        // The stream itself must be untouched by the churn.
+        constexpr auto n = 64u;
+        Buffer<float> buffer = device.create_buffer<float>(n);
+        luisa::vector<float> host(n, 7.0f);
+        luisa::vector<float> readback(n, -1.0f);
+        stream << buffer.copy_from(luisa::span{host})
+               << buffer.copy_to(luisa::span{readback})
+               << synchronize();
+        auto ok = true;
+        for (auto value : readback) { ok &= std::abs(value - 7.0f) < 1e-5f; }
+        expect(ok) << "the stream must still work after the event churn";
+    };
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1432,6 +1529,8 @@ int main(int argc, char *argv[]) {
     reg_handle_lifecycle(device);
     reg_reject_matrix(device);
     reg_ordinary_path_after_replay(device);
+    reg_graph_layout_release(device);
+    reg_event_destroy_stress(device);
 #if LUISA_VULKAN_PROFILE_SUBMIT
     reg_decode_shaped(device);
 #endif

@@ -594,6 +594,41 @@ private:
                        "(half2 a, half2 b, float acc) -> float signature.");
             }
         }
+        if (inst->op() == xir::ArithmeticOp::DOT4X8 ||
+            inst->op() == xir::ArithmeticOp::DOT4X8_U ||
+            inst->op() == xir::ArithmeticOp::DOT4X8_SU) {
+            // The DP4A family has exactly one legal shape per opcode: two
+            // packed 32-bit operand words plus a 32-bit accumulator, with the
+            // signedness of the result and of the accumulator fixed by the
+            // opcode. The generic verifier enforces the same rule; the native
+            // handoff fails closed on its own for exact-XIR input because the
+            // emitter selects OpSDot/OpUDot/OpSUDot (or the exact fallback)
+            // from that shape alone.
+            auto operand_type = [inst](uint32_t index) noexcept {
+                auto *operand = inst->operand(index);
+                return operand == nullptr ? nullptr : operand->type();
+            };
+            auto exact_shape =
+                inst->operand_count() == 3u &&
+                operand_type(0u) == Type::of<uint>() &&
+                operand_type(1u) == Type::of<uint>() &&
+                (inst->op() == xir::ArithmeticOp::DOT4X8_U ?
+                     (inst->type() == Type::of<uint>() &&
+                      operand_type(2u) == Type::of<uint>()) :
+                     (inst->type() == Type::of<int>() &&
+                      operand_type(2u) == Type::of<int>()));
+            if (!exact_shape) {
+                _error(function, block, inst,
+                       luisa::format(
+                           "Native XIR-to-SPIR-V '{}' requires the exact shape {}: "
+                           "two packed uint32 operand words plus a matching 32-bit "
+                           "accumulator.",
+                           xir::to_string(inst->op()),
+                           inst->op() == xir::ArithmeticOp::DOT4X8_U ?
+                               "(uint a, uint b, uint acc) -> uint" :
+                               "(uint a, uint b, int acc) -> int"));
+            }
+        }
         if (inst->op() == xir::ArithmeticOp::EXTRACT &&
             inst->operand_count() >= 2u && inst->operand(0) != nullptr) {
             _validate_aggregate_indices(
@@ -2480,6 +2515,15 @@ spirv_xir_dialect_support(xir::ArithmeticOp op) noexcept {
         // half-product/float-accumulate sequence otherwise; the absence of the
         // VALVE feature is therefore not a dialect rejection.
         case xir::ArithmeticOp::DOT2ADD: return supported();
+        // The DP4A family is accepted in its exact (uint, uint, {int,uint})
+        // shapes (checked per instruction above). Emission selects
+        // OpSDot/OpUDot/OpSUDot with PackedVectorFormat4x8Bit when the logical
+        // device enabled VK_KHR_shader_integer_dot_product and the exact
+        // portable bitfield-extract multiply-accumulate otherwise, so a device
+        // without the feature is not a dialect rejection.
+        case xir::ArithmeticOp::DOT4X8:
+        case xir::ArithmeticOp::DOT4X8_U:
+        case xir::ArithmeticOp::DOT4X8_SU: return supported();
         case xir::ArithmeticOp::ERF:
         case xir::ArithmeticOp::ERFC:
         case xir::ArithmeticOp::EXPM1:

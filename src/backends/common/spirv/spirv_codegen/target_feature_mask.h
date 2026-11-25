@@ -122,6 +122,21 @@ inline constexpr SpirvTargetFeatureMask shader_replicated_composites = 0x0040000
 inline constexpr SpirvTargetFeatureMask denorm_preserve_float32 = 0x0100000000000000ull;
 inline constexpr SpirvTargetFeatureMask denorm_flush_float32 = 0x0200000000000000ull;
 inline constexpr SpirvTargetFeatureMask shader_expect_assume = 0x0080000000000000ull;
+// VK_KHR_shader_integer_dot_product (Vulkan 1.3 core, `shaderIntegerDotProduct`):
+// OpSDot/OpUDot/OpSUDot with PackedVectorFormat4x8Bit and the two capabilities
+// DotProductKHR + DotProductInput4x8BitPackedKHR (SPV_KHR_integer_dot_product).
+// Codegen lowers XIR DOT4X8/DOT4X8_U/DOT4X8_SU to those instructions only when
+// this bit is enabled, and otherwise emits an exact portable bitfield-extract
+// multiply-accumulate, so the bit is required by exactly the modules that
+// contain an integer dot-product instruction.
+inline constexpr SpirvTargetFeatureMask shader_integer_dot_product = 0x0400000000000000ull;
+// VK_KHR_cooperative_matrix / VK_NV_cooperative_matrix: CooperativeMatrixKHR
+// (6022) / CooperativeMatrixNV (5357) with the OpTypeCooperativeMatrix* and
+// OpCooperativeMatrix* instructions. Nothing in this tree emits them yet, but
+// the bit keeps native shader reflection fail-closed: a module that declares a
+// cooperative-matrix capability may only load on a logical device that really
+// negotiated one of the two extensions.
+inline constexpr SpirvTargetFeatureMask cooperative_matrix = 0x0800000000000000ull;
 
 inline constexpr SpirvTargetFeatureMask known_mask =
     0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector |
@@ -132,7 +147,8 @@ inline constexpr SpirvTargetFeatureMask known_mask =
     ray_tracing_opacity_micromap |
     shader_mixed_float_dot_product_float16_acc_float32 |
     shader_replicated_composites | shader_expect_assume |
-  denorm_preserve_float32 | denorm_flush_float32;
+  denorm_preserve_float32 | denorm_flush_float32 |
+  shader_integer_dot_product | cooperative_matrix;
 
 }// namespace target_feature
 
@@ -199,7 +215,9 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::shader_replicated_composites, "shaderReplicatedComposites"},
     SpirvTargetFeatureDescription{target_feature::shader_expect_assume, "shaderExpectAssume"},
       SpirvTargetFeatureDescription{target_feature::denorm_preserve_float32, "shaderDenormPreserveFloat32"},
-      SpirvTargetFeatureDescription{target_feature::denorm_flush_float32, "shaderDenormFlushToZeroFloat32"}};
+      SpirvTargetFeatureDescription{target_feature::denorm_flush_float32, "shaderDenormFlushToZeroFloat32"},
+      SpirvTargetFeatureDescription{target_feature::shader_integer_dot_product, "shaderIntegerDotProduct"},
+      SpirvTargetFeatureDescription{target_feature::cooperative_matrix, "cooperativeMatrix"}};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

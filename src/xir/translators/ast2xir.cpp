@@ -769,6 +769,11 @@ private:
         // DOT2ADD is the exact (half2, half2, float) -> float shape already
         // enforced by check_builtin_call_valid; XIR DOT2ADD is 1:1.
         case CallOp::DOT2ADD: return alu_call(ArithmeticOp::DOT2ADD);
+        // The DP4A family is likewise an exact (uint, uint, {int,uint}) shape
+        // enforced by check_builtin_call_valid, so every AST call maps 1:1.
+        case CallOp::DOT4X8: return alu_call(ArithmeticOp::DOT4X8);
+        case CallOp::DOT4X8_U: return alu_call(ArithmeticOp::DOT4X8_U);
+        case CallOp::DOT4X8_SU: return alu_call(ArithmeticOp::DOT4X8_SU);
             case CallOp::LENGTH: return alu_call(ArithmeticOp::LENGTH);
             case CallOp::LENGTH_SQUARED: return alu_call(ArithmeticOp::LENGTH_SQUARED);
             case CallOp::NORMALIZE: return alu_call(ArithmeticOp::NORMALIZE);

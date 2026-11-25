@@ -1149,6 +1149,11 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
     // A buffer with an explicit `_saved_buffer_restore_states` entry keeps its own
     // exact struct: that destination scope is a narrower contract published by
     // `VulkanDeviceConfigExt`, and coalescing it would widen it.
+    //
+    // The struct itself is emitted only once the bindless memory state is known as
+    // well (see `detail::plan_restore_memory_barrier` below), so a batch that
+    // touches both an ordinary tracked buffer and a bindless array still records
+    // exactly one VkMemoryBarrier2.
     VkAccessFlags2 coalesced_src_access = VK_ACCESS_2_NONE;
     auto coalesced_buffers = size_t{0u};
     for (auto &entry : _buffer_frame_states) {
@@ -1169,18 +1174,9 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
         coalesced_src_access |= state.range.before_access;
         ++coalesced_buffers;
     }
-    if (coalesced_buffers != 0u) {
-        auto const wrote = detail::has_write_access(coalesced_src_access);
-        auto &barrier = _memory_barriers.emplace_back();
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        barrier.srcAccessMask = wrote ? coalesced_src_access : VK_ACCESS_2_NONE;
-        barrier.dstAccessMask =
-            wrote ? (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT) :
-                    VK_ACCESS_2_NONE;
-        barrier_filter(barrier);
-        submit_profile::record_restore_coalesced_buffers(coalesced_buffers);
-    }
+    // The coalesced struct is emitted only after the texture loop: the bindless
+    // memory state is both a second source of that struct and an input of this
+    // loop, so emitting one struct per source would record two.
     for (auto &entry : _texture_frame_states) {
         auto identity = entry.first;
         auto &state = entry.second;
@@ -1230,13 +1226,25 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
                 static_cast<uint>(idx), barrier.newLayout);
         }
     }
-    if (_bindless_memory_state.active_in_frame) {
+    // One struct for both sources: the coalesced tracked buffers and the bindless
+    // memory state share their stage pair and their destination scope, so the
+    // union of their source scopes publishes exactly what two structs did.
+    auto restore_memory_plan = detail::plan_restore_memory_barrier(
+        coalesced_buffers != 0u, coalesced_src_access,
+        _bindless_memory_state.active_in_frame,
+        _bindless_memory_state.before_access);
+    if (restore_memory_plan.emit) {
         auto &barrier = _memory_barriers.emplace_back();
         barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        barrier.srcAccessMask = _bindless_memory_state.before_access;
-        barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+        barrier.srcAccessMask = restore_memory_plan.src_access;
+        barrier.dstAccessMask = restore_memory_plan.dst_access;
         barrier_filter(barrier);
+    }
+    if (coalesced_buffers != 0u) {
+        submit_profile::record_restore_coalesced_buffers(coalesced_buffers);
+    }
+    if (_bindless_memory_state.active_in_frame) {
         _bindless_memory_state = {};
     }
     if (!_memory_barriers.empty() || !_buffer_barriers.empty() || !_tex_barriers.empty()) {

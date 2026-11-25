@@ -38,12 +38,20 @@ private:
     // Signature indices of the buffer / scalar parameters, in declaration order.
     luisa::vector<uint32_t> _buffer_parameters;
     luisa::vector<uint32_t> _scalar_parameters;
+    // Dynamic ("extern") shared memory the function was opted into at load()
+    // (cuFuncSetAttribute CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES),
+    // bounded by the device's CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN.
+    // `_default_dynamic_shared_bytes` is what a dispatch that asks for 0 gets,
+    // i.e. the value the shader was loaded with.
+    uint32_t _max_dynamic_shared_bytes{0u};
+    uint32_t _default_dynamic_shared_bytes{0u};
 
 public:
     // `new_with_allocator` needs a public constructor.
     CUDANativeShader(CUmodule module, CUfunction function, luisa::string entry,
                      uint3 block_size,
-                     luisa::vector<Parameter> parameters) noexcept;
+    luisa::vector<Parameter> parameters,
+    uint32_t max_dynamic_shared_bytes) noexcept;
 
 public:
     CUDANativeShader(CUDANativeShader const &) = delete;
@@ -59,6 +67,7 @@ public:
     [[nodiscard]] static CUDANativeShader *create(
         luisa::span<const std::byte> ptx, luisa::string_view entry,
         uint3 block_size, luisa::vector<Parameter> parameters,
+        uint32_t max_dynamic_shared_bytes,
         luisa::string &error) noexcept;
 
     [[nodiscard]] auto module() const noexcept { return _module; }
@@ -79,6 +88,15 @@ public:
     }
     // Total size in bytes of the scalar (uniform) kernel parameters.
     [[nodiscard]] uint32_t uniform_bytes() const noexcept;
+    // Dynamic (extern) shared memory the function was opted into at load();
+    // 0 means "driver default".
+    [[nodiscard]] uint32_t max_dynamic_shared_bytes() const noexcept {
+        return _max_dynamic_shared_bytes;
+    }
+    // Launch-time sharedMemBytes a dispatch that requests 0 gets.
+    [[nodiscard]] uint32_t default_dynamic_shared_bytes() const noexcept {
+        return _default_dynamic_shared_bytes;
+    }
 
     // Encodes the dispatch of `command` on `encoder`'s stream.
     void launch(CUDACommandEncoder &encoder,

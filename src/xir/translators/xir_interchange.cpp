@@ -1221,7 +1221,10 @@ constexpr std::array arithmetic_wire_ops{
     wire_op(ArithmeticOp::ERFC, "erfc"sv),
     wire_op(ArithmeticOp::EXPM1, "expm1"sv),
     wire_op(ArithmeticOp::LDEXP, "ldexp"sv),
-    wire_op(ArithmeticOp::DOT2ADD, "dot2add"sv)};
+    wire_op(ArithmeticOp::DOT2ADD, "dot2add"sv),
+    wire_op(ArithmeticOp::DOT4X8, "dot4x8"sv),
+    wire_op(ArithmeticOp::DOT4X8_U, "dot4x8_u"sv),
+    wire_op(ArithmeticOp::DOT4X8_SU, "dot4x8_su"sv)};
 
 constexpr std::array atomic_wire_ops{
     wire_op(AtomicOp::EXCHANGE, "exchange"sv),
@@ -3384,6 +3387,9 @@ public:
         case ArithmeticOp::SMOOTHSTEP:
         case ArithmeticOp::FMA:
         case ArithmeticOp::DOT2ADD:
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_U:
+        case ArithmeticOp::DOT4X8_SU:
         case ArithmeticOp::FACEFORWARD: return count == 3u;
 
         case ArithmeticOp::AGGREGATE: return count > 0u;
@@ -3903,6 +3909,20 @@ template<typename OperandSpan>
                    operands[0]->type() == Type::of<half2>() &&
                    operands[1]->type() == Type::of<half2>() &&
                    operands[2]->type() == Type::of<float>();
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_SU:
+            // Integer dot product of two packed 32-bit words into a signed
+            // 32-bit accumulator: (uint, uint, int) -> int.
+            return result == Type::of<int>() &&
+                   operands[0]->type() == Type::of<uint>() &&
+                   operands[1]->type() == Type::of<uint>() &&
+                   operands[2]->type() == Type::of<int>();
+        case ArithmeticOp::DOT4X8_U:
+            // Unsigned twin: (uint, uint, uint) -> uint.
+            return result == Type::of<uint>() &&
+                   operands[0]->type() == Type::of<uint>() &&
+                   operands[1]->type() == Type::of<uint>() &&
+                   operands[2]->type() == Type::of<uint>();
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
             return operands[0]->type()->is_float_vector() &&

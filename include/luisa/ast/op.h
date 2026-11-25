@@ -692,10 +692,26 @@ enum struct CallOp : uint32_t {
     // responsibility (see split_barrier_arrive/split_barrier_wait in the DSL).
     SPLIT_BARRIER_ARRIVE,// (): void
     SPLIT_BARRIER_WAIT,  // (): void
+    // Appended to preserve every existing public CallOp value.
+    // Integer dot product of four 8-bit values packed into one 32-bit word
+    // with a 32-bit accumulator: acc + sum_i a[i] * b[i], wrapped in 32 bits.
+    // This is the DP4A family (VK_KHR_shader_integer_dot_product
+    // OpSDot/OpUDot/OpSUDot with PackedVectorFormat4x8Bit, HLSL
+    // dot4add_i8packed/dot4add_u8packed, CUDA __dp4a):
+    //   DOT4X8    : 4 x int8  in a, 4 x int8  in b, int32  acc -> int32
+    //   DOT4X8_U  : 4 x uint8 in a, 4 x uint8 in b, uint32 acc -> uint32
+    //   DOT4X8_SU : 4 x int8  in a, 4 x uint8 in b, int32  acc -> int32
+    // Every shape is exact: int8 lanes are sign-extended exactly, each
+    // product fits in int32 on its own, and the only possible overflow is the
+    // final 32-bit wraparound of the accumulator, which every backend (and
+    // the portable bitfield fallback) reproduces bit-exactly.
+    DOT4X8,   // (uint a, uint b, int acc): int
+    DOT4X8_U, // (uint a, uint b, uint acc): uint
+    DOT4X8_SU,// (uint a, uint b, int acc): int
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::SPLIT_BARRIER_WAIT) + 1u;
+    to_underlying(CallOp::DOT4X8_SU) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -1023,6 +1039,6 @@ public:
 
   };// namespace luisa::compute
 
-  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, SPLIT_BARRIER_WAIT)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, DOT4X8_SU)
 
 #endif// LUISA_AST_OP_H

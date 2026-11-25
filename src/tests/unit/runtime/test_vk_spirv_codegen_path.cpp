@@ -9,6 +9,7 @@
 #include <volk.h>
 
 #include <luisa/backends/ext/vk_config_ext.h>
+#include <luisa/backends/ext/vk_extension_ext.h>
 #include <luisa/backends/ext/vk_custom_cmd.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/luisa-compute.h>
@@ -1894,6 +1895,42 @@ void run_typed_float_constant_case(Device &device, double epsilon) {
     }
 }
 
+// Exact DP4A reference for the runtime check below: the 32-bit integer
+// accumulation of four sign/zero-extended 8-bit lane products. It is the same
+// contract the hardware OpSDot/OpUDot/OpSUDot path and the portable
+// bitfield-extract fallback implement, so one oracle validates both.
+[[nodiscard]] int32_t reference_dot4x8(uint32_t a, uint32_t b,
+                                       int32_t acc) noexcept {
+    auto result = static_cast<uint32_t>(acc);
+    for (auto lane = 0u; lane < 4u; ++lane) {
+        auto shift = 24u - lane * 8u;
+        auto lane_a = static_cast<int32_t>(a << shift) >> 24;
+        auto lane_b = static_cast<int32_t>(b << shift) >> 24;
+        result += static_cast<uint32_t>(lane_a * lane_b);
+    }
+    return static_cast<int32_t>(result);
+}
+
+[[nodiscard]] uint32_t reference_dot4x8_u(uint32_t a, uint32_t b,
+                                          uint32_t acc) noexcept {
+    auto result = acc;
+    for (auto lane = 0u; lane < 4u; ++lane) {
+        result += ((a >> (8u * lane)) & 0xffu) * ((b >> (8u * lane)) & 0xffu);
+    }
+    return result;
+}
+
+[[nodiscard]] int32_t reference_dot4x8_su(uint32_t a, uint32_t b,
+                                          int32_t acc) noexcept {
+    auto result = static_cast<uint32_t>(acc);
+    for (auto lane = 0u; lane < 4u; ++lane) {
+        auto lane_a = static_cast<int32_t>(a << (24u - lane * 8u)) >> 24;
+        auto lane_b = (b >> (8u * lane)) & 0xffu;
+        result += static_cast<uint32_t>(lane_a * static_cast<int32_t>(lane_b));
+    }
+    return static_cast<int32_t>(result);
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1929,6 +1966,115 @@ int main(int argc, char *argv[]) {
     for (auto i = 2; i < argc; i++) { ut_argv.emplace_back(argv[i]); }
     boost::ut::detail::cfg::parse_arg_with_fallback(
         static_cast<int>(ut_argv.size()), ut_argv.data());
+
+    "vk_user_compute_integer_dot_product_is_bit_exact"_test = [&] {
+        // dsl::dot4x8/dot4x8_u/dot4x8_su must be bit-exact on every device:
+        // the hardware path (OpSDot/OpUDot/OpSUDot with the 4x8-bit packed
+        // format, taken only when the logical device enabled
+        // VK_KHR_shader_integer_dot_product) and the portable bitfield fallback
+        // both accumulate in wrapping 32-bit integers, so one reference
+        // validates whichever path this device takes.
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
+        auto dc = luisa::test::create_device(argc, argv);
+        if (auto *status = dc.device.extension<VulkanExtensionStatusExt>()) {
+            auto cooperative = status->cooperative_status();
+            LUISA_INFO(
+                "Vulkan integer dot product: shaderIntegerDotProduct={}, "
+                "cooperative-matrix configs={} (bf16={}x{}x{}, int8={}x{}x{})",
+                cooperative.integer_dot_product_enabled,
+                cooperative.matrix_config_count,
+                cooperative.matrix_bf16_m, cooperative.matrix_bf16_n,
+                cooperative.matrix_bf16_k, cooperative.matrix_int8_m,
+                cooperative.matrix_int8_n, cooperative.matrix_int8_k);
+        } else {
+            expect(false) << "the Vulkan extension status surface is missing";
+        }
+        constexpr auto count = 512u;
+        luisa::vector<uint32_t> host_a(count);
+        luisa::vector<uint32_t> host_b(count);
+        luisa::vector<int32_t> host_acc(count);
+        for (auto i = 0u; i < count; i++) {
+            auto x = i * 2654435761u;
+            auto y = i * 40503u + 12345u;
+            host_a[i] = x ^ (y << 7u);
+            host_b[i] = (x >> 3u) + y;
+            host_acc[i] = static_cast<int32_t>(x % 7u) - 3;
+        }
+        auto buffer_a = dc.device.create_buffer<uint32_t>(count);
+        auto buffer_b = dc.device.create_buffer<uint32_t>(count);
+        auto buffer_acc = dc.device.create_buffer<int32_t>(count);
+        // The unsigned shape needs its own uint32 accumulator view of the same
+        // bit patterns (Buffer<int> and Buffer<uint> are distinct resources).
+        auto buffer_acc_unsigned = dc.device.create_buffer<uint32_t>(count);
+        auto signed_out = dc.device.create_buffer<int32_t>(count);
+        auto unsigned_out = dc.device.create_buffer<uint32_t>(count);
+        auto mixed_out = dc.device.create_buffer<int32_t>(count);
+        auto stream = dc.device.create_stream();
+        Kernel1D signed_kernel = [](BufferUInt a, BufferUInt b, BufferInt acc,
+                                    BufferInt out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, dot4x8(a.read(i), b.read(i), acc.read(i)));
+        };
+        Kernel1D unsigned_kernel = [](BufferUInt a, BufferUInt b, BufferUInt acc,
+                                      BufferUInt out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, dot4x8_u(a.read(i), b.read(i), acc.read(i)));
+        };
+        Kernel1D mixed_kernel = [](BufferUInt a, BufferUInt b, BufferInt acc,
+                                   BufferInt out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, dot4x8_su(a.read(i), b.read(i), acc.read(i)));
+        };
+        auto signed_shader = dc.device.compile(signed_kernel);
+        auto unsigned_shader = dc.device.compile(unsigned_kernel);
+        auto mixed_shader = dc.device.compile(mixed_kernel);
+        expect(signed_shader.compile_ok() && unsigned_shader.compile_ok() &&
+               mixed_shader.compile_ok())
+            << "the integer dot-product kernels must compile on this device";
+        luisa::vector<uint32_t> host_acc_unsigned(count);
+        for (auto i = 0u; i < count; i++) {
+            host_acc_unsigned[i] = static_cast<uint32_t>(host_acc[i]);
+        }
+        luisa::vector<int32_t> signed_result(count);
+        luisa::vector<uint32_t> unsigned_result(count);
+        luisa::vector<int32_t> mixed_result(count);
+        stream << buffer_a.copy_from(luisa::span{host_a})
+               << buffer_b.copy_from(luisa::span{host_b})
+               << buffer_acc.copy_from(luisa::span{host_acc})
+               << buffer_acc_unsigned.copy_from(luisa::span{host_acc_unsigned})
+               << signed_shader(buffer_a, buffer_b, buffer_acc, signed_out)
+                      .dispatch(count)
+               << unsigned_shader(buffer_a, buffer_b, buffer_acc_unsigned,
+                                  unsigned_out)
+                      .dispatch(count)
+               << mixed_shader(buffer_a, buffer_b, buffer_acc, mixed_out)
+                      .dispatch(count)
+               << signed_out.copy_to(luisa::span{signed_result})
+               << unsigned_out.copy_to(luisa::span{unsigned_result})
+               << mixed_out.copy_to(luisa::span{mixed_result})
+               << synchronize();
+        auto signed_failures = size_t{0u};
+        auto unsigned_failures = size_t{0u};
+        auto mixed_failures = size_t{0u};
+        for (auto i = 0u; i < count; i++) {
+            signed_failures += signed_result[i] !=
+                               reference_dot4x8(host_a[i], host_b[i], host_acc[i]);
+            unsigned_failures +=
+                unsigned_result[i] !=
+                reference_dot4x8_u(host_a[i], host_b[i],
+                                   static_cast<uint32_t>(host_acc[i]));
+            mixed_failures += mixed_result[i] !=
+                              reference_dot4x8_su(host_a[i], host_b[i],
+                                                  host_acc[i]);
+        }
+        expect(signed_failures == 0u)
+            << "dsl::dot4x8 must match the reference bit-exactly";
+        expect(unsigned_failures == 0u)
+            << "dsl::dot4x8_u must match the reference bit-exactly";
+        expect(mixed_failures == 0u)
+            << "dsl::dot4x8_su must match the reference bit-exactly";
+    };
 
     "vk_spirv_opcode_token_boundary_guards"_test = [] {
         expect(!is_spirv_opcode_token("", "Phi"));

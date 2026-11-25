@@ -1668,6 +1668,9 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::CROSS: _scratch << "lc_cross"; break;
         case CallOp::DOT: _scratch << "lc_dot"; break;
         case CallOp::DOT2ADD: _scratch << "lc_dot2add"; break;
+        case CallOp::DOT4X8: _scratch << "lc_dot4x8"; break;
+        case CallOp::DOT4X8_U: _scratch << "lc_dot4x8_u"; break;
+        case CallOp::DOT4X8_SU: _scratch << "lc_dot4x8_su"; break;
         case CallOp::LENGTH: _scratch << "lc_length"; break;
         case CallOp::LENGTH_SQUARED: _scratch << "lc_length_squared"; break;
         case CallOp::NORMALIZE: _scratch << "lc_normalize"; break;

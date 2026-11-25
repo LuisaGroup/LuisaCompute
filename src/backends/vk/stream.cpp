@@ -18,6 +18,7 @@
 #include "sparse_binding_plan.h"
 #include "sparse_heap.h"
 #include "timeline_semaphore_plan.h"
+#include "in_flight_depth.h"
 #include "queue_submit_plan.h"
 #include "device_feature_plan.h"
 #include "command_buffer_sync.h"
@@ -52,12 +53,8 @@ namespace {
 // decides nothing but how long a thread polls before it blocks.
 [[nodiscard]] uint32_t pause_iterations_from_us(char const *env_name,
                                                 uint64_t default_us) noexcept {
-    auto us = default_us;
-    if (auto e = std::getenv(env_name); e != nullptr && e[0] != '\0') {
-        auto parsed = std::strtoull(e, nullptr, 10);
-        if (parsed != 0ull) { us = std::min<uint64_t>(parsed, 100'000ull); }
-    }
-    return static_cast<uint32_t>(us * 100ull);
+    return detail::parse_spin_pause_iterations(std::getenv(env_name),
+                                               default_us);
 }
 }// namespace
 struct PresentCommand {
@@ -2132,31 +2129,37 @@ void CommandBufferState::reset_native(
     // Otherwise rewinding the cursors is exactly equivalent to a pool reset for
     // every set the cache hands out, and the native call is skipped.
     auto const layout_generation = device.shader_layout_destroy_generation();
-    if (!has_uncached_desc_allocs && active_desc_pool_index == 0u &&
-        orphaned_desc_sets < 1024u) {
-        if (cached_layout_generation != layout_generation) {
-            // Phase 3B (opt A): only the buckets whose layout really died are dropped. The
-            // device logs destroyed layout ids in generation order, so this is a bounded
-            // walk over the layouts destroyed since the previous recycle instead of a
-            // flush of every bucket the state owns (a shader destruction used to cost the
-            // whole cache, which is what kept the reuse rate at ~29% in the decode loop).
-            device.collect_destroyed_layout_ids(
-                cached_layout_generation, destroyed_layout_scratch);
-            for (auto id : destroyed_layout_scratch) {
-                // Phase 3C (defect 3): the sets of a dropped bucket are still native
-                // sets of this state's pools. They can never be reused (the layout they
-                // were created from is gone and the cache no longer references them),
-                // so they are counted as orphans; the pool reset below is what actually
-                // reclaims them, and the threshold check at the top of this branch
-                // forces exactly that reset once enough of them piled up.
-                if (auto iter = desc_set_cache.find(id)) {
-                    orphaned_desc_sets += iter.value().sets.size();
-                    desc_set_cache.remove(id);
-                }
+    auto need_pool_reset = detail::should_reset_descriptor_pools(
+        has_uncached_desc_allocs, active_desc_pool_index, orphaned_desc_sets);
+    if (!need_pool_reset && cached_layout_generation != layout_generation) {
+        // Phase 3B (opt A): only the buckets whose layout really died are dropped. The
+        // device logs destroyed layout ids in generation order, so this is a bounded
+        // walk over the layouts destroyed since the previous recycle instead of a
+        // flush of every bucket the state owns (a shader destruction used to cost the
+        // whole cache, which is what kept the reuse rate at ~29% in the decode loop).
+        device.collect_destroyed_layout_ids(
+            cached_layout_generation, destroyed_layout_scratch);
+        for (auto id : destroyed_layout_scratch) {
+            // Phase 3C (defect 3): the sets of a dropped bucket are still native
+            // sets of this state's pools. They can never be reused (the layout they
+            // were created from is gone and the cache no longer references them),
+            // so they are counted as orphans; the pool reset below is what actually
+            // reclaims them, and the decision below is taken again *after* they were
+            // added, so crossing the threshold in one retirement resets right away.
+            if (auto iter = desc_set_cache.find(id)) {
+                orphaned_desc_sets += iter.value().sets.size();
+                desc_set_cache.remove(id);
             }
-            destroyed_layout_scratch.clear();
-            cached_layout_generation = layout_generation;
         }
+        destroyed_layout_scratch.clear();
+        cached_layout_generation = layout_generation;
+        // Re-evaluate with the orphans just counted: a retirement that crosses the
+        // threshold must reset now, not one retirement later.
+        need_pool_reset = detail::should_reset_descriptor_pools(
+            has_uncached_desc_allocs, active_desc_pool_index,
+            orphaned_desc_sets);
+    }
+    if (!need_pool_reset) {
         for (auto &entry : desc_set_cache) {
             entry.second.cursor = 0u;
         }

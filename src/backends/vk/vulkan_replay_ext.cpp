@@ -315,7 +315,9 @@ VkReplayExtImpl::record(uint64_t stream_handle, CommandList &&list) noexcept {
             interner.release_pipeline_layout(id, vk_device);
         }
         for (auto id : desc_set_layout_ids) {
-            interner.release_descriptor_set_layout(id, vk_device);
+            // Destruction-recording release: a final reference dropped here evicts
+            // the cached descriptor-set buckets of this layout.
+            (void)_device->release_descriptor_set_layout(id);
         }
     });
     for (auto &&command : commands) {

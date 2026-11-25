@@ -27,9 +27,12 @@ namespace {
 
 CUDANativeShader::CUDANativeShader(CUmodule module, CUfunction function,
                                    luisa::string entry, uint3 block_size,
-                                   luisa::vector<Parameter> parameters) noexcept
+                                   luisa::vector<Parameter> parameters,
+                                   uint32_t max_dynamic_shared_bytes) noexcept
     : _module{module}, _function{function}, _entry{std::move(entry)},
-      _block_size{block_size}, _parameters{std::move(parameters)} {
+      _block_size{block_size}, _parameters{std::move(parameters)},
+      _max_dynamic_shared_bytes{max_dynamic_shared_bytes},
+      _default_dynamic_shared_bytes{max_dynamic_shared_bytes} {
     for (auto i = 0u; i < _parameters.size(); i++) {
         if (_parameters[i].is_buffer) {
             _buffer_parameters.emplace_back(i);
@@ -50,6 +53,7 @@ CUDANativeShader::~CUDANativeShader() noexcept {
 CUDANativeShader *CUDANativeShader::create(
     luisa::span<const std::byte> ptx, luisa::string_view entry,
     uint3 block_size, luisa::vector<Parameter> parameters,
+    uint32_t max_dynamic_shared_bytes,
     luisa::string &error) noexcept {
     if (ptx.empty()) {
         error = "Empty PTX image.";
@@ -86,8 +90,63 @@ CUDANativeShader *CUDANativeShader::create(
                               entry, cuda_error_description(ret));
         return nullptr;
     }
+    // Dynamic (extern) shared memory beyond the 48 KiB static `__shared__`
+    // limit. The request is checked against the device's opt-in attribute
+    // first, so an oversized value fails closed here instead of at launch.
+    if (max_dynamic_shared_bytes > 0u) {
+        CUdevice device = 0;
+        if (auto device_result = cuCtxGetDevice(&device);
+            device_result != CUDA_SUCCESS) {
+            LUISA_CHECK_CUDA(cuModuleUnload(module));
+            error = luisa::format(
+                "cuCtxGetDevice failed while enabling {} byte(s) of dynamic "
+                "shared memory for kernel '{}': {}.",
+                max_dynamic_shared_bytes, entry,
+                cuda_error_description(device_result));
+            return nullptr;
+        }
+        auto optin_limit = 0;
+        auto attribute_result = cuDeviceGetAttribute(
+            &optin_limit,
+            CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+            device);
+        if (attribute_result != CUDA_SUCCESS || optin_limit <= 0) {
+            LUISA_CHECK_CUDA(cuModuleUnload(module));
+            error = luisa::format(
+                "The CUDA device reports no opt-in shared-memory limit for "
+                "kernel '{}' ({} byte(s) requested), so the dynamic shared-"
+                "memory opt-in is refused.",
+                entry, max_dynamic_shared_bytes);
+            return nullptr;
+        }
+        if (static_cast<uint64_t>(max_dynamic_shared_bytes) >
+            static_cast<uint64_t>(optin_limit)) {
+            LUISA_CHECK_CUDA(cuModuleUnload(module));
+            error = luisa::format(
+                "Native CUDA shader '{}' requests {} byte(s) of dynamic shared "
+                "memory but the device allows at most {} "
+                "(CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN).",
+                entry, max_dynamic_shared_bytes, optin_limit);
+            return nullptr;
+        }
+        auto attribute_value = static_cast<int>(max_dynamic_shared_bytes);
+        if (auto set_result = cuFuncSetAttribute(
+                function,
+                CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                attribute_value);
+            set_result != CUDA_SUCCESS) {
+            LUISA_CHECK_CUDA(cuModuleUnload(module));
+            error = luisa::format(
+                "cuFuncSetAttribute("
+                "CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, {}) failed "
+                "for kernel '{}': {}.",
+                attribute_value, entry, cuda_error_description(set_result));
+            return nullptr;
+        }
+    }
     return new_with_allocator<CUDANativeShader>(
-        module, function, std::move(name), block_size, std::move(parameters));
+        module, function, std::move(name), block_size, std::move(parameters),
+        max_dynamic_shared_bytes);
 }
 
 uint32_t CUDANativeShader::uniform_bytes() const noexcept {
@@ -198,6 +257,21 @@ void CUDANativeShader::launch(
     auto dispatch_size = command->dispatch_size();
     auto blocks = (dispatch_size + block_size - 1u) / block_size;
     auto cuda_stream = encoder.stream()->handle();
+    // Dynamic shared memory: a dispatch may lower the amount the shader was
+    // loaded with, but never exceed it. The opt-in attribute was already
+    // validated against CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN
+    // in create(), so an overflowing request is a caller contract violation.
+    auto dynamic_shared_memory_bytes = command->dynamic_shared_memory_bytes();
+    if (dynamic_shared_memory_bytes == 0u) {
+        dynamic_shared_memory_bytes = _default_dynamic_shared_bytes;
+    } else if (dynamic_shared_memory_bytes > _max_dynamic_shared_bytes) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Native CUDA shader '{}' was loaded with {} byte(s) of dynamic "
+            "shared memory but this dispatch requests {}; load the shader with "
+            "the larger "
+            "(NativeShaderCompileInfo::dynamic_shared_memory_bytes).",
+            _entry, _max_dynamic_shared_bytes, dynamic_shared_memory_bytes);
+    }
     // `cuLaunchKernel`'s `kernelParams` is the *array of pointers to the
     // parameter values* itself (one entry per parameter of the kernel, in
     // declaration order), so the array is passed directly here. Passing the
@@ -208,7 +282,8 @@ void CUDANativeShader::launch(
         _function,
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z,
-        0u, cuda_stream, parameter_pointers.data(), nullptr));
+        dynamic_shared_memory_bytes, cuda_stream, parameter_pointers.data(),
+        nullptr));
 }
 
 }// namespace luisa::compute::cuda

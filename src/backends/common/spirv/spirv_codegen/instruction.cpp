@@ -131,18 +131,23 @@ struct FastMathFmaPlan {
       auto *element = type->is_vector() ? type->element() : type;
       if (!element->is_int32() && !element->is_uint32()) { return false; }
       auto *data = static_cast<const uint32_t *>(constant->data());
-      bits = data[0u];
+      // Decode into a local so a rejected non-uniform vector leaves the
+      // caller's `bits` untouched.
+      auto first = data[0u];
       if (type->is_vector()) {
           for (auto i = 1u; i < type->dimension(); ++i) {
-              if (data[i] != bits) { return false; }
+              if (data[i] != first) { return false; }
           }
       }
+      bits = first;
       return true;
   }
 
   // Returns the only instruction that uses `inst`, or null when the value has
-  // no instruction user or more than one distinct user. Folding a node away is
-  // only safe while the consumer being rewritten is its sole reader.
+  // no instruction user or more than one use. Folding a node away is only safe
+  // while the consumer being rewritten is its sole reader, so a second use -
+  // even from the same instruction, as in `v ^ v` - keeps the node alive. This
+  // matches `is_deferred_fast_math_fma_multiply`.
   [[nodiscard]] const xir::Instruction *single_instruction_user(
       const xir::Instruction *inst) noexcept {
       const xir::Instruction *user = nullptr;
@@ -153,7 +158,7 @@ struct FastMathFmaPlan {
           }
           auto *candidate_inst =
               static_cast<const xir::Instruction *>(candidate);
-          if (user != nullptr && user != candidate_inst) { return nullptr; }
+          if (user != nullptr) { return nullptr; }
           user = candidate_inst;
       }
       return user;
@@ -236,6 +241,7 @@ struct FastMathFmaPlan {
       if (shift->op() != xir::ArithmeticOp::BINARY_SHIFT_RIGHT ||
           shift->operand_count() != 2u ||
           !is_uint32_scalar_or_vector(shift->type()) ||
+          shift->operand(0u) == nullptr ||
           shift->operand(0u)->type() != shift->type()) {
           return {};
       }
@@ -298,19 +304,28 @@ struct FastMathFmaPlan {
           }
           cast_value = inst->operand(0u);
           count = count_of_half(half_bits);
-      } else {
+      } else if (inst->op() == xir::ArithmeticOp::BINARY_ADD) {
+          // `add(x, -half)` and the commuted `add(-half, x)` form: XIR
+          // normalization rewrites the subtraction into an add, so the
+          // compensation constant may sit on either side.
           auto constant = static_cast<const xir::Value *>(nullptr);
           auto half_bits = uint32_t{0u};
           for (auto i = 0u; i < 2u; ++i) {
-              if (decode_uint32_constant_bits(inst->operand(i), half_bits)) {
+              auto bits = uint32_t{0u};
+              if (decode_uint32_constant_bits(inst->operand(i), bits)) {
                   if (constant != nullptr) { return {}; }
                   constant = inst->operand(i);
+                  half_bits = bits;
               } else {
                   cast_value = inst->operand(i);
               }
           }
           if (constant == nullptr) { return {}; }
           count = count_of_half(0u - half_bits);
+      } else {
+          // Anything else carries no two's-complement compensation, so it
+          // is never a signed decode idiom.
+          return {};
       }
       if (count == 0u || cast_value == nullptr ||
           !cast_value->isa<xir::CastInst>()) {
@@ -344,7 +359,8 @@ struct FastMathFmaPlan {
               masked = bit_xor->operand(i);
           }
       }
-      if (!half_seen || masked == nullptr || masked->isa<xir::Constant>()) {
+      if (!half_seen || masked == nullptr || masked->isa<xir::Constant>() ||
+          masked->type() != bit_xor->type()) {
           return {};
       }
       auto mask = (1u << count) - 1u;
@@ -2281,6 +2297,138 @@ case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
                     _builder.createBinOp(spv::Op::OpFAdd, type, x, y));
                 id = mark_no_contraction(
                     _builder.createBinOp(spv::Op::OpFAdd, type, sum, acc));
+            }
+            break;
+        }
+        case xir::ArithmeticOp::DOT4X8:
+        case xir::ArithmeticOp::DOT4X8_U:
+        case xir::ArithmeticOp::DOT4X8_SU: {
+            // The dialect handoff verified the exact public shapes:
+            //   DOT4X8/DOT4X8_SU: (uint a, uint b, int acc) -> int
+            //   DOT4X8_U:         (uint a, uint b, uint acc) -> uint
+            // Both operand words carry four 8-bit lanes; the accumulator and
+            // the result are one 32-bit word.
+            auto unsigned_dot =
+                inst->op() == xir::ArithmeticOp::DOT4X8_U;
+            auto mixed_dot =
+                inst->op() == xir::ArithmeticOp::DOT4X8_SU;
+            LUISA_ASSERT(
+                inst->operand_count() == 3u &&
+                    t == (unsigned_dot ? Type::of<uint>() : Type::of<int>()) &&
+                    inst->operand(0u)->type() == Type::of<uint>() &&
+                    inst->operand(1u)->type() == Type::of<uint>() &&
+                    inst->operand(2u)->type() ==
+                        (unsigned_dot ? Type::of<uint>() : Type::of<int>()),
+                "SPIR-V integer dot product requires the exact "
+                "(uint a, uint b, {int,uint} acc) signature.");
+            auto a = operand(0u);
+            auto b = operand(1u);
+            auto acc = operand(2u);
+            auto uint_type = _builder.makeUintType(32);
+            auto int_type = _builder.makeIntType(32);
+            auto bitcast = [&](spv::Id target_type,
+                               spv::Id value) noexcept {
+                return value == spv::NoResult ?
+                           value :
+                           _builder.createUnaryOp(
+                               spv::Op::OpBitcast, target_type, value);
+            };
+            if (_target_features.shader_integer_dot_product) {
+                // VK_KHR_shader_integer_dot_product: one hardware DP4A. The
+                // requirement is capability-owned (DotProductKHR +
+                // DotProductInput4x8BitPackedKHR), so it is recorded here and
+                // reconciled against the final binary after optimization.
+                _require_target_feature(
+                    target_feature::shader_integer_dot_product,
+                    _target_features.shader_integer_dot_product);
+                _builder.addExtension("SPV_KHR_integer_dot_product");
+                _builder.addCapability(spv::Capability::DotProductKHR);
+                _builder.addCapability(
+                    spv::Capability::DotProductInput4x8BitPackedKHR);
+                // OpSDot/OpUDot/OpSUDot take exactly
+                // (Vector 1, Vector 2, PackedVectorFormat) and *no*
+                // accumulator; the Op*DotAccSat spellings saturate instead of
+                // wrapping, so they are not the __dp4a contract. The 32-bit
+                // wraparound of the accumulator is therefore a separate
+                // OpIAdd, which is bit-exact with int32 accumulation.
+                constexpr auto packed_vector_format_4x8_bit = 0u;
+                auto dot_op = unsigned_dot ?
+                                  spv::Op::OpUDot :
+                                  (mixed_dot ? spv::Op::OpSUDot :
+                                               spv::Op::OpSDot);
+                // Signedness of the operand words: OpSDot takes signed
+                // vectors, OpUDot unsigned ones, and OpSUDot a signed Vector 1
+                // with an unsigned Vector 2. The packed bit pattern is
+                // identical; the bitcasts only state the interpretation.
+                auto vector_1 = unsigned_dot ?
+                                    a :
+                                    bitcast(int_type, a);
+                auto vector_2 = (unsigned_dot || mixed_dot) ?
+                                    b :
+                                    bitcast(int_type, b);
+                auto dot_type = unsigned_dot ? uint_type : int_type;
+                auto dot = _builder.createOp(
+                    dot_op, dot_type,
+                    std::vector<spv::IdImmediate>{
+                        spv::IdImmediate{true, vector_1},
+                        spv::IdImmediate{true, vector_2},
+                        spv::IdImmediate{false, packed_vector_format_4x8_bit}});
+                id = _builder.createBinOp(spv::Op::OpIAdd, dot_type, acc, dot);
+            } else {
+                // Portable fallback with no capability at all: extract the four
+                // 8-bit lanes with the exact sign/zero extension the opcode
+                // implies, multiply them in 32-bit integer arithmetic (the
+                // product of two 8-bit lanes always fits, and OpIMul is
+                // sign-agnostic at the bit level), and accumulate with wrapping
+                // OpIAdd. This reproduces __dp4a bit-exactly on every device,
+                // including the signed accumulator wraparound.
+                auto signed_word = [&](spv::Id value) noexcept {
+                    return bitcast(int_type, value);
+                };
+                spv::Id accumulator = unsigned_dot ? acc : signed_word(acc);
+                auto accumulate = [&](spv::Id lane_a, spv::Id lane_b,
+                                      spv::Id result_type,
+                                      spv::Id running) noexcept {
+                    auto product = _builder.createBinOp(
+                        spv::Op::OpIMul, result_type, lane_a, lane_b);
+                    return _builder.createBinOp(
+                        spv::Op::OpIAdd, result_type, running, product);
+                };
+                // The lane interpretation follows the opcode exactly: DOT4X8
+                // sign-extends both words, DOT4X8_U zero-extends both, and
+                // DOT4X8_SU sign-extends only Vector 1 (the __dp4a mixed form).
+                auto zero_extend_a = unsigned_dot;
+                auto zero_extend_b = unsigned_dot || mixed_dot;
+                auto word_a = zero_extend_a ? a : signed_word(a);
+                auto word_b = zero_extend_b ? b : signed_word(b);
+                auto lane_a_type = zero_extend_a ? uint_type : int_type;
+                auto lane_b_type = zero_extend_b ? uint_type : int_type;
+                for (auto lane = 0u; lane < 4u; ++lane) {
+                    auto offset = _builder.makeIntConstant(
+                        _builder.makeUintType(32), lane * 8u, false);
+                    auto count = _builder.makeIntConstant(
+                        _builder.makeUintType(32), 8u, false);
+                    // SExtract sign-extends into the 32-bit word (so
+                    // 0x80 becomes -128), UExtract zero-extends it.
+                    auto lane_a = _builder.createTriOp(
+                        zero_extend_a ? spv::Op::OpBitFieldUExtract :
+                                        spv::Op::OpBitFieldSExtract,
+                        lane_a_type, word_a, offset, count);
+                    auto lane_b = _builder.createTriOp(
+                        zero_extend_b ? spv::Op::OpBitFieldUExtract :
+                                        spv::Op::OpBitFieldSExtract,
+                        lane_b_type, word_b, offset, count);
+                    if (mixed_dot) {
+                        // Vector 1 is signed and Vector 2 unsigned; the
+                        // unsigned lane (0..255) bitcasts losslessly into the
+                        // signed accumulator arithmetic.
+                        lane_b = bitcast(int_type, lane_b);
+                    }
+                    accumulator = accumulate(
+                        lane_a, lane_b, unsigned_dot ? uint_type : int_type,
+                        accumulator);
+                }
+                id = unsigned_dot ? accumulator : bitcast(int_type, accumulator);
             }
             break;
         }

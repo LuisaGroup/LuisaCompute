@@ -1373,6 +1373,49 @@ template<typename A, typename B, typename Acc>
         {LUISA_EXPR(a), LUISA_EXPR(b), LUISA_EXPR(acc)}));
 }
 
+/// Integer dot product of four packed 8-bit lanes with a 32-bit accumulator:
+/// acc + a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3], evaluated
+/// exactly and wrapped in 32 bits. `a` and `b` each carry four signed int8
+/// lanes packed little-endian in one uint32 word (the DP4A layout).
+/// Vulkan lowers this to OpSDot with PackedVectorFormat4x8Bit when the device
+/// enabled VK_KHR_shader_integer_dot_product, CUDA to __dp4a, HLSL to
+/// dot4add_i8packed, and every other target to an exact bitfield-extract
+/// multiply-accumulate, so the 32-bit result is bit-identical everywhere.
+template<typename A, typename B, typename Acc>
+    requires any_dsl_v<A, B, Acc> &&
+             is_same_expr_v<A, uint> && is_same_expr_v<B, uint> &&
+             is_same_expr_v<Acc, int>
+[[nodiscard]] inline Int dot4x8(A &&a, B &&b, Acc &&acc) noexcept {
+    return def<int>(detail::FunctionBuilder::current()->call(
+        Type::of<int>(), CallOp::DOT4X8,
+        {LUISA_EXPR(a), LUISA_EXPR(b), LUISA_EXPR(acc)}));
+}
+
+/// Unsigned integer dot product of four packed uint8 lanes with a uint32
+/// accumulator: acc + sum_i a[i] * b[i], wrapped in 32 bits.
+template<typename A, typename B, typename Acc>
+    requires any_dsl_v<A, B, Acc> &&
+             is_same_expr_v<A, uint> && is_same_expr_v<B, uint> &&
+             is_same_expr_v<Acc, uint>
+[[nodiscard]] inline UInt dot4x8_u(A &&a, B &&b, Acc &&acc) noexcept {
+    return def<uint>(detail::FunctionBuilder::current()->call(
+        Type::of<uint>(), CallOp::DOT4X8_U,
+        {LUISA_EXPR(a), LUISA_EXPR(b), LUISA_EXPR(acc)}));
+}
+
+/// Mixed-sign integer dot product: four int8 lanes of `a` times four uint8
+/// lanes of `b`, accumulated into a signed 32-bit accumulator and wrapped in
+/// 32 bits.
+template<typename A, typename B, typename Acc>
+    requires any_dsl_v<A, B, Acc> &&
+             is_same_expr_v<A, uint> && is_same_expr_v<B, uint> &&
+             is_same_expr_v<Acc, int>
+[[nodiscard]] inline Int dot4x8_su(A &&a, B &&b, Acc &&acc) noexcept {
+    return def<int>(detail::FunctionBuilder::current()->call(
+        Type::of<int>(), CallOp::DOT4X8_SU,
+        {LUISA_EXPR(a), LUISA_EXPR(b), LUISA_EXPR(acc)}));
+}
+
 /// Saturate. Equals to clamp(v, 0, 1)
 template<typename Tv>
     requires is_dsl_v<Tv> && is_floating_point_or_vector_expr_v<Tv>

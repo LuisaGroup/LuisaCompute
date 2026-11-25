@@ -142,6 +142,8 @@ struct ModuleFacts {
     std::unordered_map<uint32_t, IntType> int_types;
     size_t bitwise_and_count{0u};
     size_t shift_left_count{0u};
+    // OpStore object ids: the values the program actually writes.
+    std::vector<uint32_t> stored_values;
 };
 
 [[nodiscard]] ModuleFacts inspect(const std::vector<uint32_t> &words) noexcept {
@@ -193,6 +195,7 @@ struct ModuleFacts {
                     return iter == facts.constants.end() ? ~0u : iter->second;
                 }()});
         } else if ((opcode == spv::Op::OpShiftLeftLogical ||
+                    opcode == spv::Op::OpShiftRightLogical ||
                     opcode == spv::Op::OpBitwiseAnd ||
                     opcode == spv::Op::OpBitwiseXor ||
                     opcode == spv::Op::OpIAdd ||
@@ -205,6 +208,8 @@ struct ModuleFacts {
                 .rhs_id = words[offset + 4u]});
             facts.bitwise_and_count += opcode == spv::Op::OpBitwiseAnd ? 1u : 0u;
             facts.shift_left_count += opcode == spv::Op::OpShiftLeftLogical ? 1u : 0u;
+        } else if (opcode == spv::Op::OpStore && word_count >= 3u) {
+            facts.stored_values.emplace_back(words[offset + 2u]);
         }
         offset += word_count;
     }
@@ -249,6 +254,24 @@ struct ModuleFacts {
     if (type_iter == facts.result_types.end()) { return nullptr; }
     auto iter = facts.int_types.find(type_iter->second);
     return iter == facts.int_types.end() ? nullptr : &iter->second;
+}
+
+// `OpShiftLeftLogical` whose result is a `<components x i32>`/`<components x
+// u32>` vector, i.e. a vector shift that the redundant-mask fold kept.
+[[nodiscard]] size_t count_vector_shift_left(const ModuleFacts &facts,
+                                             uint32_t components) noexcept {
+    auto count = size_t{0u};
+    for (auto &&binary : facts.binaries) {
+        if (binary.opcode != spv::Op::OpShiftLeftLogical) { continue; }
+        auto type_iter = facts.result_types.find(binary.result_id);
+        if (type_iter == facts.result_types.end()) { continue; }
+        auto int_iter = facts.int_types.find(type_iter->second);
+        if (int_iter == facts.int_types.end()) { continue; }
+        count += int_iter->second.components == components &&
+                         int_iter->second.width == 32u ?
+                     1u : 0u;
+    }
+    return count;
 }
 
 // Builds one straight-line kernel covering every signed-decode sub-pattern plus
@@ -447,8 +470,9 @@ int main(int argc, char *argv[]) {
         auto words = compile_scalar_patterns(0u);
         expect(validates(words));
         auto facts = inspect(words);
-        // 7 positive patterns 2-7 plus... see the fixture: 6 signed patterns are
-        // positive (0,8), (8,8), (8,8), (24,8), (4,4), (12,20).
+        // All seven signed decode patterns of the fixture are positive: (0,8)
+        // single mask, (0,8) duplicated mask, (8,8) SUB, (8,8) ADD, (24,8),
+        // (4,4) and (12,20).
         expect(eq(facts.extracts.size(), size_t{7u}))
             << "every signed decode field must fold into one "
                "OpBitFieldSExtract:\n"
@@ -504,11 +528,10 @@ int main(int argc, char *argv[]) {
         expect(eq(count_opcode(facts, spv::Op::OpISub), size_t{3u}))
             << "only the rejected patterns may keep OpISub:\n"
             << disassemble(words);
-        // Negative patterns 8/9/10/11 keep exactly one OpBitwiseAnd each, and
-        // pattern 8 is the only `(x & mask) << 16` that may survive.
         // The four rejected patterns (non-redundant mask, wrong sign bit,
         // off-by-one compensation, field past bit 31) keep one OpBitwiseAnd
-        // each; the duplicated mask of the real Qwen decode folds completely.
+        // each; the duplicated mask of the real Qwen decode folds completely
+        // and pattern 8 is the only `(x & mask) << 16` that may survive.
         expect(eq(facts.bitwise_and_count, size_t{4u}))
             << "only the rejected patterns may keep OpBitwiseAnd:\n"
             << disassemble(words);
@@ -620,5 +643,183 @@ int main(int argc, char *argv[]) {
         expect(eq(count_opcode(facts, spv::Op::OpBitwiseXor), size_t{0u}))
             << "the vector xor must be folded away:\n"
             << disassemble(compiled.spv_bin);
+    };
+    "spirv_bitfield_peepholes_edge_cases_preserve_shared_nodes_and_fold_deep_chains"_test = [] {
+        Module module;
+        auto *uint_type = Type::of<uint32_t>();
+        auto *int_type = Type::of<int32_t>();
+        auto *uint4_type = Type::vector(uint_type, 4u);
+        auto *kernel = module.create_kernel();
+        auto *packed = kernel->create_resource_argument(Type::buffer(uint_type));
+        auto *shifted = kernel->create_resource_argument(Type::buffer(uint_type));
+        auto *extracted = kernel->create_resource_argument(Type::buffer(int_type));
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto read = [&](uint32_t index) noexcept {
+            return builder.call(
+                uint_type, ResourceReadOp::BUFFER_READ,
+                {packed, make_constant(module, index)});
+        };
+        auto write_uint = [&](uint32_t index, Value *value) noexcept {
+            builder.call(ResourceWriteOp::BUFFER_WRITE,
+                         {shifted, make_constant(module, index), value});
+        };
+        auto write_int = [&](uint32_t index, Value *value) noexcept {
+            builder.call(ResourceWriteOp::BUFFER_WRITE,
+                         {extracted, make_constant(module, index), value});
+        };
+        auto binary = [&](const Type *type, ArithmeticOp op,
+                          Value *lhs, Value *rhs) noexcept {
+            std::array<Value *, 2u> operands{lhs, rhs};
+            return builder.call(
+                type, op, luisa::span<Value *const>{operands.data(), operands.size()});
+        };
+        auto masked = [&](Value *value, uint32_t bits) noexcept {
+            return binary(uint_type, ArithmeticOp::BINARY_BIT_AND, value,
+                          make_constant(module, bits));
+        };
+        auto decoded = [&](Value *value) noexcept {
+            return builder.static_cast_(
+                int_type,
+                binary(uint_type, ArithmeticOp::BINARY_BIT_XOR, value,
+                       make_constant(module, 0x80u)));
+        };
+        auto sign_extend = [&](Value *value, int32_t half) noexcept {
+            return binary(int_type, ArithmeticOp::BINARY_SUB, value,
+                          make_constant(module, half));
+        };
+        // (a) `s = read(0u) >> 8u` has two readers: the signed decode below and
+        // a direct store. The decode still folds onto the source word, but `s`
+        // itself must stay emitted or the store would name a dropped id.
+        auto *shared_shift = binary(uint_type, ArithmeticOp::BINARY_SHIFT_RIGHT,
+                                    read(0u), make_constant(module, 8u));
+        write_uint(0u, shared_shift);
+        write_int(0u, sign_extend(decoded(masked(shared_shift, 0xFFu)),
+                                  int32_t{128}));
+        // (b) The mask duplication the Qwen decoders emit, five hops away from
+        // the `- half` consumer.
+        auto *deep_shift = binary(uint_type, ArithmeticOp::BINARY_SHIFT_RIGHT,
+                                  read(1u), make_constant(module, 8u));
+        write_int(1u, sign_extend(decoded(masked(masked(deep_shift, 0xFFu), 0xFFu)),
+                                  int32_t{128}));
+        // (c) The commuted `(-128) + cast<int>(...)` spelling: the compensation
+        // constant sits on the left of the add.
+        write_int(2u, binary(int_type, ArithmeticOp::BINARY_ADD,
+                             make_constant(module, int32_t{-128}),
+                             decoded(masked(read(2u), 0xFFu))));
+        // (d) The vector bf16 decode `(v & 0xFFFFu) << 16u`: the mask is
+        // redundant, the shift is not.
+        std::array<Value *, 4u> lanes{read(3u), read(4u), read(5u), read(6u)};
+        std::array<uint32_t, 4u> low_half{0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
+        std::array<uint32_t, 4u> high_shift{16u, 16u, 16u, 16u};
+        auto *lanes_value = builder.call(
+            uint4_type, ArithmeticOp::AGGREGATE,
+            luisa::span<Value *const>{lanes.data(), lanes.size()});
+        auto *vector_masked = binary(
+            uint4_type, ArithmeticOp::BINARY_BIT_AND, lanes_value,
+            module.create_constant(uint4_type, low_half.data()));
+        auto *vector_shifted = binary(
+            uint4_type, ArithmeticOp::BINARY_SHIFT_LEFT, vector_masked,
+            module.create_constant(uint4_type, high_shift.data()));
+        write_uint(1u, builder.call(uint_type, ArithmeticOp::EXTRACT,
+                                    {vector_shifted, make_constant(module, 0u)}));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto dialect = lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+        expect(dialect.succeeded())
+            << (dialect.diagnostics.empty() ?
+                    "SPIR-V handoff dialect validation failed" :
+                    dialect.diagnostics.front().message.c_str());
+        Kernel1D ast_kernel = [](BufferUInt, BufferUInt, BufferInt) noexcept {};
+        kernel->set_block_size(ast_kernel.function()->function().block_size());
+        ScopedEnvironmentVariable optimization_level{"LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{"LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_kernel.function()->function(), &module,
+            ShaderOption{.enable_cache = false},
+            lc::spirv::SpirvTargetFeatures{});
+        auto words = compiled.spv_bin;
+        expect(validates(words));
+        auto facts = inspect(words);
+        // (a), (b) and (c) each fold into exactly one signed extract.
+        expect(eq(facts.extracts.size(), size_t{3u}))
+            << "the shared, deep and commuted decodes must all fold:\n"
+            << disassemble(words);
+        auto count_extract = [&](uint32_t offset, uint32_t count) noexcept {
+            auto matches = size_t{0u};
+            for (auto &&extract : facts.extracts) {
+                matches += extract.offset == offset && extract.count == count ? 1u : 0u;
+            }
+            return matches;
+        };
+        expect(eq(count_extract(8u, 8u), size_t{2u}))
+            << "(a) and (b) both decode the byte at bit 8:\n"
+            << disassemble(words);
+        expect(eq(count_extract(0u, 8u), size_t{1u}))
+            << "(c) decodes the low byte with the constant on the left:\n"
+            << disassemble(words);
+        // Every fold must consume its own source word: `read(0)` for (a),
+        // `read(1)` for (b) and `read(2)` for (c).
+        std::vector<uint32_t> sources;
+        for (auto &&extract : facts.extracts) {
+            auto operand_iter = facts.bitcast_operand.find(extract.base_id);
+            expect(operand_iter != facts.bitcast_operand.end())
+                << "every folded extract must bit-cast its unsigned source:\n"
+                << disassemble(words);
+            if (operand_iter != facts.bitcast_operand.end()) {
+                sources.emplace_back(operand_iter->second);
+            }
+        }
+        auto distinct_sources = sources.size() == size_t{3u};
+        for (auto i = 0u; i < sources.size(); ++i) {
+            for (auto j = i + 1u; j < sources.size(); ++j) {
+                distinct_sources = distinct_sources && sources[i] != sources[j];
+            }
+        }
+        expect(distinct_sources)
+            << "each fold must read its own source word:\n"
+            << disassemble(words);
+        // (a) `s` keeps exactly one logical right shift because a second reader
+        // needs it, and that id must be the value of the direct store: a
+        // declared-but-unused id would validate and still be a codegen bug.
+        auto surviving_shifts = size_t{0u};
+        auto surviving_shift = uint32_t{0u};
+        for (auto &&record : facts.binaries) {
+            if (record.opcode != spv::Op::OpShiftRightLogical) { continue; }
+            auto amount_iter = facts.constants.find(record.rhs_id);
+            if (amount_iter == facts.constants.end() ||
+                amount_iter->second != 8u) {
+                continue;
+            }
+            surviving_shift = record.result_id;
+            surviving_shifts++;
+        }
+        expect(eq(surviving_shifts, size_t{1u}))
+            << "only the multi-use intermediate `>> 8` may survive:\n"
+            << disassemble(words);
+        auto directly_stored = false;
+        for (auto value_id : facts.stored_values) {
+            directly_stored = directly_stored || value_id == surviving_shift;
+        }
+        expect(directly_stored)
+            << "the surviving shared shift must feed the direct store:\n"
+            << disassemble(words);
+        // (b) A folded decode leaves no mask, xor or subtraction behind, so the
+        // whole module must be free of all three.
+        expect(eq(facts.bitwise_and_count, size_t{0u}))
+            << "every mask must be folded away:\n"
+            << disassemble(words);
+        expect(eq(count_opcode(facts, spv::Op::OpBitwiseXor), size_t{0u}))
+            << "every decode xor must be folded away:\n"
+            << disassemble(words);
+        expect(eq(count_opcode(facts, spv::Op::OpISub), size_t{0u}))
+            << "every decode subtraction must be folded away:\n"
+            << disassemble(words);
+        // (d) The redundant vector mask is gone while the shift survives.
+        expect(eq(count_vector_shift_left(facts, 4u), size_t{1u}))
+            << "the vector `<< 16` must survive its folded mask:\n"
+            << disassemble(words);
     };
 }

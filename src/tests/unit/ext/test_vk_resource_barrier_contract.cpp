@@ -585,4 +585,81 @@ int main(int argc, char *argv[]) {
         auto third = make_image_barrier(image, 3u, 1u);
         expect(!can_merge_image_barriers(first, third));
     };
+
+    // -----------------------------------------------------------------------
+    // End-of-batch restore memory barrier
+    // -----------------------------------------------------------------------
+    //
+    // The restore has two independent sources - the coalesced ordinary tracked
+    // buffers and the bindless memory state of the frame - that emit the same
+    // struct shape, so they must be planned together: one restore never records
+    // two VkMemoryBarrier2 structs.
+    "vk_restore_memory_barrier_coalesces_buffers_and_bindless"_test = [] {
+        using lc::vk::detail::plan_restore_memory_barrier;
+        constexpr auto visible_everything =
+            VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+        // 1) Neither source: the restore records no memory struct at all.
+        constexpr auto neither = plan_restore_memory_barrier(
+            false, VK_ACCESS_2_NONE, false, VK_ACCESS_2_NONE);
+        expect(!neither.emit);
+        expect(neither.src_access == VK_ACCESS_2_NONE &&
+               neither.dst_access == VK_ACCESS_2_NONE);
+
+        // 2) Read-only tracked buffers only: nothing was written, so the
+        //    execution-only ALL_COMMANDS -> ALL_COMMANDS barrier is the whole
+        //    restore.
+        constexpr auto read_only_buffers = plan_restore_memory_barrier(
+            true, VK_ACCESS_2_SHADER_STORAGE_READ_BIT, false, VK_ACCESS_2_NONE);
+        expect(read_only_buffers.emit);
+        expect(read_only_buffers.src_access == VK_ACCESS_2_NONE &&
+               read_only_buffers.dst_access == VK_ACCESS_2_NONE)
+            << "a read/read restore publishes no data, so forwarding a read "
+               "source would claim a write that never happened";
+
+        // 3) Written tracked buffers only: the write sources are forwarded and
+        //    the destination becomes the whole memory scope.
+        constexpr auto written_buffers = plan_restore_memory_barrier(
+            true,
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            false, VK_ACCESS_2_NONE);
+        expect(written_buffers.emit);
+        expect(written_buffers.src_access ==
+               (VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                VK_ACCESS_2_SHADER_READ_BIT));
+        expect(written_buffers.dst_access == visible_everything);
+
+        // 4) Bindless state only: its before scope is published unconditionally
+        //    because the descriptor arrays are both read and written by the
+        //    dispatches, so even a read-only before scope needs the full
+        //    destination.
+        constexpr auto bindless_only = plan_restore_memory_barrier(
+            false, VK_ACCESS_2_NONE, true, VK_ACCESS_2_SHADER_READ_BIT);
+        expect(bindless_only.emit);
+        expect(bindless_only.src_access == VK_ACCESS_2_SHADER_READ_BIT);
+        expect(bindless_only.dst_access == visible_everything);
+
+        // 5) Both sources: still one plan. Only a *written* buffer contributes a
+        //    source bit, so read-only buffers leave exactly the bindless scope.
+        constexpr auto read_only_buffers_and_bindless = plan_restore_memory_barrier(
+            true, VK_ACCESS_2_SHADER_STORAGE_READ_BIT, true,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        expect(read_only_buffers_and_bindless.emit)
+            << "the two sources of one restore must never be two structs";
+        expect(read_only_buffers_and_bindless.src_access ==
+               VK_ACCESS_2_SHADER_SAMPLED_READ_BIT)
+            << "a read-only buffer publishes no data, so only the bindless "
+               "scope reaches the source mask";
+        expect(read_only_buffers_and_bindless.dst_access == visible_everything);
+
+        constexpr auto written_buffers_and_bindless = plan_restore_memory_barrier(
+            true, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true,
+            VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+        expect(written_buffers_and_bindless.emit)
+            << "a written buffer plus active bindless state is one struct";
+        expect(written_buffers_and_bindless.src_access ==
+               (VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT));
+        expect(written_buffers_and_bindless.dst_access == visible_everything);
+    };
 }

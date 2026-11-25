@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
 
     "spirv_xir_dialect_matrix_is_complete_and_fails_closed"_test = [] {
         expect_complete_matrix(AllocaOp::SHARED, 0u);
-        expect_complete_matrix(ArithmeticOp::DOT2ADD, 3u);
+        expect_complete_matrix(ArithmeticOp::DOT4X8_SU, 3u);
         // The three unary special functions have no GLSL.std.450 instruction, so the
         // native route must fail closed with a reason that names the boundary; the
         // count above alone would also accept e.g. "ERF supported, EXTRACT not".
@@ -252,6 +252,16 @@ int main(int argc, char *argv[]) {
         expect(lc::spirv::spirv_xir_dialect_support(ArithmeticOp::DOT2ADD).support ==
                lc::spirv::SpirvXIRDialectSupport::SUPPORTED)
             << "dot2add must stay natively supported (fused VALVE or unfused fallback)";
+        // The DP4A family is supported in its exact (uint, uint, {int,uint})
+        // shapes: OpSDot/OpUDot/OpSUDot with PackedVectorFormat4x8Bit when the
+        // device enabled VK_KHR_shader_integer_dot_product, and the exact
+        // portable bitfield sequence otherwise.
+        for (auto op : {ArithmeticOp::DOT4X8, ArithmeticOp::DOT4X8_U,
+                        ArithmeticOp::DOT4X8_SU}) {
+            expect(lc::spirv::spirv_xir_dialect_support(op).support ==
+                   lc::spirv::SpirvXIRDialectSupport::SUPPORTED)
+                << "integer dot products must stay natively supported";
+        }
         expect_complete_matrix(AtomicOp::FETCH_MAX, 0u);
         expect_complete_matrix(
             luisa::compute::xir::CastOp::BITWISE_CAST, 0u);

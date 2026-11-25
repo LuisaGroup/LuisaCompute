@@ -1,6 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 // In-flight depth of a Vulkan stream (plan P1.5).
 //
@@ -100,6 +103,67 @@ plan_in_flight_throttle(uint64_t last_fence, uint32_t depth) noexcept {
         return {.enter = false, .target = 0u};
     }
     return {.enter = true, .target = last_fence - depth64};
+}
+
+// Upper bound of the configurable busy-spin window. A budget above it buys
+// nothing (the poll would outlive the wait it is meant to cover) and a negative
+// or otherwise malformed value must never be able to turn into one.
+inline constexpr uint64_t kMaxSpinBudgetUs = 100'000ull;
+// A `LUISA_INTRIN_PAUSE` retires in roughly 10 ns on this class of CPU, i.e.
+// ~100 per microsecond. The exact ratio does not matter: the budget only decides
+// how long a thread polls before it blocks, never whether it observes the
+// counter.
+inline constexpr uint64_t kPausesPerUs = 100ull;
+
+// Parses an optional microsecond spin budget from an environment variable value
+// into a `LUISA_INTRIN_PAUSE` iteration count. Accepts strict non-empty ASCII
+// unsigned decimal digits (including "0" to disable spinning); rejects negative
+// values, whitespace, and trailing garbage by falling back to `default_us`.
+[[nodiscard]] constexpr uint32_t parse_spin_pause_iterations(
+    std::string_view env_value, uint64_t default_us) noexcept {
+    auto clamped_default = std::min(default_us, kMaxSpinBudgetUs);
+    if (env_value.empty()) {
+        return static_cast<uint32_t>(clamped_default * kPausesPerUs);
+    }
+    uint64_t parsed = 0u;
+    for (char ch : env_value) {
+        if (ch < '0' || ch > '9') {
+            return static_cast<uint32_t>(clamped_default * kPausesPerUs);
+        }
+        auto digit = static_cast<uint64_t>(ch - '0');
+        if (parsed <= kMaxSpinBudgetUs) {
+            parsed = parsed * 10ull + digit;
+            if (parsed > kMaxSpinBudgetUs) {
+                parsed = kMaxSpinBudgetUs;
+            }
+        }
+    }
+    return static_cast<uint32_t>(parsed * kPausesPerUs);
+}
+
+[[nodiscard]] constexpr uint32_t parse_spin_pause_iterations(
+    const char *env_value, uint64_t default_us) noexcept {
+    return parse_spin_pause_iterations(
+        env_value == nullptr ? std::string_view{} : std::string_view{env_value},
+        default_us);
+}
+
+// A cached descriptor-set bucket whose layout was destroyed still owns native
+// sets in the state's pools; once this many of them piled up, rewinding the pool
+// cursors is no longer equivalent to a reset and the pools must really be reset.
+inline constexpr size_t kDescriptorPoolOrphanResetThreshold = 1024u;
+
+// Whether `CommandBufferState::reset_native` has to call `vkResetDescriptorPool`
+// instead of only rewinding the cache cursors: an allocation outside the cache,
+// an overflow pool that was touched (the cache does not record which pool a set
+// came from), or enough orphaned sets to make the leak visible.
+[[nodiscard]] constexpr bool should_reset_descriptor_pools(
+    bool has_uncached_desc_allocs,
+    size_t active_desc_pool_index,
+    size_t orphaned_desc_sets) noexcept {
+    return has_uncached_desc_allocs ||
+           active_desc_pool_index != 0u ||
+           orphaned_desc_sets >= kDescriptorPoolOrphanResetThreshold;
 }
 
 }// namespace lc::vk::detail

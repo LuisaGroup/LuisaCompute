@@ -94,8 +94,10 @@ private:
     VkPipeline _pipeline{VK_NULL_HANDLE};
     uint32_t _descriptor_set_count{0u};
     // Number of descriptor sets a single frame may allocate before the pool is
-    // exhausted; the pool is refilled as frames retire.
-    static constexpr auto max_in_flight_descriptor_sets = 256u;
+    // exhausted; the pool is refilled as frames retire. 4096 covers long multi-
+    // layer inference prefills (e.g. 32+ layers x 7 projections x several chunks)
+    // in a single command buffer, including under validation layers.
+    static constexpr auto max_in_flight_descriptor_sets = 4096u;
 
 public:
     NativeShader(

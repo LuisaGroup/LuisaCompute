@@ -185,6 +185,16 @@ enum class ArithmeticOp {
     // a.x * b.x + a.y * b.y + acc. The only supported shape is
     // (half2, half2, float) -> float (the HLSL `dot2add` intrinsic).
     DOT2ADD,// (half2, half2, float) -> float
+    // Appended to preserve every existing public ArithmeticOp value.
+    // Integer dot product of four 8-bit lanes packed in one 32-bit word with
+    // a 32-bit accumulator: acc + sum_i a[i] * b[i], wrapped in 32 bits (the
+    // DP4A family). Every shape is exact on every backend:
+    //   DOT4X8   : (uint, uint, int)  -> int  [4 x int8  . 4 x int8]
+    //   DOT4X8_U : (uint, uint, uint) -> uint [4 x uint8 . 4 x uint8]
+    //   DOT4X8_SU: (uint, uint, int)  -> int  [4 x int8  . 4 x uint8]
+    DOT4X8,   // (uint, uint, int) -> int
+    DOT4X8_U, // (uint, uint, uint) -> uint
+    DOT4X8_SU,// (uint, uint, int) -> int
 };
 
 enum class AtomicOp {

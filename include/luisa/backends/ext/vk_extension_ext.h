@@ -46,9 +46,42 @@ struct VulkanCooperativeStatus {
     bool matrix_enabled{false};
     // VK_NV_cooperative_matrix2 workgroup scope was enabled on top of KHR.
     bool matrix_workgroup_scope{false};
+    // Number of VkCooperativeMatrixPropertiesKHR entries the driver enumerated
+    // for this physical device (0 when no KHR/NV2 cooperative-matrix extension
+    // was enabled). The two `matrix_*_supported` flags below answer "is there a
+    // configuration a quantized GEMM / a FlashAttention tile can actually be
+    // built from", which is what P0-2 step 3 has to gate on.
+    uint32_t matrix_config_count{0u};
+    // A 16x16x16 BF16*BF16 + FP32 accumulator -> FP32 subgroup-scope
+    // configuration exists (the BF16 prefill GEMM / FA shape).
+    bool matrix_bf16_supported{false};
+    // The same 16x16x16 shape with FP16 inputs.
+    bool matrix_fp16_supported{false};
+    // A SINT8*SINT8 + SINT32 accumulator -> SINT32 configuration exists; its
+    // exact M/N/K are reported below because the K size is driver dependent
+    // (16x16x32 on NVIDIA, 16x16x16 elsewhere).
+    bool matrix_int8_supported{false};
+    // Exact shape of the first matching configuration, 0 when unsupported.
+    uint32_t matrix_bf16_m{0u};
+    uint32_t matrix_bf16_n{0u};
+    uint32_t matrix_bf16_k{0u};
+    uint32_t matrix_int8_m{0u};
+    uint32_t matrix_int8_n{0u};
+    uint32_t matrix_int8_k{0u};
+    // VK_KHR_shader_integer_dot_product (core in Vulkan 1.3): the logical
+    // device enabled shaderIntegerDotProduct, so an OpSDot/OpUDot/OpSUDot
+    // module may be created. False means integer dot products fall back to the
+    // portable bitfield sequence.
+    bool integer_dot_product_enabled{false};
+    // shaderBFloat16CooperativeMatrix was enabled together with the
+    // cooperative-matrix extension, i.e. BF16 cooperative-matrix types are
+    // usable in a native shader on this device.
+    bool bfloat16_coopmat_enabled{false};
     // `matrix_enabled` NEVER means "emitted": no LuisaCompute or gallery kernel
     // lowers to a cooperative-matrix instruction today. It is reported so a run
-    // log can state what the device negotiated instead of guessing.
+    // log can state what the device negotiated instead of guessing; the
+    // matrix_*_supported / matrix_config_count fields above make the difference
+    // between "the extension is on" and "these shapes are really available".
     // ---- VK_NV_cooperative_vector ------------------------------------------
     // The physical device exposes VK_NV_cooperative_vector with the
     // cooperativeVector feature bit and VK_SHADER_STAGE_COMPUTE_BIT support.

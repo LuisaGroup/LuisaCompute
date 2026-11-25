@@ -925,6 +925,41 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
             auto sum = b.CreateIntrinsic(llvm::Intrinsic::nvvm_add_rn_f, {x, y});
             return b.CreateIntrinsic(llvm::Intrinsic::nvvm_add_rn_f, {sum, acc});
         }
+        case xir::ArithmeticOp::DOT4X8:
+        case xir::ArithmeticOp::DOT4X8_U:
+        case xir::ArithmeticOp::DOT4X8_SU: {
+            // Exact integer dot product of four packed 8-bit lanes. The lanes
+            // are decoded with the shift pair the hardware IDP4A performs
+            // internally (arithmetic shift for the signed lanes, masked
+            // logical shift for the unsigned ones), multiplied as 32-bit
+            // integers and accumulated with wrapping adds. That is bit-exact
+            // with __dp4a on every architecture, including targets older than
+            // compute capability 6.1, and needs no NVVM intrinsic.
+            LUISA_DEBUG_ASSERT(
+                inst->operand_count() == 3u &&
+                inst->operand(0)->type() == Type::of<uint>() &&
+                inst->operand(1)->type() == Type::of<uint>());
+            auto unsigned_dot =
+                inst->op() == xir::ArithmeticOp::DOT4X8_U;
+            auto mixed_dot =
+                inst->op() == xir::ArithmeticOp::DOT4X8_SU;
+            auto a = _get_llvm_value(b, func_ctx, inst->operand(0));
+            auto b_value = _get_llvm_value(b, func_ctx, inst->operand(1));
+            auto result = _get_llvm_value(b, func_ctx, inst->operand(2));
+            for (auto lane = 0u; lane < 4u; ++lane) {
+                auto shift = lane * 8u;
+                auto lane_a = unsigned_dot ?
+                                  b.CreateAnd(b.CreateLShr(a, shift), 255u) :
+                                  b.CreateAShr(b.CreateShl(a, 24u - shift), 24u);
+                auto lane_b = (unsigned_dot || mixed_dot) ?
+                                  b.CreateAnd(
+                                      b.CreateLShr(b_value, shift), 255u) :
+                                  b.CreateAShr(
+                                      b.CreateShl(b_value, 24u - shift), 24u);
+                result = b.CreateAdd(result, b.CreateMul(lane_a, lane_b));
+            }
+            return result;
+        }
     }
     LUISA_NOT_IMPLEMENTED();
 }

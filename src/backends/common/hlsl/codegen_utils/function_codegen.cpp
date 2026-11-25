@@ -794,6 +794,21 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             // sequence otherwise; DXIL has the intrinsic natively.
             str << "dot2add"sv;
             break;
+        case CallOp::DOT4X8:
+        case CallOp::DOT4X8_U:
+        case CallOp::DOT4X8_SU: {
+            // Exact DP4A from the device header. `dot4add_i8packed` needs shader
+            // model 6.4 and, on the Vulkan route, a device that negotiated
+            // VK_KHR_shader_integer_dot_product, so the header spells the
+            // bitfield-extract multiply-accumulate itself: the same source
+            // yields the identical 32-bit result on DXIL and on SPIR-V for
+            // every shader model.
+            auto op = expr->op();
+            str << (op == CallOp::DOT4X8 ?
+                        "_dot4x8"sv :
+                        (op == CallOp::DOT4X8_U ? "_dot4x8_u"sv : "_dot4x8_su"sv));
+            break;
+        }
         case CallOp::LENGTH:
             str << "length"sv;
             break;

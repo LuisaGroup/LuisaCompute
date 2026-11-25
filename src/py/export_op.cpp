@@ -94,6 +94,9 @@ void export_op(py::module &m) {
         .value("EXPM1", CallOp::EXPM1)
         .value("LDEXP", CallOp::LDEXP)
         .value("DOT2ADD", CallOp::DOT2ADD)
+        .value("DOT4X8", CallOp::DOT4X8)
+        .value("DOT4X8_U", CallOp::DOT4X8_U)
+        .value("DOT4X8_SU", CallOp::DOT4X8_SU)
 
         .value("SQRT", CallOp::SQRT)
         .value("RSQRT", CallOp::RSQRT)

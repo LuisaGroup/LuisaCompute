@@ -4,9 +4,8 @@
 #include "submit_profile.h"
 #include "queue_submit_plan.h"
 #include "timeline_semaphore_plan.h"
+#include "in_flight_depth.h"
 #include "log.h"
-#include <chrono>
-#include <cstdio>
 #include <cstdlib>
 namespace lc::vk {
 namespace {
@@ -26,13 +25,8 @@ namespace {
         // microsecond the poll costs, so the default budget is 20 ms: it still ends in a
         // blocking wait for a pathological multi-second stall, but a decode token -
         // and every per-command `commit()+synchronize()` - is served by polling.
-        auto us = uint64_t{20'000u};
-        if (auto e = std::getenv("LUISA_VK_SYNC_SPIN_US");
-            e != nullptr && e[0] != '\0') {
-            auto parsed = std::strtoull(e, nullptr, 10);
-            if (parsed != 0ull) { us = std::min<uint64_t>(parsed, 100'000ull); }
-        }
-        return static_cast<uint32_t>(us * 100ull);
+        return detail::parse_spin_pause_iterations(
+            std::getenv("LUISA_VK_SYNC_SPIN_US"), 20'000u);
     }();
     return iterations;
 }
@@ -315,10 +309,13 @@ void Event::_notify(uint64_t value) {
     {
         std::lock_guard lck(_event_mtx);
         _finished_event = std::max<uint64_t>(_finished_event, value);
+        // Phase 3B (opt C): wake every `sync()` that blocked after its polling
+        // budget. The store above is what they observe; the notification is only
+        // the wakeup. It stays inside the lock: a spinner that observes the store
+        // may return from `sync()` and destroy this event immediately, so touching
+        // the counter after the lock is dropped would be a use-after-free.
+        _finished_event.notify_all();
     }
-    // Phase 3B (opt C): wake every `sync()` that blocked after its polling budget.
-    // The store above is what they observe; the notification is only the wakeup.
-    _finished_event.notify_all();
 }
 void Event::sync(uint64_t value) {
     // Phase 3B (opt C): poll first (this is the micro-latency path: a per-command
@@ -342,6 +339,11 @@ void Event::sync(uint64_t value) {
 
 Event::~Event() {
     sync(_last_fence);
+    {
+        // Barrier against any in-flight `_notify()` that published `_last_fence`
+        // and is still executing `_finished_event.notify_all()` under `_event_mtx`.
+        std::lock_guard lck(_event_mtx);
+    }
     _host_wait(_signaled_event.load(std::memory_order_relaxed));
     // A batch that only waited on this timeline still refers to the semaphore until
     // it retires, so every queued wait submission has to be drained first: a

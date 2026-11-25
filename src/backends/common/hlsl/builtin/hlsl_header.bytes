@@ -484,3 +484,35 @@ template<typename Src>
 uint64_t _lc_bitcast_f64_u64(Src v){uint lo,hi;asuint(v,lo,hi);return ((uint64_t)hi<<32ull)|((uint64_t)lo);}
 template<typename Src>
 double _lc_bitcast_u64_f64(Src v){uint64_t u=(uint64_t)v;return asdouble((uint)(u&0xffffffffull),(uint)(u>>32ull));}
+// Integer dot product of four packed 8-bit lanes with a 32-bit accumulator
+// (the DP4A family), exact on every shader model: the lanes are decoded with
+// a shift pair instead of `dot4add_i8packed`, which would require shader model
+// 6.4 and, on the Vulkan route, a device with
+// VK_KHR_shader_integer_dot_product. Each product fits in 32 bits and the
+// accumulation is the wrapping 32-bit add `__dp4a` performs.
+int _dot4x8_lane_s(uint v,uint shift){return (int)(v<<(24u-shift))>>24;}
+uint _dot4x8_lane_u(uint v,uint shift){return (v>>shift)&255u;}
+int _dot4x8(uint a,uint b,int acc){
+    int r=acc;
+    r+=_dot4x8_lane_s(a,0u)*_dot4x8_lane_s(b,0u);
+    r+=_dot4x8_lane_s(a,8u)*_dot4x8_lane_s(b,8u);
+    r+=_dot4x8_lane_s(a,16u)*_dot4x8_lane_s(b,16u);
+    r+=_dot4x8_lane_s(a,24u)*_dot4x8_lane_s(b,24u);
+    return r;
+}
+uint _dot4x8_u(uint a,uint b,uint acc){
+    uint r=acc;
+    r+=_dot4x8_lane_u(a,0u)*_dot4x8_lane_u(b,0u);
+    r+=_dot4x8_lane_u(a,8u)*_dot4x8_lane_u(b,8u);
+    r+=_dot4x8_lane_u(a,16u)*_dot4x8_lane_u(b,16u);
+    r+=_dot4x8_lane_u(a,24u)*_dot4x8_lane_u(b,24u);
+    return r;
+}
+int _dot4x8_su(uint a,uint b,int acc){
+    int r=acc;
+    r+=_dot4x8_lane_s(a,0u)*(int)_dot4x8_lane_u(b,0u);
+    r+=_dot4x8_lane_s(a,8u)*(int)_dot4x8_lane_u(b,8u);
+    r+=_dot4x8_lane_s(a,16u)*(int)_dot4x8_lane_u(b,16u);
+    r+=_dot4x8_lane_s(a,24u)*(int)_dot4x8_lane_u(b,24u);
+    return r;
+}

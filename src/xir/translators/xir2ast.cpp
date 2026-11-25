@@ -177,6 +177,9 @@ namespace detail {
         case ArithmeticOp::CROSS: return CallOp::CROSS;
         case ArithmeticOp::DOT: return CallOp::DOT;
     case ArithmeticOp::DOT2ADD: return CallOp::DOT2ADD;
+        case ArithmeticOp::DOT4X8: return CallOp::DOT4X8;
+        case ArithmeticOp::DOT4X8_U: return CallOp::DOT4X8_U;
+        case ArithmeticOp::DOT4X8_SU: return CallOp::DOT4X8_SU;
         case ArithmeticOp::LENGTH: return CallOp::LENGTH;
         case ArithmeticOp::LENGTH_SQUARED: return CallOp::LENGTH_SQUARED;
         case ArithmeticOp::NORMALIZE: return CallOp::NORMALIZE;

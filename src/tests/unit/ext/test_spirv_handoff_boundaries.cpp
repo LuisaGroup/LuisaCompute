@@ -423,6 +423,65 @@ int main(int argc, char *argv[]) {
         expect(instruction != nullptr);
     };
 
+    "spirv_integer_dot_product_requires_exact_shapes_at_dialect_handoff"_test = [] {
+        // dsl::dot4x8 / dot4x8_u / dot4x8_su have exactly one legal XIR shape
+        // each, and the native handoff must fail closed on every other shape for
+        // exact-XIR input (the generic verifier rejects them as well).
+        auto uint_type = Type::of<uint32_t>();
+        auto int_type = Type::of<int32_t>();
+        struct ShapeCase {
+            ArithmeticOp op;
+            const Type *result;
+            const Type *a;
+            const Type *b;
+            const Type *acc;
+        };
+        constexpr auto case_count = 6u;
+        const ShapeCase cases[case_count]{
+            {ArithmeticOp::DOT4X8, int_type, uint_type, uint_type, uint_type},
+            {ArithmeticOp::DOT4X8, int_type, int_type, uint_type, int_type},
+            {ArithmeticOp::DOT4X8, uint_type, uint_type, uint_type, int_type},
+            {ArithmeticOp::DOT4X8_U, uint_type, int_type, uint_type, uint_type},
+            {ArithmeticOp::DOT4X8_U, int_type, uint_type, uint_type, uint_type},
+            {ArithmeticOp::DOT4X8_SU, int_type, uint_type, int_type, int_type}};
+        for (auto &&shape : cases) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *a = kernel->create_value_argument(shape.a);
+            auto *b = kernel->create_value_argument(shape.b);
+            auto *acc = kernel->create_value_argument(shape.acc);
+            XIRBuilder builder;
+            builder.set_insertion_point(kernel->create_body_block());
+            auto *instruction = builder.call(shape.result, shape.op, {a, b, acc});
+            builder.return_void();
+            auto dialect = lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+            expect(!dialect.succeeded());
+            expect(has_instruction_diagnostic(
+                dialect, instruction, "requires the exact shape"));
+        }
+        // The exact shapes pass the handoff without the device feature: the
+        // portable bitfield lowering is a legal target for them.
+        for (auto op : {ArithmeticOp::DOT4X8, ArithmeticOp::DOT4X8_U,
+                        ArithmeticOp::DOT4X8_SU}) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *a = kernel->create_value_argument(uint_type);
+            auto *b = kernel->create_value_argument(uint_type);
+            auto unsigned_dot = op == ArithmeticOp::DOT4X8_U;
+            auto *acc = kernel->create_value_argument(
+                unsigned_dot ? uint_type : int_type);
+            XIRBuilder builder;
+            builder.set_insertion_point(kernel->create_body_block());
+            auto *instruction = builder.call(
+                unsigned_dot ? uint_type : int_type, op, {a, b, acc});
+            builder.return_void();
+            expect(xir_verify_module(&module).succeeded());
+            auto dialect = lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+            expect(dialect.succeeded());
+            expect(instruction != nullptr);
+        }
+    };
+
     "spirv_split_barrier_requires_zero_operands_and_void_at_dialect_handoff"_test = [] {
         // The op-level classification accepts the split barrier halves, but
         // the per-instruction handoff must reject operands and non-void

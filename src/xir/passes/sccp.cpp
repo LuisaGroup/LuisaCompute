@@ -557,6 +557,12 @@ Constant *try_fold_arithmetic_for_sccp(Module *module, ArithmeticOp op,
         // DOT2ADD's fused/unfused rounding is target-dependent; never fold it
         // with host numerics (same boundary as the const-fold pass).
         case ArithmeticOp::DOT2ADD:
+        // The DP4A family is exact integer arithmetic, but folding it here
+        // would erase the one opcode a target can still lower to
+        // OpSDot/OpUDot/OpSDotSU (or __dp4a); the const-fold pass owns it.
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_U:
+        case ArithmeticOp::DOT4X8_SU:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:

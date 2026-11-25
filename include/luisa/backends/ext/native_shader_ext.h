@@ -281,6 +281,14 @@ struct NativeShaderCompileInfo {
     // (the object-id slot reserved by
     // `NativeRasterShaderCompileInfo::push_object_id` is not included).
     uint32_t push_constant_size{0u};
+    // Dynamic ("extern") shared memory the kernel wants at launch, in bytes.
+    // 0 keeps the driver default. On the CUDA route this is the value the
+    // function is opted into at load() - bounded by
+    // CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN - and the value
+    // every launch passes to cuLaunchKernel, which is what lifts the 48 KiB
+    // static `__shared__` limit for a tiled kernel (K/V double buffering,
+    // FlashAttention tiles, ...). The other routes ignore it.
+    uint32_t dynamic_shared_memory_bytes{0u};
     bool optimize{true};
     bool enable_fast_math{false};
     bool enable_debug_info{false};
@@ -297,6 +305,9 @@ struct NativeShaderCompileResult {
     // Push-constant / root-constant block size carried over from the compile
     // info, so that `load(result)` is self-contained.
     uint32_t push_constant_size{0u};
+    // Dynamic shared-memory bytes carried over from the compile info for the
+    // same reason: `load(result)` opts the function into exactly this value.
+    uint32_t dynamic_shared_memory_bytes{0u};
     // The entry point `load(result)` must use. Empty means "derive it from the
     // binary" (the Vulkan and DirectX routes re-reflect their module, which
     // carries a single entry point); the CUDA route fills it in, because a PTX
@@ -439,6 +450,9 @@ namespace detail {
         luisa::vector<NativeShaderResourceBinding> bindings; // canonical order
         NativeShaderLanguage language{NativeShaderLanguage::HLSL};
         uint32_t push_constant_size{0u};
+        // Dynamic shared-memory bytes the function was opted into at load(), i.e.
+        // the launch-time `sharedMemBytes` of every dispatch (0 = driver default).
+        uint32_t dynamic_shared_memory_bytes{0u};
         // `Compute` for a dispatchable instance, `Vertex` for a raster pipeline
         // created by `load_raster()` (the two stages are one object; the field
         // names the kind, not one of the two modules).
@@ -526,6 +540,10 @@ private:
     uint3 _block_size;
     // One entry per non-uniform argument, in the argument order.
     luisa::vector<Usage> _argument_usages;
+    // Dynamic shared-memory bytes this dispatch asks for (0 = use the value the
+    // shader was loaded with). Only the CUDA route consumes it; it is validated
+    // against CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN there.
+    uint32_t _dynamic_shared_memory_bytes{0u};
 
     template<typename Self, typename Visitor>
     static void traverse(Self &&self, Visitor &visitor) noexcept {
@@ -567,13 +585,15 @@ public:
         uint3 block_size,
         luisa::vector<std::byte> &&argument_buffer,
         size_t argument_count,
-        luisa::vector<Usage> &&argument_usages) noexcept
+        luisa::vector<Usage> &&argument_usages,
+        uint32_t dynamic_shared_memory_bytes = 0u) noexcept
         : ShaderDispatchCommandBase{shader_handle,
                                     std::move(argument_buffer),
                                     argument_count},
           _dispatch_size{dispatch_size},
           _block_size{block_size},
-          _argument_usages{std::move(argument_usages)} {
+          _argument_usages{std::move(argument_usages)},
+          _dynamic_shared_memory_bytes{dynamic_shared_memory_bytes} {
         LUISA_ASSERT(shader_handle != invalid_resource_handle,
                      "Native shader dispatch requires a valid shader handle.");
         LUISA_ASSERT(dispatch_size.x > 0u && dispatch_size.y > 0u &&
@@ -597,6 +617,11 @@ public:
     // Exact thread count (the reorder budget's unit).
     [[nodiscard]] uint3 dispatch_size() const noexcept { return _dispatch_size; }
     [[nodiscard]] uint3 block_size() const noexcept { return _block_size; }
+    // Dynamic shared-memory bytes requested for this dispatch (0 = the value
+    // the shader instance was loaded with).
+    [[nodiscard]] uint32_t dynamic_shared_memory_bytes() const noexcept {
+        return _dynamic_shared_memory_bytes;
+    }
     [[nodiscard]] luisa::span<const Usage> argument_usages() const noexcept {
         return _argument_usages;
     }
@@ -659,6 +684,9 @@ private:
     // verb, and `build()` (a compute dispatch) is rejected.
     bool _raster{false};
     bool _allow_usage_override{false};
+    // Dynamic shared-memory bytes every dispatch built by this launcher asks
+    // for (0 = the value the shader instance was loaded with).
+    uint32_t _dynamic_shared_memory_bytes{0u};
 
     [[nodiscard]] Entry &_create_entry(Usage usage) noexcept {
         auto &entry = _resources.emplace_back();
@@ -683,6 +711,14 @@ public:
     // as WRITE is always rejected.
     NativeShaderLauncher &set_allow_usage_override(bool allow) noexcept {
         _allow_usage_override = allow;
+        return *this;
+    }
+    // Requests `bytes` of dynamic shared memory for every dispatch this launcher
+    // builds. The CUDA route opts the function into this value at load(); a
+    // dispatch that asks for more than the device's
+    // CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN fails closed.
+    NativeShaderLauncher &set_dynamic_shared_memory(uint32_t bytes) noexcept {
+        _dynamic_shared_memory_bytes = bytes;
         return *this;
     }
     [[nodiscard]] uint64_t shader_handle() const noexcept { return _shader_handle; }
@@ -1346,7 +1382,7 @@ NativeShaderLauncher::_build(uint64_t shader_handle, uint3 thread_count,
     return luisa::make_unique<NativeShaderDispatchCommand>(
         shader_handle, thread_count, block_size,
         std::move(plan.argument_buffer), plan.arguments.size(),
-        std::move(plan.usages));
+        std::move(plan.usages), _dynamic_shared_memory_bytes);
 }
 
 }// namespace luisa::compute

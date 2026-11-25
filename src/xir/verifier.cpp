@@ -323,7 +323,10 @@ template<typename IndexAt>
         case ArithmeticOp::SMOOTHSTEP:
         case ArithmeticOp::FACEFORWARD:
         case ArithmeticOp::FMA:
-        case ArithmeticOp::DOT2ADD: return count == 3u;
+        case ArithmeticOp::DOT2ADD:
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_U:
+        case ArithmeticOp::DOT4X8_SU: return count == 3u;
 
         case ArithmeticOp::AGGREGATE: return count > 0u;
         case ArithmeticOp::SHUFFLE:
@@ -585,7 +588,7 @@ template<typename Enum>
         case DerivedInstructionTag::ARITHMETIC:
             return enum_value_between(
                 static_cast<const ArithmeticInst *>(instruction)->op(),
-                ArithmeticOp::UNARY_MINUS, ArithmeticOp::DOT2ADD);
+                ArithmeticOp::UNARY_MINUS, ArithmeticOp::DOT4X8_SU);
         case DerivedInstructionTag::THREAD_GROUP:
             return enum_value_between(
                 static_cast<const ThreadGroupInst *>(instruction)->op(),
@@ -1048,6 +1051,21 @@ template<typename OperandSpan>
                    operands[0]->type() == Type::of<half2>() &&
                    operands[1]->type() == Type::of<half2>() &&
                    operands[2]->type() == Type::of<float>();
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_SU:
+            // Integer dot product of two packed 32-bit words into a signed
+            // 32-bit accumulator: (uint, uint, int) -> int. The packed lanes
+            // are exactly four 8-bit values per operand word.
+            return result == Type::of<int>() &&
+                   operands[0]->type() == Type::of<uint>() &&
+                   operands[1]->type() == Type::of<uint>() &&
+                   operands[2]->type() == Type::of<int>();
+        case ArithmeticOp::DOT4X8_U:
+            // Unsigned twin: (uint, uint, uint) -> uint.
+            return result == Type::of<uint>() &&
+                   operands[0]->type() == Type::of<uint>() &&
+                   operands[1]->type() == Type::of<uint>() &&
+                   operands[2]->type() == Type::of<uint>();
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
             return operands[0]->type()->is_float_vector() &&

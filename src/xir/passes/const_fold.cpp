@@ -1291,6 +1291,13 @@ namespace detail {
         // VALVE form and the unfused fallback round differently, so host
         // evaluation would pick one target's numerics before a target exists.
         case ArithmeticOp::DOT2ADD:
+        // The DP4A family is exact in 32-bit integer arithmetic, so folding it
+        // would be value-correct, but it would also erase the one opcode the
+        // backends lower to OpSDot/OpUDot/OpSDotSU or __dp4a. Keep the
+        // intrinsic in the IR and let the target own the decomposition.
+        case ArithmeticOp::DOT4X8:
+        case ArithmeticOp::DOT4X8_U:
+        case ArithmeticOp::DOT4X8_SU:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:

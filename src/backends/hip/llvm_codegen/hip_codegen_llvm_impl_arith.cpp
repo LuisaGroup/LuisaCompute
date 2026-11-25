@@ -884,6 +884,17 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
             // The mixed-precision dot2add intrinsic is implemented only by the
             // HLSL and native SPIR-V routes; no HIP emulation is provided.
             LUISA_ERROR_WITH_LOCATION("DOT2ADD is not supported by the HIP XIR-to-LLVM backend.");
+        case xir::ArithmeticOp::DOT4X8:
+        case xir::ArithmeticOp::DOT4X8_U:
+        case xir::ArithmeticOp::DOT4X8_SU:
+            // Fail closed instead of silently reusing a different rounding or
+            // accumulation contract: the integer dot-product family is lowered
+            // by the CUDA AST route (__dp4a), the CUDA XIR-to-LLVM route, the
+            // HLSL route and the native SPIR-V route. Adding an AMDGPU
+            // v_dot4_i32_i8 spelling here needs its own exact-side test.
+            LUISA_ERROR_WITH_LOCATION(
+                "{} is not supported by the HIP XIR-to-LLVM backend.",
+                xir::to_string(inst->op()));
     }
     LUISA_NOT_IMPLEMENTED();
 }
