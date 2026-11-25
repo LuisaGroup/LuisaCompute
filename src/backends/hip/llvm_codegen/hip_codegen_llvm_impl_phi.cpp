@@ -19,7 +19,16 @@ void HIPCodegenLLVMImpl::_finalize_pending_phi_nodes(const FunctionContext &func
             auto exit_iter = func_ctx.llvm_exit_blocks.find(block);
             LUISA_ASSERT(exit_iter != func_ctx.llvm_exit_blocks.end(),
                          "Missing LLVM exit block for XIR PHI predecessor.");
-            llvm_phi->addIncoming(llvm_value, exit_iter->second);
+            auto llvm_block = exit_iter->second;
+            // XIR has one incoming value per predecessor block. LLVM requires
+            // one per edge, including grouped switch labels and the default
+            // edge when they share a destination.
+            auto terminator = llvm_block->getTerminator();
+            for (auto successor = 0u; successor < terminator->getNumSuccessors(); successor++) {
+                if (terminator->getSuccessor(successor) == llvm_phi->getParent()) {
+                    llvm_phi->addIncoming(llvm_value, llvm_block);
+                }
+            }
         }
     }
 }
