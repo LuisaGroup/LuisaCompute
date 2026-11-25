@@ -107,6 +107,55 @@ struct CommandBufferState {
     uint32_t next_overflow_max_sets{8192u};
     uint32_t next_overflow_per_type{8192u};
     vstd::vector<PipelineRef *> retained_pipelines;
+    // Phase 3B (opt B): membership of `retained_pipelines` (so `retain_pipeline`
+    // is O(1) instead of a linear scan) plus the "same pipeline as last time"
+    // fast path. Both are dropped together with the vector in `reset()`.
+    vstd::HashMap<PipelineRef *, uint8_t> retained_pipeline_set;
+    PipelineRef *_last_retained_pipeline{nullptr};
+    // Phase 3B (opt A): per-state reuse cache of set-0 descriptor sets.
+    //
+    // A `VkDescriptorSet` is allocated from this state's `desc_pool` and stays
+    // valid until that pool is reset, so a batch that allocates 364 sets only to
+    // reset the pool on retirement pays 364 `vkAllocateDescriptorSets` calls per
+    // batch for nothing. The cache hands out the sets of the previous batch
+    // instead: within one batch every dispatch still gets a *distinct* handle
+    // (`cursor` advances), so the update-before-bind order and the
+    // "do not touch a set a pending command buffer references" rule of the
+    // previous batch are untouched - reuse only ever happens across batches, i.e.
+    // after `reset()` ran on the retirement thread, which itself only runs once the
+    // submitted command buffer completed (the `SyncExt` entry precedes the
+    // `CommandBuffer` entry in the stream's retirement queue).
+    //
+    // The bucket is keyed by `Shader::desc_set_layout_id()` - the interned
+    // identity of the layout (0 = "not interned", recorded through
+    // `has_uncached_desc_allocs` so such a state falls back to the pool reset) and
+    // is dropped whenever `Device::shader_layout_destroy_generation()` moved,
+    // because a destroyed layout invalidates every set created from it.
+    struct CachedDescriptorSetBucket {
+        vstd::vector<VkDescriptorSet> sets;
+        size_t cursor{0u};
+    };
+    vstd::HashMap<uint64_t, CachedDescriptorSetBucket> desc_set_cache;
+    // Phase 3C (defect 3): descriptor sets that were dropped from the cache without
+    // the pool being reset (their layout died, see `reset_native`). They still
+    // occupy their slot in `desc_pool`/`overflow_desc_pools` and can never be handed
+    // out again, so a host that destroys and recreates shaders in a loop (a decode
+    // loop that re-specializes with a new buffer set, a live-reload, ...) would leak
+    // one pool's worth of sets per round without leaking a single set object. Once
+    // this reaches the threshold of `reset_native` the state takes the pool-reset
+    // path instead of rewinding the cursors, which reclaims every orphan.
+    size_t orphaned_desc_sets{0u};
+    // Generation of `Device::shader_layout_destroy_generation()` the cache was
+    // built under (see `reset`).
+    uint64_t cached_layout_generation{0u};
+    // True once anything was allocated through a path that passes a layout id of
+    // 0 (indirect preparation, native/custom shaders). Such a set is not in any
+    // bucket, so the pool has to be reset on retirement; the state then also drops
+    // the cache instead of pretending it could reuse it.
+    bool has_uncached_desc_allocs{false};
+    // Scratch of the per-id invalidation walk in `reset()` (kept to avoid a
+    // per-retirement allocation; its content never outlives the call).
+    vstd::vector<uint64_t> destroyed_layout_scratch;
     // VK_KHR_copy_memory_indirect negotiation data of this state
     // (copy_command_plan.h decides with them, this struct only carries them):
     // VkPhysicalDeviceCopyMemoryIndirectPropertiesKHR::supportedQueues and the
@@ -135,9 +184,24 @@ struct CommandBufferState {
     void init(Device &device, StreamTag tag,
               VkCommandPoolCreateFlags pool_flags =
                   VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
-    [[nodiscard]] VkDescriptorSet allocate_descriptor_set(VkDescriptorSetLayout layout);
+    // `layout_id` is `Shader::desc_set_layout_id(set)` (0 when the layout is not
+    // an interned, device-owned one). A non-zero id enables the reuse cache of
+    // this state; 0 always allocates a fresh set and marks the state so its pools
+    // are reset on retirement.
+    [[nodiscard]] VkDescriptorSet allocate_descriptor_set(uint64_t layout_id, VkDescriptorSetLayout layout);
     void retain_pipeline(PipelineRef *ref);
     void reset(
+        Stream *stream,
+        Device &device,
+        temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
+    // Phase 3B (opt C): the two halves of `reset`. `reset_host_visible` runs the
+    // part `Stream::sync()` has to observe before it returns (readback callbacks,
+    // deferred disposals, temporary image views); `reset_native` runs the rest
+    // (retained pipelines, staging allocations, descriptor pools, bind state),
+    // which the retirement thread defers until after it notified the event.
+    // `reset()` is still the synchronous combination of both.
+    void reset_host_visible(Stream *stream, Device &device);
+    void reset_native(
         Stream *stream,
         Device &device,
         temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
@@ -190,6 +254,14 @@ public:
         return _ownership == detail::CommandBufferOwnership::PERSISTENT;
     }
     [[nodiscard]] bool retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
+    // Phase 3B (opt C): the retirement split into the half `Stream::sync()` waits
+    // for (`retire_host_visible`) and the recycling half (`recycle_native`, whose
+    // return value is the same "push it back into the stream's FIFO" answer
+    // `retire_and_recycle` gives). Both are no-ops on a moved-from or
+    // already-released buffer, and both refuse a PERSISTENT recording exactly like
+    // `retire_and_recycle` does.
+    void retire_host_visible();
+    [[nodiscard]] bool recycle_native(temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
     // `flags` is forwarded to VkCommandBufferBeginInfo; only the replay recorder
     // passes VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT (plan P4), so an
     // ordinary batch keeps the flags-less begin info it always used.
@@ -352,7 +424,7 @@ public:
     // no `CommandBufferState::reset` can touch a replay graph. Returns the
     // timeline value the submission signalled. Takes `_dispatch_mtx`.
     [[nodiscard]] uint64_t submit_recorded(VkCommandBuffer command_buffer,
-                                          bool inqueue_limit);
+                                           bool inqueue_limit);
 
     // Non-blocking: has the submission that signalled `timeline_value` retired on
     // the host (the stream's retirement thread notified it)? Used by a replay
@@ -395,7 +467,38 @@ private:
     void _throttle_in_flight();
     [[nodiscard]] bool _execute_external_command_buffer(
         VkCommandBuffer command_buffer) noexcept;
+    // How long the retirement thread keeps polling before it blocks, latched at
+    // construction from `LUISA_VK_RETIRE_SPIN_US` (default 200 us, converted to a
+    // pause-loop bound). Declared *before* `_thd` because the thread reads it as
+    // soon as it starts, and members are initialized in declaration order. It is a
+    // bound, not a semantic: the thread always ends up either draining the queue or
+    // sleeping on `_work_epoch`.
+    uint32_t _retire_spin_iterations{0u};
+    // Phase 3B (opt C): wakeup epoch of the retirement thread. Every producer that
+    // enqueues into `_exec` bumps it under `_mtx` and notifies after unlocking, so
+    // the thread can block instead of spinning with `std::this_thread::yield()` for
+    // the whole time the GPU is busy. The value is the *first* of the two things the
+    // retirement loop looks at (before `loop_cmd()` and before it blocks), so a
+    // wakeup can never be lost: a bump that already happened makes the epoch
+    // mismatch visible and the following `wait` returns immediately.
+    //
+    // Declaration order (phase 3C defect 1): `_work_epoch` and
+    // `_retire_spin_iterations` are declared - and therefore constructed - *before*
+    // `_thd`, because the thread starts running inside `_thd`'s constructor and
+    // reads both. Declaring `_work_epoch` after `_thd` made the thread read a
+    // not-yet-constructed atomic (member-initialization-order UB).
+    std::atomic_uint64_t _work_epoch{0u};
     std::thread _thd;
+    // Bumped under `_mtx` by every producer that enqueues into `_exec` (so the
+    // enqueue and the epoch are one atomic step from the thread's point of view)...
+    void _bump_work_epoch_locked() noexcept {
+        _work_epoch.fetch_add(1u, std::memory_order_release);
+    }
+    // ...and notified only after `_mtx` is released: `notify_all` wakes a parked
+    // thread, which immediately tries to take `_mtx` in `loop_cmd()`.
+    void _notify_retirement_thread() noexcept {
+        _work_epoch.notify_all();
+    }
 };
 
 }// namespace lc::vk

@@ -4313,21 +4313,33 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
 #ifdef LUISA_XIR_TO_SPIRV
 namespace vk_device_detail_2 {
 [[nodiscard]] static uint64_t xir_spirv_environment_hash() noexcept {
-    auto hash_env = [](const char *name) noexcept {
-        auto value = luisa::get_environment_variable(name);
-        return !value ? 0ull :
-                        luisa::hash_value(luisa::string_view{*value});
-    };
-    return luisa::hash_combine({
-        hash_env("LUISA_XIR_DISABLE_OPTIMIZATION"),
-        hash_env("LUISA_XIR_ENABLE_SCALARIZER"),
-        hash_env("LUISA_SPIRV_OPT_LEVEL"),
-        hash_env("LUISA_SPIRV_OPT_PASSES"),
-        // Backend-owned loop-control hints change the emitted OpLoopMerge
-        // literals, so a device-wide policy change must invalidate artifacts.
-        hash_env("LUISA_SPIRV_LOOP_HINTS"),
-    });
-}
+      auto hash_env = [](const char *name) noexcept {
+          auto value = luisa::get_environment_variable(name);
+          return !value ? 0ull :
+                          luisa::hash_value(luisa::string_view{*value});
+      };
+      return luisa::hash_combine({
+          hash_env("LUISA_XIR_DISABLE_OPTIMIZATION"),
+          hash_env("LUISA_XIR_ENABLE_SCALARIZER"),
+          // Every knob that can change the emitted SPIR-V module must be part of
+          // the artifact identity: the cache stores the optimized binary, so an
+          // unhashed knob would silently serve a module produced by a different
+          // pipeline. `LUISA_SPIRV_OPT_PASSES` selects the preset itself, the
+          // rest adjust the registered pipeline (`_MAX_ITERATIONS`,
+          // `_SROA_LIMIT`, `_MAX_ID_BOUND`, `_PRESERVE_BINDINGS`) or append an
+          // extra pass list (`_PASS_FLAGS`).
+          hash_env("LUISA_SPIRV_OPT_LEVEL"),
+          hash_env("LUISA_SPIRV_OPT_PASSES"),
+          hash_env("LUISA_SPIRV_OPT_PASS_FLAGS"),
+          hash_env("LUISA_SPIRV_OPT_MAX_ITERATIONS"),
+          hash_env("LUISA_SPIRV_OPT_SROA_LIMIT"),
+          hash_env("LUISA_SPIRV_OPT_MAX_ID_BOUND"),
+          hash_env("LUISA_SPIRV_OPT_PRESERVE_BINDINGS"),
+          // Backend-owned loop-control hints change the emitted OpLoopMerge
+          // literals, so a device-wide policy change must invalidate artifacts.
+          hash_env("LUISA_SPIRV_LOOP_HINTS"),
+      });
+  }
 
 }// namespace vk_device_detail_2
 namespace vk_device_detail_2 {
@@ -4364,8 +4376,12 @@ namespace vk_device_detail_2 {
         }
         return hash;
     };
-    uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v20"sv),
+uint64_t data[] = {
+          // Bump the tag whenever the emitted SPIR-V or the registered
+          // optimization pipeline changes in a way that the per-run inputs above
+          // cannot express (codegen peepholes, preset composition). v22: no LICM
+          // in `compute`, `OpBitFieldSExtract` / redundant-mask folds.
+          luisa::hash_value("luisa-vk-xir-spv-cache-v22"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),

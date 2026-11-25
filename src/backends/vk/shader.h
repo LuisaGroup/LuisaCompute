@@ -78,6 +78,23 @@ public:
     [[nodiscard]] auto interned_pipeline_layout() const noexcept {
         return _pipeline_layout_interned;
     }
+    // Phase 3B: canonical identity of the interned `VkDescriptorSetLayout` of
+    // descriptor set `set`, or 0 when this shader owns no interned layout for that
+    // slot (native/custom shaders that carry a foreign layout). `CommandBufferState`
+    // keys its descriptor-set reuse cache on this id, so it must be the *same*
+    // value for two shaders that share one interned layout and a *different* value
+    // for two shaders that do not - which is exactly what the interner guarantees
+    // (plan P1.1: an id is only handed out for a structure no live entry holds, and
+    // ids are never reused). A descriptor set may only be reused while the layout it
+    // was allocated from is alive, which is why the id is paired with
+    // `Device::shader_layout_destroy_generation()`: that counter changes whenever a
+    // descriptor-set layout handle is destroyed, and a state that observes a change
+    // drops its cache before reusing anything.
+    [[nodiscard]] uint64_t desc_set_layout_id(uint32_t set) const noexcept {
+        return set < _desc_set_layout_interned.size() ?
+                   _desc_set_layout_interned[set].id :
+                   0u;
+    }
     virtual PipelineRef *pipeline_ref() const noexcept { return nullptr; }
     // Identity of the pipeline-cache *seed* this shader would have used before
     // plan P1.3 (driver-optimization flag + required subgroup size). It still

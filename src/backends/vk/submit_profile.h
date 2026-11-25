@@ -193,6 +193,12 @@ struct SubmitProfileCounters {
     uint64_t restore_image_barriers{0u};
     uint64_t restore_state_buffers{0u};
     uint64_t restore_state_texture_mips{0u};
+    // Phase 3B (opt D): tracked buffers the restore published through its single
+    // coalesced VkMemoryBarrier2 instead of through one VkBufferMemoryBarrier2 each.
+    // `restore_buffer_barriers + restore_coalesced_buffers == restore_state_buffers`
+    // holds for every batch, which is how a test can state that the coalescing did
+    // not drop a buffer.
+    uint64_t restore_coalesced_buffers{0u};
     uint64_t host_encode_ns{0u};
     uint64_t host_submit_ns{0u};
     // ---- replayable recording (plan P4) ------------------------------------
@@ -252,6 +258,7 @@ struct SubmitProfileCounters {
                restore_image_barriers == 0u &&
                restore_state_buffers == 0u &&
                restore_state_texture_mips == 0u &&
+               restore_coalesced_buffers == 0u &&
                host_encode_ns == 0u &&
                host_submit_ns == 0u &&
                replay_records == 0u &&
@@ -464,6 +471,11 @@ inline void record_restore_state(uint64_t buffers, uint64_t texture_mips) noexce
     tls_counters.restore_state_buffers += buffers;
     tls_counters.restore_state_texture_mips += texture_mips;
 }
+// Phase 3B (opt D): how many tracked buffers the restore's single coalesced
+// VkMemoryBarrier2 covers (see `restore_buffer_barriers`).
+inline void record_restore_coalesced_buffers(uint64_t buffers) noexcept {
+    tls_counters.restore_coalesced_buffers += buffers;
+}
 
 inline void record_host_restore_ns(uint64_t ns) noexcept {
     tls_counters.restore_host_ns += ns;
@@ -615,6 +627,7 @@ inline void record_restore_barriers(uint64_t /*memory*/, uint64_t /*buffers*/,
                                     uint64_t /*images*/) noexcept {}
 inline void record_restore_state(uint64_t /*buffers*/,
                                  uint64_t /*texture_mips*/) noexcept {}
+inline void record_restore_coalesced_buffers(uint64_t /*buffers*/) noexcept {}
 inline void record_host_restore_ns(uint64_t /*ns*/) noexcept {}
 inline void record_host_encode_ns(uint64_t /*ns*/) noexcept {}
 inline void record_host_submit_ns(uint64_t /*ns*/) noexcept {}

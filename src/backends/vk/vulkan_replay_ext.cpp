@@ -414,21 +414,27 @@ VkReplayExtImpl::record(uint64_t stream_handle, CommandList &&list) noexcept {
 
 VulkanReplaySubmitResult
 VkReplayExtImpl::replay(uint64_t replay_handle) noexcept {
-    auto snapshot = _device->replay_registry().snapshot(replay_handle);
-    if (!snapshot.found) {
+    // Phase 3C: the hot path of a device-greedy decode loop (one call per token).
+    // `prepare_replay` carries exactly the four fields a submission needs, so a
+    // successful replay copies no `luisa::string` and performs no allocation in the
+    // registry; the full `snapshot()` (which copies the diagnostic message and the
+    // counters) stays on the diagnostic entry points. Every safety check below is
+    // the same one the snapshot-based version performed.
+    auto prepared = _device->replay_registry().prepare_replay(replay_handle);
+    if (!prepared.found) {
         return submit_failure(VulkanReplayStatus::INVALID_HANDLE,
                               VulkanReplayInvalidationReason::NONE,
                               "unknown replay handle");
     }
-    if (snapshot.invalidation != VulkanReplayInvalidationReason::NONE) {
+    if (prepared.invalidation != VulkanReplayInvalidationReason::NONE) {
         return submit_failure(
-            snapshot.invalidation == VulkanReplayInvalidationReason::RESOURCE_DESTROYED ?
+            prepared.invalidation == VulkanReplayInvalidationReason::RESOURCE_DESTROYED ?
                 VulkanReplayStatus::RESOURCE_DESTROYED :
                 VulkanReplayStatus::STREAM_DESTROYED,
-            snapshot.invalidation,
-            snapshot.message);
+            prepared.invalidation,
+            prepared.message);
     }
-    if (snapshot.command_buffer == 0u) {
+    if (prepared.command_buffer == 0u) {
         return submit_failure(VulkanReplayStatus::INVALID_HANDLE,
                               VulkanReplayInvalidationReason::NONE,
                               "the recording no longer owns a command buffer");
@@ -436,14 +442,14 @@ VkReplayExtImpl::replay(uint64_t replay_handle) noexcept {
     // The stream is looked up by handle on every submission; the graph itself
     // stores no pointer, so a graph that outlives its stream reports an error
     // instead of dereferencing released memory.
-    auto *stream = _device->find_stream(snapshot.stream_handle);
+    auto *stream = _device->find_stream(prepared.stream_handle);
     if (stream == nullptr) {
         return submit_failure(VulkanReplayStatus::STREAM_DESTROYED,
                               VulkanReplayInvalidationReason::STREAM_DESTROYED,
                               "the recording stream no longer exists");
     }
     auto command_buffer = reinterpret_cast<VkCommandBuffer>(
-        static_cast<uintptr_t>(snapshot.command_buffer));
+        static_cast<uintptr_t>(prepared.command_buffer));
     auto timeline_value = stream->submit_recorded(
         command_buffer, _device->inqueue_limit());
     _device->replay_registry().record_submission(replay_handle, timeline_value);

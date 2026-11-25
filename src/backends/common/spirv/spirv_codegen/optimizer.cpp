@@ -279,12 +279,20 @@ void register_compute_passes(spvtools::Optimizer &optimizer,
                   spvtools::CreateReduceLoadSizePass());
     register_pass(optimizer, report, "adce",
                   spvtools::CreateAggressiveDCEPass());
-    register_pass(optimizer, report, "block-merge",
-                  spvtools::CreateBlockMergePass());
-    register_pass(optimizer, report, "licm",
-                  spvtools::CreateLoopInvariantCodeMotionPass());
-    register_pass(optimizer, report, "redundancy-elimination",
-                  spvtools::CreateRedundancyEliminationPass());
+register_pass(optimizer, report, "block-merge",
+                        spvtools::CreateBlockMergePass());
+          // SPIRV-Tools' own `RegisterPerformancePasses` (the `full` preset
+          // below) deliberately omits LICM: SPIR-V loop-invariant code motion
+          // has no GPU register-pressure model, so hoisting an address chain
+          // into a preheader lengthens the live range across the whole loop and
+          // costs the driver its memory-level parallelism. Measured on the
+          // Vulkan backend (Qwen bf16 prefill GEMM, RTX 4080 SUPER), inserting
+          // exactly this one pass into `compute` is a 1.7-2.0x slowdown on the
+          // `bf16` multi-row GEMM while `q8`/`fp8` and the decode kernels stay
+          // within noise. It stays available opt-in through
+          // `LUISA_SPIRV_OPT_PASS_FLAGS=--loop-invariant-code-motion`.
+          register_pass(optimizer, report, "redundancy-elimination",
+                        spvtools::CreateRedundancyEliminationPass());
     register_pass(optimizer, report, "dead-branch-elim",
                   spvtools::CreateDeadBranchElimPass());
     register_pass(optimizer, report, "block-merge",

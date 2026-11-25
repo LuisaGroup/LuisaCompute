@@ -164,6 +164,29 @@ ReplayRegistry::Snapshot ReplayRegistry::snapshot(uint64_t handle) const noexcep
     return result;
 }
 
+ReplayRegistry::ReplayHandle ReplayRegistry::prepare_replay(uint64_t handle) const noexcept {
+    // Phase 3C: the `replay()` fast path. Same lock, same lookups, but it fills only
+    // the four fields a submission needs and deliberately skips the diagnostics
+    // (`dispatches`, layout counts, `submits`, `last_timeline_value`). The only
+    // string it may copy is the invalidation message, and only on the error path -
+    // a successful replay therefore performs no allocation here at all.
+    ReplayHandle result{};
+    std::lock_guard lock{_mtx};
+    auto iter = _graphs.find(handle);
+    if (iter == _graphs.end()) { return result; }
+    auto *graph = iter->second;
+    result.found = true;
+    result.stream_handle = graph->stream_handle;
+    result.command_buffer = graph->batch.command_buffer == VK_NULL_HANDLE ?
+                                0u :
+                                static_cast<uint64_t>(reinterpret_cast<uintptr_t>(graph->batch.command_buffer));
+    result.invalidation = graph->invalidation;
+    if (result.invalidation != luisa::compute::VulkanReplayInvalidationReason::NONE) {
+        result.message = graph->message;
+    }
+    return result;
+}
+
 ReplayGraph *ReplayRegistry::take(uint64_t handle) noexcept {
     std::lock_guard lock{_mtx};
     auto iter = _graphs.find(handle);

@@ -170,8 +170,11 @@ enum class Counter : size_t {
     timeline_wait_skips,
     restore_calls,
     restore_host_ns,
-    restore_memory_barriers,
-    restore_buffer_barriers,
+     restore_memory_barriers,
+     restore_buffer_barriers,
+     // Phase 3B (opt D): tracked buffers covered by the restore's single coalesced
+     // VkMemoryBarrier2.
+     restore_coalesced_buffers,
     restore_image_barriers,
     restore_state_buffers,
     restore_state_texture_mips,
@@ -221,8 +224,9 @@ constexpr auto kCounterKeys = std::array{
     "vk_profile_timeline_wait_skips",
     "vk_profile_restore_calls",
     "vk_profile_restore_host_ns",
-    "vk_profile_restore_memory_barriers",
-    "vk_profile_restore_buffer_barriers",
+     "vk_profile_restore_memory_barriers",
+     "vk_profile_restore_buffer_barriers",
+     "vk_profile_restore_coalesced_buffers",
     "vk_profile_restore_image_barriers",
     "vk_profile_restore_state_buffers",
     "vk_profile_restore_state_texture_mips",
@@ -436,8 +440,13 @@ void check_descriptor_update_path(Device &device, const Counters &d,
 // assumed. `restores` is the number of `ResourceBarrier::restore_states` calls
 // the measured window must contain (one per submitted batch, never one per
 // dispatch), and the structural invariants pin *what* that call does:
-//  - one VkBufferMemoryBarrier2 per tracked buffer (so a "cheaper" restore that
-//    silently stopped covering a buffer fails here),
+//  - every tracked buffer is still published: either through the single coalesced
+//    VkMemoryBarrier2 (Phase 3B opt D, whose `restore_coalesced_buffers` counter
+//    says how many tracked buffers it covers) or through its own exact
+//    VkBufferMemoryBarrier2 (a buffer with an explicit
+//    `_saved_buffer_restore_states` override keeps the narrower scope it
+//    publishes). `buffers + coalesced == state_buffers` is that invariant, and it
+//    is what fails if a "cheaper" restore silently stops covering a buffer,
 //  - at most one VkImageMemoryBarrier2 per tracked mip,
 //  - the restore's structs are a subset of the funnel counters, and
 //  - the restore's host time is inside the batch's encode time.
@@ -447,6 +456,7 @@ void check_restore_shape(const Counters &d, uint64_t restores,
     auto host_ns = value(d, Counter::restore_host_ns);
     auto memory = value(d, Counter::restore_memory_barriers);
     auto buffers = value(d, Counter::restore_buffer_barriers);
+     auto coalesced = value(d, Counter::restore_coalesced_buffers);
     auto images = value(d, Counter::restore_image_barriers);
     auto state_buffers = value(d, Counter::restore_state_buffers);
     auto state_mips = value(d, Counter::restore_state_texture_mips);
@@ -457,17 +467,21 @@ void check_restore_shape(const Counters &d, uint64_t restores,
         "{}: restore calls={} host={} ns ({:.2f} us/call), structs mem={} "
         "buf={} img={}, tracker state buf={} mips={}",
         what, calls, host_ns,
-        calls == 0u ? 0.0 :
-                      static_cast<double>(host_ns) / 1000.0 /
-                          static_cast<double>(calls),
-        memory, buffers, images, state_buffers, state_mips);
+         calls == 0u ? 0.0 :
+         static_cast<double>(host_ns) / 1000.0 /
+         static_cast<double>(calls),
+         memory, buffers, images, state_buffers, state_mips);
+         LUISA_INFO("{}: coalesced={} (opt D)", what, coalesced);
     expect(calls == restores)
         << what << ": exactly one restore_states call per submitted batch, not "
                    "per dispatch (F5)";
-    expect(buffers == state_buffers)
-        << what << ": the restore records one buffer barrier per tracked buffer "
-                   "(a restore that covered fewer buffers would drop required "
-                   "restores)";
+    expect(buffers + coalesced == state_buffers)
+    << what << ": the restore publishes every tracked buffer, either through its "
+    "single coalesced memory barrier or through one exact buffer barrier "
+    "(a restore that covered fewer buffers would drop required restores)";
+    expect(coalesced <= state_buffers)
+    << what << ": the coalesced memory barrier cannot cover more buffers than the "
+    "tracker held";
     expect(images <= state_mips && memory <= calls)
         << what << ": the restore cannot record more image structs than tracked "
                    "mips or more bindless memory structs than calls";
@@ -963,7 +977,8 @@ void reg_decode_shaped_batch(Device &device) {
                   << "grouping N dispatches into one batch must pay exactly one "
                      "restore (F5: the restore is per submission)";
               single_restore_ns = value(d, Counter::restore_host_ns);
-              single_restore_structs = value(d, Counter::restore_buffer_barriers);
+              single_restore_structs = value(d, Counter::restore_buffer_barriers) +
+               value(d, Counter::restore_coalesced_buffers);
               LUISA_INFO(
                   "restore cost (one batch, {} dispatches): {} restore call, "
                   "{} ns, {} buffer structs, {:.2f} us host encode",
@@ -993,7 +1008,8 @@ void reg_decode_shaped_batch(Device &device) {
               expect(value(d, Counter::restore_host_ns) > 0u)
                   << "restores must register a nonzero host cost";
               per_batch_restore_ns = value(d, Counter::restore_host_ns);
-              per_batch_structs = value(d, Counter::restore_buffer_barriers);
+              per_batch_structs = value(d, Counter::restore_buffer_barriers) +
+               value(d, Counter::restore_coalesced_buffers);
               LUISA_INFO(
                   "restore cost ({} batches, 1 dispatch each): {} restore calls, "
                   "{} ns total ({:.2f} us/call), {} buffer structs, {:.2f} us host "
@@ -1049,17 +1065,21 @@ void reg_decode_shaped_batch(Device &device) {
               check_restore_shape(d, 1u, "restore-cost (many distinct buffers)");
               expect(value(d, Counter::restore_state_buffers) >= count)
                   << "every touched buffer must be tracked and restored";
-              expect(value(d, Counter::restore_buffer_barriers) ==
-                     value(d, Counter::restore_state_buffers))
-                  << "one buffer struct per tracked buffer in the same batch";
+              // Phase 3B (opt D): every tracked buffer is still restored, but through the
+              // single coalesced memory barrier unless it has an explicit after-state.
+              expect(value(d, Counter::restore_buffer_barriers) +
+              value(d, Counter::restore_coalesced_buffers) ==
+              value(d, Counter::restore_state_buffers))
+              << "every tracked buffer is restored in the same batch, coalesced or exact";
               auto many_ns = value(d, Counter::restore_host_ns);
               LUISA_INFO(
                   "restore cost (one batch, {} distinct buffers): {} restore call, "
                   "{} ns, {} buffer structs, marginal {:.3f} us per tracked buffer "
                   "over the single-buffer batch",
                   count, value(d, Counter::restore_calls), many_ns,
-                  value(d, Counter::restore_buffer_barriers),
-                  count <= 1u ? 0.0 :
+                  value(d, Counter::restore_buffer_barriers) +
+                   value(d, Counter::restore_coalesced_buffers),
+                   count <= 1u ? 0.0 :
                                 static_cast<double>(many_ns > single_restore_ns ?
                                                         many_ns - single_restore_ns :
                                                         0u) /

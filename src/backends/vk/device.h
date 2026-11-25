@@ -275,6 +275,29 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     // bound. `DeviceConfig::inqueue_buffer_limit` remains the enable/disable
     // switch and takes precedence over this value.
     uint32_t _max_frames_in_flight{detail::kDefaultFramesInFlight};
+    // Phase 3B: monotonic counter of destroyed interned descriptor-set layouts.
+    // An interned layout is reference counted by `detail::LayoutInterner` and
+    // destroyed when its last user releases it, so a `VkDescriptorSet` allocated
+    // from it stops being usable at that moment even though the pool it came from
+    // is still alive. `CommandBufferState` therefore caches sets together with the
+    // generation it observed; a mismatch after a recycle invalidates the cache
+    // (pools are reset, sets are re-allocated) instead of handing out a set whose
+    // layout no longer exists. Bumped on the thread that destroys the layout,
+    // which is always the thread that released the last reference (a shader
+    // destruction), so a relaxed increment is sufficient: the reader pairs it with
+    // acquire semantics before reusing pooled sets, and a stale value can only
+    // cause an extra pool reset, never a stale set.
+    std::atomic_uint64_t _shader_layout_destroy_generation{0u};
+    // Phase 3B (opt A): the ids of the interned descriptor-set layouts that were
+    // destroyed, in destruction order. Index `i` of this log corresponds to
+    // generation `i + 1`, so a `CommandBufferState` that remembers the generation it
+    // observed can ask for exactly the ids that were destroyed since then and drop
+    // only the descriptor-set buckets that really became invalid, instead of
+    // flushing every bucket of the device on any shader destruction. The log is
+    // append-only and bounded by the number of destroyed layouts (one per destroyed
+    // shader layout), which is a compile-rate quantity, not a per-frame one.
+    mutable luisa::spin_mutex _destroyed_layout_ids_mtx;
+    mutable vstd::vector<uint64_t> _destroyed_layout_ids;
     struct NumericFeatures {
         bool shader_float8{false};
         bool shader_bfloat16{false};
@@ -530,13 +553,13 @@ public:
     bool cooperative_vector_physical_support : 1 {false};
     bool cooperative_vector_memory_model : 1 {false};
     bool cooperative_vector_replicated_composites : 1 {false};
-  // VK_EXT_shader_replicated_composites, negotiated independently of
-  // VK_NV_cooperative_vector. "Enabled" means the extension name and the
-  // shaderReplicatedComposites feature bit were actually requested on the
-  // logical device, so the native codegen may lower exact splat composites to
-  // replicated instructions. Imported logical devices cannot attest their
-  // enabled feature chain and therefore keep this false.
-  bool shader_replicated_composites_enabled : 1 {false};
+    // VK_EXT_shader_replicated_composites, negotiated independently of
+    // VK_NV_cooperative_vector. "Enabled" means the extension name and the
+    // shaderReplicatedComposites feature bit were actually requested on the
+    // logical device, so the native codegen may lower exact splat composites to
+    // replicated instructions. Imported logical devices cannot attest their
+    // enabled feature chain and therefore keep this false.
+    bool shader_replicated_composites_enabled : 1 {false};
     // Number of VkCooperativeVectorPropertiesNV entries the driver enumerated,
     // including the packed/quantized ones the Info log's sanity guard hides.
     uint32_t cooperative_vector_config_count{0u};
@@ -585,6 +608,31 @@ public:
     // device's timeline value window.
     [[nodiscard]] uint32_t max_frames_in_flight() const noexcept {
         return _max_frames_in_flight;
+    }
+    // Phase 3B: a `VkDescriptorSetLayout` created by the interner was destroyed.
+    // Callers that cache `VkDescriptorSet`s keyed by `Shader::desc_set_layout_id`
+    // must drop them (see the member's comment).
+    void note_shader_layout_destroyed(uint64_t layout_id) noexcept {
+        {
+            std::lock_guard lock{_destroyed_layout_ids_mtx};
+            _destroyed_layout_ids.emplace_back(layout_id);
+        }
+        _shader_layout_destroy_generation.fetch_add(
+            1u, std::memory_order_release);
+    }
+    // The ids destroyed since `generation` (which is the value a caller read from
+    // `shader_layout_destroy_generation()`), appended to `out`.
+    void collect_destroyed_layout_ids(uint64_t generation,
+                                      vstd::vector<uint64_t> &out) const {
+        std::lock_guard lock{_destroyed_layout_ids_mtx};
+        for (auto i = static_cast<size_t>(generation);
+             i < _destroyed_layout_ids.size(); ++i) {
+            out.emplace_back(_destroyed_layout_ids[i]);
+        }
+    }
+    [[nodiscard]] uint64_t shader_layout_destroy_generation() const noexcept {
+        return _shader_layout_destroy_generation.load(
+            std::memory_order_acquire);
     }
     [[nodiscard]] uint64_t max_timeline_semaphore_value_difference() const noexcept {
         // Per the Vulkan spec, maxTimelineSemaphoreValueDifference == 0 means
@@ -698,27 +746,27 @@ public:
         return detail::DescriptorUpdateTemplateApi{
             .create = _create_descriptor_update_template,
             .destroy = _destroy_descriptor_update_template,
-.update = _update_descriptor_set_with_template,
-              .callbacks = alloc_callbacks()};
-      }
-      // True when a shader may be created with a push descriptor set 0 (plan
-      // P2.3). Latched at device creation; a shader that gets `true` here still
-      // has to pass its own shape/limit check, and a shader that got the classic
-      // layout never switches (see push_descriptor.h, shader.cpp).
-      [[nodiscard]] bool push_descriptor_capable() const noexcept {
-          return push_descriptor_capable_bit;
-      }
-      // The resolved entry point of the push path; `available()` is false whenever
-      // `push_descriptor_capable()` is false, so a caller may pass it on
-      // unconditionally.
-      [[nodiscard]] detail::PushDescriptorApi push_descriptor_api() const noexcept {
-          return detail::PushDescriptorApi{.cmd = _cmd_push_descriptor_set};
-      }
-      // VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors, or 0 when
-      // the push path is unavailable.
-      [[nodiscard]] uint32_t max_push_descriptors() const noexcept {
-          return _max_push_descriptors;
-      }
+            .update = _update_descriptor_set_with_template,
+            .callbacks = alloc_callbacks()};
+    }
+    // True when a shader may be created with a push descriptor set 0 (plan
+    // P2.3). Latched at device creation; a shader that gets `true` here still
+    // has to pass its own shape/limit check, and a shader that got the classic
+    // layout never switches (see push_descriptor.h, shader.cpp).
+    [[nodiscard]] bool push_descriptor_capable() const noexcept {
+        return push_descriptor_capable_bit;
+    }
+    // The resolved entry point of the push path; `available()` is false whenever
+    // `push_descriptor_capable()` is false, so a caller may pass it on
+    // unconditionally.
+    [[nodiscard]] detail::PushDescriptorApi push_descriptor_api() const noexcept {
+        return detail::PushDescriptorApi{.cmd = _cmd_push_descriptor_set};
+    }
+    // VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors, or 0 when
+    // the push path is unavailable.
+    [[nodiscard]] uint32_t max_push_descriptors() const noexcept {
+        return _max_push_descriptors;
+    }
     // Exact optional Vulkan features enabled on this logical device that may
     // be consumed by persisted SPIR-V artifacts. Imported logical devices are
     // deliberately fail-closed for enable-chain features that Vulkan cannot

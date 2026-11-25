@@ -5,7 +5,38 @@
 #include "queue_submit_plan.h"
 #include "timeline_semaphore_plan.h"
 #include "log.h"
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 namespace lc::vk {
+namespace {
+// Phase 3B (opt C): how long `Event::sync` polls before it blocks on the counter.
+// A microsecond budget converted into a `LUISA_INTRIN_PAUSE` loop bound (~100
+// pauses per microsecond on this class of CPU). The value is a latency knob, never
+// a correctness one: the loop exits on the counter in both phases, and a value that
+// changed before the blocking wait returns from it immediately.
+[[nodiscard]] uint32_t sync_pause_iterations() noexcept {
+    static auto const iterations = [] {
+        // Phase 3B (opt C) measurement: blocking costs 150-200 us per decode token on
+        // this host. `example_qwen --version dsl-q8 --synthetic-prompt-len 128`
+        // (interleaved A/B, 2 runs per arm) reported 10.18/10.29 ms/token with a 500 us
+        // budget that really slept during the ~9 ms GPU wait, and 10.00/10.01 ms/token
+        // with the budget raised past the wait. The wakeup of a blocked thread is a
+        // kernel transition (WaitOnAddress), which is far more expensive than the
+        // microsecond the poll costs, so the default budget is 20 ms: it still ends in a
+        // blocking wait for a pathological multi-second stall, but a decode token -
+        // and every per-command `commit()+synchronize()` - is served by polling.
+        auto us = uint64_t{20'000u};
+        if (auto e = std::getenv("LUISA_VK_SYNC_SPIN_US");
+            e != nullptr && e[0] != '\0') {
+            auto parsed = std::strtoull(e, nullptr, 10);
+            if (parsed != 0ull) { us = std::min<uint64_t>(parsed, 100'000ull); }
+        }
+        return static_cast<uint32_t>(us * 100ull);
+    }();
+    return iterations;
+}
+}// namespace
 Event::Event(Device *device)
     : Resource(device) {
     VkSemaphoreTypeCreateInfo timelineCreateInfo;
@@ -285,10 +316,27 @@ void Event::_notify(uint64_t value) {
         std::lock_guard lck(_event_mtx);
         _finished_event = std::max<uint64_t>(_finished_event, value);
     }
+    // Phase 3B (opt C): wake every `sync()` that blocked after its polling budget.
+    // The store above is what they observe; the notification is only the wakeup.
+    _finished_event.notify_all();
 }
 void Event::sync(uint64_t value) {
-    while (_finished_event < value) {
-        std::this_thread::yield();
+    // Phase 3B (opt C): poll first (this is the micro-latency path: a per-command
+    // `commit()+synchronize()` waits tens of microseconds), then block instead of
+    // spinning a whole core through a multi-millisecond GPU wait. `yield()` in a loop
+    // neither slept nor helped: it kept the caller and the retirement thread both
+    // runnable while the host argmax/encode had work to do.
+    auto const spin = sync_pause_iterations();
+    for (auto i = 0u; i < spin; ++i) {
+        if (_finished_event.load(std::memory_order_acquire) >= value) { return; }
+        LUISA_INTRIN_PAUSE();
+    }
+    while (true) {
+        auto const observed = _finished_event.load(std::memory_order_acquire);
+        if (observed >= value) { return; }
+        // Blocks while the counter still holds `observed`; a `_notify` that already
+        // moved it makes this return immediately, so no wakeup can be lost.
+        _finished_event.wait(observed, std::memory_order_acquire);
     }
 }
 

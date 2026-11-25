@@ -460,7 +460,6 @@ constexpr std::string_view compute_suffix_after_unroll[] = {
     "reduce-load-size",
     "adce",
     "block-merge",
-    "licm",
     "redundancy-elimination",
     "dead-branch-elim",
     "block-merge",
@@ -1012,7 +1011,8 @@ int main(int argc, char *argv[]) {
                        pass != "merge-return" &&
                        pass != "wrap-op-kill" &&
                        pass != "eliminate-dead-functions" &&
-                       pass != "loop-unswitch")
+                       pass != "loop-unswitch" &&
+                       pass != "licm")
                     << "compute preset must not register " << pass.c_str();
             }
             expect(validates(compute_words));
@@ -1806,7 +1806,7 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    "spirv_compute_licm_hoists_pure_math_and_guards_conditional_loads"_test = [] {
+    "spirv_compute_omits_licm_and_keeps_it_as_an_opt_in_pass_flag"_test = [] {
         ScopedDefaultOptimizerEnvironment defaults;
         // Loop with a loop-invariant OpFDiv inside a conditional block (safe to
         // hoist) and a loop-invariant NonWritable OpLoad inside the same
@@ -1891,8 +1891,18 @@ OpFunctionEnd
         auto fdiv_pos = text.find("OpFDiv");
         auto cond_branch_pos = text.find("OpSelectionMerge");
         expect(loop_merge_pos != std::string::npos);
-        expect(fdiv_pos != std::string::npos && fdiv_pos < loop_merge_pos)
-            << "loop-invariant OpFDiv must hoist before OpLoopMerge:\n"
+        // LICM is deliberately absent from the default `compute` preset: SPIR-V
+        // LICM has no GPU register-pressure model and lengthens live ranges
+        // across GPU loops, which is 1.7-2.0x slower on the Vulkan bf16 GEMM.
+        // The loop-invariant OpFDiv must therefore stay inside the loop, and no
+        // LICM pass may be registered.
+        for (const auto &pass : report.registered_passes) {
+            expect(pass != "licm")
+                << "the compute preset must not register LICM";
+        }
+        expect(fdiv_pos != std::string::npos && fdiv_pos > loop_merge_pos)
+            << "the compute preset must leave the loop-invariant OpFDiv in the "
+               "loop body (LICM is opt-in):\n"
             << text;
         // The conditional NonWritable OpLoad must remain after OpSelectionMerge.
         auto ro_load_pos = text.rfind("OpLoad");
@@ -1901,5 +1911,40 @@ OpFunctionEnd
                ro_load_pos > cond_branch_pos)
             << "conditional OpLoad must not be speculatively hoisted out of branch:\n"
             << text;
+        // The same module with LICM requested through the explicit pass flag must
+        // still hoist, so the opt-in escape hatch keeps working.
+        ScopedEnvironmentVariable opt_in_licm{
+            "LUISA_SPIRV_OPT_PASS_FLAGS", "--loop-invariant-code-motion"};
+        auto opt_in_words = assemble_test_module(licm_module);
+        auto opt_in_report = lc::spirv::optimize_spirv(
+            opt_in_words,
+            {.level = 2, .preset = "compute", .enable_fast_math = false});
+        expect_optimizer_report_ok(opt_in_report);
+        auto has_custom_licm = false;
+        for (const auto &pass : opt_in_report.registered_passes) {
+            has_custom_licm |= pass.find("loop-invariant-code-motion") !=
+                               luisa::string::npos;
+        }
+        expect(has_custom_licm)
+            << "LUISA_SPIRV_OPT_PASS_FLAGS=--loop-invariant-code-motion must "
+               "still register the LICM pass";
+        expect(validates(opt_in_words));
+        auto opt_in_text = disassemble(opt_in_words);
+        auto opt_in_loop_merge_pos = opt_in_text.find("OpLoopMerge");
+        auto opt_in_fdiv_pos = opt_in_text.find("OpFDiv");
+        auto opt_in_cond_branch_pos = opt_in_text.find("OpSelectionMerge");
+        expect(opt_in_loop_merge_pos != std::string::npos);
+        expect(opt_in_fdiv_pos != std::string::npos &&
+               opt_in_fdiv_pos < opt_in_loop_merge_pos)
+            << "opt-in LICM must hoist the loop-invariant OpFDiv before "
+               "OpLoopMerge:\n"
+            << opt_in_text;
+        // The conditional NonWritable OpLoad must remain after OpSelectionMerge.
+        auto opt_in_ro_load_pos = opt_in_text.rfind("OpLoad");
+        expect(opt_in_cond_branch_pos != std::string::npos &&
+               opt_in_ro_load_pos != std::string::npos &&
+               opt_in_ro_load_pos > opt_in_cond_branch_pos)
+            << "conditional OpLoad must not be speculatively hoisted out of branch:\n"
+            << opt_in_text;
     };
 }

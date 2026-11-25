@@ -412,8 +412,12 @@ vstd::push_back_all(_binds, binds);
         _pipeline_layout_interned = detail::InternedLayout{};
         _pipeline_layout = VK_NULL_HANDLE;
         for (auto &&interned : _desc_set_layout_interned) {
-            owner->layout_interner().release_descriptor_set_layout(
-                interned.id, vk_device);
+            // Phase 3B: a non-zero return means the device really destroyed the
+            // native layout, so every VkDescriptorSet cached for this id is dead.
+            if (owner->layout_interner().release_descriptor_set_layout(
+                    interned.id, vk_device) != 0u) {
+                owner->note_shader_layout_destroyed(interned.id);
+            }
         }
         _desc_set_layout_interned.clear();
         _desc_set_layout.clear();
@@ -502,7 +506,12 @@ Shader::~Shader() {
             _pipeline_layout_interned.id, vk_device);
     }
     for (auto &&interned : _desc_set_layout_interned) {
-        layout_interner.release_descriptor_set_layout(interned.id, vk_device);
+        // Phase 3B: a non-zero return means the device really destroyed the
+        // native layout, so every VkDescriptorSet cached for this id is dead.
+        if (layout_interner.release_descriptor_set_layout(
+                interned.id, vk_device) != 0u) {
+            owner->note_shader_layout_destroyed(interned.id);
+        }
     }
 }
 }// namespace lc::vk

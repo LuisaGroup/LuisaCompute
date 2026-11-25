@@ -1061,8 +1061,10 @@ void BindlessArray::update(
             luisa::span<const uint>{descriptor_indices});
     }
     //
+    // Phase 3B (opt A): the bindless-update kernel runs once per update command,
+    // so its set is not cached (id 0) and the state resets its pools.
     VkDescriptorSet desc_set = cmdbuffer->states()->allocate_descriptor_set(
-        shader->desc_set_layout()[0]);
+        0u, shader->desc_set_layout()[0]);
     uint value = mods.size();
     vkCmdPushConstants(
         cmdbuffer->cmdbuffer(),

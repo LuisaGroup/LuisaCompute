@@ -45,6 +45,21 @@
 #include <limits>
 namespace lc::vk {
 
+namespace {
+// Phase 3B (opt C): converts a microsecond budget into a `LUISA_INTRIN_PAUSE` loop
+// bound. A `PAUSE` retires in roughly 10 ns on this class of CPU, i.e. ~100 per
+// microsecond; the value only has to be in the right order of magnitude because it
+// decides nothing but how long a thread polls before it blocks.
+[[nodiscard]] uint32_t pause_iterations_from_us(char const *env_name,
+                                                uint64_t default_us) noexcept {
+    auto us = default_us;
+    if (auto e = std::getenv(env_name); e != nullptr && e[0] != '\0') {
+        auto parsed = std::strtoull(e, nullptr, 10);
+        if (parsed != 0ull) { us = std::min<uint64_t>(parsed, 100'000ull); }
+    }
+    return static_cast<uint32_t>(us * 100ull);
+}
+}// namespace
 struct PresentCommand {
     luisa::fixed_vector<VkFence, 1> submit_fences;
     luisa::fixed_vector<VkSemaphore, 1> submit_wait_semaphores;
@@ -1900,6 +1915,13 @@ void CommandBufferState::init(Device &device, StreamTag tag,
     active_desc_pool_index = 0u;
     next_overflow_max_sets = 8192u;
     next_overflow_per_type = 8192u;
+    // Phase 3B (opt A): the reuse cache starts out empty and is stamped with the
+    // generation of the device it belongs to, so the first retirement takes the
+    // conservative path (pool reset) and every later one can reuse.
+    desc_set_cache.clear();
+    cached_layout_generation = device.shader_layout_destroy_generation();
+    has_uncached_desc_allocs = false;
+    orphaned_desc_sets = 0u;
     desc_pool = stream_state_detail::create_descriptor_pool_with_sizes(
         device, 4096u, 4096u);
     if (!pool) {
@@ -1968,7 +1990,28 @@ CommandBufferState::~CommandBufferState() {
         }
     }
 }
-VkDescriptorSet CommandBufferState::allocate_descriptor_set(VkDescriptorSetLayout layout) {
+VkDescriptorSet CommandBufferState::allocate_descriptor_set(
+    uint64_t layout_id, VkDescriptorSetLayout layout) {
+    // Phase 3B (opt A): a set this state already owns for exactly this interned
+    // layout is handed out again. It can only be taken from a pool that was not
+    // reset since the set was created (see `reset`), and within one recording the
+    // cursor never repeats a handle, so no set is overwritten while the command
+    // buffer of the same recording still refers to it.
+    if (layout_id != 0u) {
+        auto iter = desc_set_cache.find(layout_id);
+        if (iter) {
+            auto &bucket = iter.value();
+            if (bucket.cursor < bucket.sets.size()) {
+                // Counter-only: a reuse is not a native allocation, so
+                // `descriptor_set_allocations` keeps describing the real calls.
+                return bucket.sets[bucket.cursor++];
+            }
+        }
+    } else {
+        // Not an interned layout: the set belongs to no bucket, so this state must
+        // reset its pools on retirement before anything can be reused.
+        has_uncached_desc_allocs = true;
+    }
     VkDescriptorSet set{};
     while (true) {
         VkDescriptorPool current_pool =
@@ -1982,6 +2025,20 @@ VkDescriptorSet CommandBufferState::allocate_descriptor_set(VkDescriptorSetLayou
         if (res == VK_SUCCESS) {
             // Counter-only: one successful vkAllocateDescriptorSets (F2).
             submit_profile::record_descriptor_set_allocation();
+            if (layout_id != 0u) {
+                auto try_res = desc_set_cache.try_emplace(layout_id);
+                auto &bucket = try_res.first.value();
+                // The handle the driver returned is appended behind the ones this state
+                // already owns for this layout, so `sets[i]` stays the i-th handle and the
+                // cursor stays a valid "next" index.
+                LUISA_ASSERT(
+                    bucket.cursor == bucket.sets.size(),
+                    "Vulkan descriptor-set cache cursor {} does not match its "
+                    "{}-entry bucket.",
+                    bucket.cursor, bucket.sets.size());
+                bucket.sets.emplace_back(set);
+                bucket.cursor = bucket.sets.size();
+            }
             return set;
         }
         if (res == VK_ERROR_OUT_OF_POOL_MEMORY || res == VK_ERROR_FRAGMENTED_POOL) {
@@ -2003,13 +2060,48 @@ VkDescriptorSet CommandBufferState::allocate_descriptor_set(VkDescriptorSetLayou
 }
 void CommandBufferState::retain_pipeline(PipelineRef *ref) {
     if (ref == nullptr) { return; }
-    for (auto *existing : retained_pipelines) {
-        if (existing == ref) { return; }
+    // Phase 3B (opt B): the pre-existing linear scan was O(n^2) per batch (a decode
+    // batch grows `retained_pipelines` to 364 entries, i.e. ~66k pointer comparisons
+    // per token). The last retained pipeline is remembered because a batch normally
+    // dispatches one shader many times in a row, and the hash set keeps the general
+    // case O(1). Both are cleared by `reset()`, the only place the vector is emptied.
+    if (ref == _last_retained_pipeline) { return; }
+    if (retained_pipeline_set.try_emplace(ref, 0u).second) {
+        ref->retain();
+        retained_pipelines.emplace_back(ref);
+        _last_retained_pipeline = ref;
     }
-    ref->retain();
-    retained_pipelines.emplace_back(ref);
 }
-void CommandBufferState::reset(
+// Phase 3B (opt C): the retirement of one batch is split in two, so
+// `Stream::sync()` only has to wait for the part the host can observe.
+//
+// `reset_host_visible` runs what the host is allowed to see when `sync()` returns:
+// the readback `memcpy`s of this batch (`callbacks`), the deferred disposals
+// (`dispose_pool`, e.g. framebuffers of a raster batch) and the temporary image
+// views. Destroying the image views here is what keeps an immediately following
+// `destroy_texture()` from racing a `vkDestroyImageView` of a view created for
+// this very submission.
+void CommandBufferState::reset_host_visible(Stream *stream, Device &device) {
+    for (auto &i : callbacks) {
+        i();
+    }
+    callbacks.clear();
+    for (auto &i : dispose_pool) {
+        i.second(stream, this, i.first);
+    }
+    dispose_pool.clear();
+    for (auto i : img_views) {
+        vkDestroyImageView(device.logic_device(), i, Device::alloc_callbacks());
+    }
+    img_views.clear();
+}
+// `reset_native` runs everything else, i.e. the recycling work whose effect is
+// only observable by the next recording of this state: releasing the retained
+// pipelines, dropping the staging allocations, resetting (or rewinding) the
+// descriptor pools and forgetting the tracked bind state. Nothing here is
+// visible to the host, so the retirement thread runs it *after* it notified
+// `Event`, while the caller thread is already encoding the next batch.
+void CommandBufferState::reset_native(
     Stream *stream,
     Device &device,
     temp_buffer::DeferredStagingFrees *deferred_frees) {
@@ -2022,27 +2114,61 @@ void CommandBufferState::reset(
     auto *deferred_upload = deferred_frees ? &deferred_frees->upload_buffers : nullptr;
     auto *deferred_readback = deferred_frees ? &deferred_frees->readback_buffers : nullptr;
     size_t touched_overflow = std::min(active_desc_pool_index, overflow_desc_pools.size());
-    for (auto &i : callbacks) {
-        i();
-    }
-    callbacks.clear();
-    for (auto &i : dispose_pool) {
-        i.second(stream, this, i.first);
-    }
-    dispose_pool.clear();
     for (auto *r : retained_pipelines) {
         r->release();
     }
     retained_pipelines.clear();
+    // Phase 3B (opt B): the membership set and the fast-path pointer describe the
+    // vector that was just emptied, so they are dropped with it.
+    retained_pipeline_set.clear();
+    _last_retained_pipeline = nullptr;
     upload_alloc.clear(deferred_upload);
     readback_alloc.clear(deferred_readback);
-    for (auto i : img_views) {
-        vkDestroyImageView(device.logic_device(), i, Device::alloc_callbacks());
-    }
-    img_views.clear();
-    VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), desc_pool, 0));
-    for (size_t i = 0u; i < touched_overflow; ++i) {
-        VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), overflow_desc_pools[i], 0));
+    // Phase 3B (opt A): the pools only have to be reset when something outside the
+    // cache was allocated from them, when an overflow pool was used (a reset pool
+    // cannot hand out its sets again before they are re-allocated, and the cache
+    // does not record which pool a set came from), or when a descriptor-set layout
+    // was destroyed since the cache was built (every set created from it is dead).
+    // Otherwise rewinding the cursors is exactly equivalent to a pool reset for
+    // every set the cache hands out, and the native call is skipped.
+    auto const layout_generation = device.shader_layout_destroy_generation();
+    if (!has_uncached_desc_allocs && active_desc_pool_index == 0u &&
+        orphaned_desc_sets < 1024u) {
+        if (cached_layout_generation != layout_generation) {
+            // Phase 3B (opt A): only the buckets whose layout really died are dropped. The
+            // device logs destroyed layout ids in generation order, so this is a bounded
+            // walk over the layouts destroyed since the previous recycle instead of a
+            // flush of every bucket the state owns (a shader destruction used to cost the
+            // whole cache, which is what kept the reuse rate at ~29% in the decode loop).
+            device.collect_destroyed_layout_ids(
+                cached_layout_generation, destroyed_layout_scratch);
+            for (auto id : destroyed_layout_scratch) {
+                // Phase 3C (defect 3): the sets of a dropped bucket are still native
+                // sets of this state's pools. They can never be reused (the layout they
+                // were created from is gone and the cache no longer references them),
+                // so they are counted as orphans; the pool reset below is what actually
+                // reclaims them, and the threshold check at the top of this branch
+                // forces exactly that reset once enough of them piled up.
+                if (auto iter = desc_set_cache.find(id)) {
+                    orphaned_desc_sets += iter.value().sets.size();
+                    desc_set_cache.remove(id);
+                }
+            }
+            destroyed_layout_scratch.clear();
+            cached_layout_generation = layout_generation;
+        }
+        for (auto &entry : desc_set_cache) {
+            entry.second.cursor = 0u;
+        }
+    } else {
+        desc_set_cache.clear();
+        has_uncached_desc_allocs = false;
+        orphaned_desc_sets = 0u;
+        cached_layout_generation = layout_generation;
+        VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), desc_pool, 0));
+        for (size_t i = 0u; i < touched_overflow; ++i) {
+            VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), overflow_desc_pools[i], 0));
+        }
     }
     active_desc_pool_index = 0u;
     // The descriptor sets the tracked bindings refer to are gone with the pools
@@ -2051,6 +2177,16 @@ void CommandBufferState::reset(
     // recording; resetting here as well keeps a state that is retired but never
     // re-recorded honest.
     bind_state.reset();
+}
+void CommandBufferState::reset(
+    Stream *stream,
+    Device &device,
+    temp_buffer::DeferredStagingFrees *deferred_frees) {
+    // The unsplit form, kept for the paths that must retire a state synchronously
+    // (a batch that was never submitted, and the replay/measurement helpers). It is
+    // exactly the two halves in their original order.
+    reset_host_visible(stream, device);
+    reset_native(stream, device, deferred_frees);
 }
 bool CommandBuffer::retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees) {
     // A retired batch always holds both halves of its native state. The guard is
@@ -2073,16 +2209,72 @@ bool CommandBuffer::retire_and_recycle(temp_buffer::DeferredStagingFrees *deferr
     _state->reset(&_stream, *device(), deferred_frees);
     return retirement.recycle_native_buffer;
 }
+void CommandBuffer::retire_host_visible() {
+    // Phase 3B (opt C), phase 1 of the retirement: what `Stream::sync()` must have
+    // observed before it returns. Guarded exactly like `retire_and_recycle`, so a
+    // moved-from or already-released buffer is a no-op.
+    if (_cmdbuffer == VK_NULL_HANDLE || _state == nullptr) { return; }
+    LUISA_ASSERT(!detail::may_release_native_batch(_ownership),
+                 "Vulkan: a replay recording (PERSISTENT) must never be retired "
+                 "and recycled by a stream; its native state belongs to a replay "
+                 "graph.");
+    _state->reset_host_visible(&_stream, *device());
+}
+bool CommandBuffer::recycle_native(
+    temp_buffer::DeferredStagingFrees *deferred_frees) {
+    // Phase 3B (opt C), phase 2: the part of the retirement the host cannot observe,
+    // run by the retirement thread after it notified `Event`.
+    if (_cmdbuffer == VK_NULL_HANDLE || _state == nullptr) { return false; }
+    LUISA_ASSERT(!detail::may_release_native_batch(_ownership),
+                 "Vulkan: a replay recording (PERSISTENT) must never be retired "
+                 "and recycled by a stream; its native state belongs to a replay "
+                 "graph.");
+    auto retirement = detail::plan_command_buffer_retirement(_ownership);
+    if (retirement.reset_native_buffer) {
+        VK_CHECK_RESULT(vkResetCommandBuffer(_cmdbuffer, 0));
+    }
+    _state->reset_native(&_stream, *device(), deferred_frees);
+    return retirement.recycle_native_buffer;
+}
 
 Stream::Stream(Device *device, StreamTag tag)
     : Resource{device},
       _evt(device),
+      // Phase 3C (defect 1): the initializer list is in *declaration* order now
+      // (`stream.h`: `_evt`, `_temp_desc`, `_scratch_buffer_alloc`, `_stream_tag`,
+      // `logger`, `reorder`, `argument_scratch`, `_retire_spin_iterations`,
+      // `_work_epoch`, `_thd`). That ordering is what makes the last three safe:
+      // the thread function starts running inside `_thd`'s constructor and reads
+      // `_retire_spin_iterations` and `_work_epoch` immediately, so both must
+      // already be constructed - which they are exactly when the list follows the
+      // declaration order. Before this fix `_work_epoch` was declared *after*
+      // `_thd` (member-initialization-order UB) and `_retire_spin_iterations` was
+      // initialized after it (the thread therefore read 0).
+      _temp_desc(65536, &_temp_desc_visitor, 2),
+      _scratch_buffer_alloc(kTempSize, &_scratch_buffer_alloc_visitor),
+      _stream_tag(tag),
       logger([](luisa::string_view str) {
           LUISA_INFO("[DEVICE] {}", str);
       }),
       reorder({}),
+      _retire_spin_iterations(
+          pause_iterations_from_us("LUISA_VK_RETIRE_SPIN_US", 200u)),
       _thd([this]() {
           temp_buffer::DeferredStagingFrees deferred_staging_frees;
+          // Phase 3B (opt C): command buffers whose host-visible half already ran but
+          // whose native recycling is deferred until after the notification.
+          vstd::vector<CommandBuffer> pending_recycle;
+          auto recycle_pending = [&]() {
+              for (auto &b : pending_recycle) {
+                  if (b.recycle_native(&deferred_staging_frees)) {
+                      _cmdbuffers.enqueue(std::move(b));
+                  }
+              }
+              pending_recycle.clear();
+              if (!deferred_staging_frees.empty()) {
+                  deferred_staging_frees.clear();
+              }
+          };
           auto loop_cmd = [&]() {
               while (true) {
                   _mtx.lock();
@@ -2100,30 +2292,60 @@ Stream::Stream(Device *device, StreamTag tag)
                           } else if constexpr (std::is_same_v<T, SyncExt>) {
                               t.evt->_host_wait(t.value);
                           } else if constexpr (std::is_same_v<T, NotifyEvt>) {
+                              // Phase 3B (opt C): notify first, recycle after. The host-visible half of
+                              // every batch this notification covers already ran (a `CommandBuffer`
+                              // entry always precedes the `NotifyEvt` of its batch), so `Stream::sync()`
+                              // may return now; the recycling that follows is invisible to it and
+                              // overlaps with the caller encoding its next batch.
                               t.evt->_notify(t.value);
-                              if (!deferred_staging_frees.empty()) {
-                                  deferred_staging_frees.clear();
-                              }
+                              recycle_pending();
                           } else if constexpr (std::is_same_v<T, CommandBuffer>) {
-                              if (t.retire_and_recycle(&deferred_staging_frees)) {
-                                  _cmdbuffers.enqueue(std::move(t));
-                              }
+                              t.retire_host_visible();
+                              pending_recycle.emplace_back(std::move(t));
                           }
                       });
               }
           };
-          while (_enabled) {
+          // Phase 3B (opt C) / phase 3C (defect 2): the idle protocol.
+          //
+          // The loop is driven by one number, `_work_epoch`, which every producer
+          // bumps *under `_mtx`* after it enqueued into `_exec` and notifies after
+          // unlocking. Consequences:
+          //   * the thread never touches `_exec` outside `_mtx` (the previous
+          //     `_exec.length()` polls here were an unsynchronized read racing the
+          //     producers' `enqueue`), it only reads the atomic epoch;
+          //   * a wakeup cannot be lost: the epoch is sampled *before* the last
+          //     `loop_cmd()` of an iteration - i.e. before the point at which a
+          //     producer could enqueue something this iteration does not see - and
+          //     the thread only blocks while the epoch still holds that value. A
+          //     producer that bumps between the sample and the wait turns the `wait`
+          //     into an immediate return, and a producer that bumped *before* the
+          //     sample is caught by that `loop_cmd()`.
+          //   * `~Stream()` therefore cannot strand the thread: it flips `_enabled`
+          //     and bumps the epoch under the same lock, and the thread re-checks
+          //     `_enabled` both before and after the blocking wait.
+          while (_enabled.load(std::memory_order_acquire)) {
+              auto const epoch_before = _work_epoch.load(std::memory_order_acquire);
               loop_cmd();
-              while (_enabled && _exec.length() == 0) {
-                  std::this_thread::yield();
+              // Poll briefly (default LUISA_VK_RETIRE_SPIN_US = 200 us) so the
+              // microsecond-scale handoff of a finished batch never pays a kernel
+              // transition, then block.
+              for (auto i = 0u; i < _retire_spin_iterations; ++i) {
+                  if (_work_epoch.load(std::memory_order_acquire) != epoch_before ||
+                      !_enabled.load(std::memory_order_acquire)) {
+                      break;
+                  }
+                  LUISA_INTRIN_PAUSE();
+              }
+              if (_enabled.load(std::memory_order_acquire) &&
+                  _work_epoch.load(std::memory_order_acquire) == epoch_before) {
+                  _work_epoch.wait(epoch_before, std::memory_order_acquire);
               }
           }
           loop_cmd();
+          recycle_pending();
           deferred_staging_frees.clear();
-      }),
-      _temp_desc(65536, &_temp_desc_visitor, 2),
-      _scratch_buffer_alloc(kTempSize, &_scratch_buffer_alloc_visitor),
-      _stream_tag(tag) {
+      }) {
     switch (tag) {
         case StreamTag::GRAPHICS:
             _queue = device->graphics_queue();
@@ -2158,10 +2380,19 @@ Stream::~Stream() {
         }
         _pending_compaction_blases.clear();
     }
+    // Phase 3B (opt C) / phase 3C (defect 2): the retirement thread may be parked on
+    // the wakeup epoch, and `_enabled = false` alone cannot release a blocked `wait`.
+    // The flag flip and the epoch bump therefore happen under the same lock the
+    // producers take, so the thread either sees `_enabled == false` in its own
+    // re-check or observes the bumped epoch (which makes the `wait` return
+    // immediately); the notification that follows the unlock is what actually wakes a
+    // parked thread (and cannot be lost: the epoch already moved).
     {
         std::lock_guard lck{_mtx};
-        _enabled = false;
+        _enabled.store(false, std::memory_order_release);
+        _bump_work_epoch_locked();
     }
+    _notify_retirement_thread();
     _thd.join();
     _scratch_buffer_alloc_visitor.buffers.clear();
     while (auto p = _cmdbuffers.dequeue()) {
@@ -2238,7 +2469,12 @@ uint64_t Stream::execute_immediate(
         _exec.enqueue(NotifyEvt{
             .evt = &_evt,
             .value = fence});
+        // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+        // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+        // for the retirement thread) and notify only after the lock is released.
+        _bump_work_epoch_locked();
         _mtx.unlock();
+        _notify_retirement_thread();
     }
     if (wait_after) {
         _evt.sync(fence);
@@ -2359,7 +2595,12 @@ void Stream::present(
             _exec.enqueue(NotifyEvt{
                 .evt = &_evt,
                 .value = fence});
+            // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+            // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+            // for the retirement thread) and notify only after the lock is released.
+            _bump_work_epoch_locked();
             _mtx.unlock();
+            _notify_retirement_thread();
             return;
         }
 
@@ -2448,7 +2689,12 @@ void Stream::present(
             .evt = &_evt,
             .value = fence});
 
+        // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+        // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+        // for the retirement thread) and notify only after the lock is released.
+        _bump_work_epoch_locked();
         _mtx.unlock();
+        _notify_retirement_thread();
     }
 }
 void Stream::dispatch(
@@ -2661,7 +2907,12 @@ void Stream::dispatch(
                 _exec.enqueue(NotifyEvt{
                     .evt = &_evt,
                     .value = fence});
+                // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+                // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+                // for the retirement thread) and notify only after the lock is released.
+                _bump_work_epoch_locked();
                 _mtx.unlock();
+                _notify_retirement_thread();
                 return;
             }
 
@@ -2673,7 +2924,12 @@ void Stream::dispatch(
                 .evt = &_evt,
                 .value = fence});
 
+            // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+            // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+            // for the retirement thread) and notify only after the lock is released.
+            _bump_work_epoch_locked();
             _mtx.unlock();
+            _notify_retirement_thread();
             return;
         }
         // Command buffer already submitted in present path, don't submit again
@@ -2703,7 +2959,12 @@ void Stream::dispatch(
         .evt = &_evt,
         .value = fence});
 
+    // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+    // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+    // for the retirement thread) and notify only after the lock is released.
+    _bump_work_epoch_locked();
     _mtx.unlock();
+    _notify_retirement_thread();
 }
 CommandBuffer Stream::_begin_batch_record(
     detail::CommandBufferOwnership ownership,
@@ -2845,7 +3106,12 @@ uint64_t Stream::submit_recorded(VkCommandBuffer command_buffer,
     _exec.enqueue(NotifyEvt{
         .evt = &_evt,
         .value = fence});
+    // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+    // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+    // for the retirement thread) and notify only after the lock is released.
+    _bump_work_epoch_locked();
     _mtx.unlock();
+    _notify_retirement_thread();
     // A replay is not a batch, so nothing else would fold this thread's counters.
     submit_profile::flush();
     return fence;
@@ -3270,7 +3536,12 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
     _exec.enqueue(NotifyEvt{
         .evt = &_evt,
         .value = fence});
+    // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+    // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+    // for the retirement thread) and notify only after the lock is released.
+    _bump_work_epoch_locked();
     _mtx.unlock();
+    _notify_retirement_thread();
 }
 void Stream::sync() {
     _evt.sync(_evt.last_fence());
@@ -3336,6 +3607,20 @@ CommandBuffer::~CommandBuffer() {
     }
 }
 void CommandBuffer::begin(VkCommandBufferUsageFlags flags) {
+    // Phase 3B (opt B): an ordinary batch is recorded once and submitted exactly
+    // once (`Stream::dispatch` / `Stream::present` submit it and then hand it to the
+    // retirement FIFO, which resets it), so the recording can say so.
+    // VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT is purely a hint that lets the
+    // implementation skip its resubmission bookkeeping; it changes no
+    // synchronization and no lifetime rule. Two cases keep their flags: a
+    // PERSISTENT recording (the replay path passes SIMULTANEOUS_USE because a graph
+    // resubmits it N times) and any caller that already chose flags. A BORROWED
+    // buffer is begun by this same function on the ordinary dispatch path, so it is
+    // included: it is still submitted exactly once.
+    if (flags == 0u &&
+        _ownership != detail::CommandBufferOwnership::PERSISTENT) {
+        flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    }
     // A command buffer starts its recording with no bindings of its own: whatever
     // the previous recording of this buffer (or its recycled state) bound belongs
     // to a submission that has already completed or been reset (plan P1.2).
@@ -3372,10 +3657,10 @@ detail::RecordedBatch CommandBuffer::release_native_batch() noexcept {
 }
 CommandBuffer::CommandBuffer(CommandBuffer &&rhs) noexcept
     : Resource(std::move(rhs)),
-      _stream(rhs._stream), // NOLINT(bugprone-use-after-move)
-      _cmdbuffer(rhs._cmdbuffer), // NOLINT(bugprone-use-after-move)
+      _stream(rhs._stream),         // NOLINT(bugprone-use-after-move)
+      _cmdbuffer(rhs._cmdbuffer),   // NOLINT(bugprone-use-after-move)
       _state(std::move(rhs._state)),// NOLINT(bugprone-use-after-move)
-      _ownership(rhs._ownership),  // NOLINT(bugprone-use-after-move)
+      _ownership(rhs._ownership),   // NOLINT(bugprone-use-after-move)
       // Plan P4: the record prefix is a helper that *returns* a prepared command
       // buffer, so the stream-scoped wiring has to survive the move. Leaving these
       // null and relying on copy elision would make the extraction work only by
@@ -3410,7 +3695,12 @@ void Stream::signal(Event *event, uint64_t value) {
     _mtx.lock();
     _exec.enqueue(SyncExt{event, value});
     _exec.enqueue(NotifyEvt{event, value});
+    // Phase 3B (opt C) / phase 3C (defect 2): publish the new work while still
+    // holding `_mtx` (the enqueue and the epoch bump are then one indivisible step
+    // for the retirement thread) and notify only after the lock is released.
+    _bump_work_epoch_locked();
     _mtx.unlock();
+    _notify_retirement_thread();
 }
 void Stream::wait(Event *event, uint64_t value) {
     std::lock_guard lck{_dispatch_mtx};
@@ -4115,6 +4405,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             }
         }
         resource_barrier->update_states(_cmdbuffer);
+
         size_t dispatch_offset_index = 0u;
         auto set_dispatch_args = [&](
                                      Command const *identity,
@@ -4147,17 +4438,21 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 "the {}-byte upload allocation.",
                 relative_offset, descriptor_range,
                 arg_buffer.size_bytes);
- uint desc_index = 0;
- visitor.cmdbuffer = this;
- // Plan P2.3: this call owns the write list of the dispatch it encodes, so it
- // starts empty (a push consumes it, and one dispatch pushes twice at most).
- write_desc_sets->clear();
- // A push shader has no VkDescriptorSet: its set 0 lives in the command
- // buffer's push descriptor bank, so nothing is allocated for it.
- visitor.desc_set = shader->uses_push_descriptors() ?
-                        VK_NULL_HANDLE :
-                        _state->allocate_descriptor_set(
-                            shader->desc_set_layout()[0]);
+            uint desc_index = 0;
+            visitor.cmdbuffer = this;
+            // Plan P2.3: this call owns the write list of the dispatch it encodes, so it
+            // starts empty (a push consumes it, and one dispatch pushes twice at most).
+            write_desc_sets->clear();
+            // A push shader has no VkDescriptorSet: its set 0 lives in the command
+            // buffer's push descriptor bank, so nothing is allocated for it.
+            // Phase 3B (opt A): the interning id of this shader's set-0 layout is what
+            // lets the state reuse the set it allocated for the batch before this one
+            // instead of calling vkAllocateDescriptorSets again.
+            visitor.desc_set = shader->uses_push_descriptors() ?
+                                   VK_NULL_HANDLE :
+                                   _state->allocate_descriptor_set(
+                                       shader->desc_set_layout_id(0u),
+                                       shader->desc_set_layout()[0]);
             if (descriptor_range > 0u) {
                 LUISA_ASSERT(
                     arg_buffer.buffer != nullptr,
@@ -4345,20 +4640,20 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     "({}); the shader was created with a push layout, so this "
                     "cannot fall back to a classic set mid-recording.",
                     detail::push_descriptor_status_name(push.status));
-                  // One push consumes the write list, so nothing leaks into the
-                  // next dispatch. An indirect dispatch re-pushes its own
-                  // retained list (see `indirect_repush_writes` at its call site).
-                  write_desc_sets->clear();
-                  // Exactly the state a set-0 bind would have recorded, and only
-                  // for slot 0: the global sets keep their tracked handles, which
-                  // is what lets their bind below stay skippable across dispatches.
-                  _state->bind_state.push_descriptor_sets(
+                // One push consumes the write list, so nothing leaks into the
+                // next dispatch. An indirect dispatch re-pushes its own
+                // retained list (see `indirect_repush_writes` at its call site).
+                write_desc_sets->clear();
+                // Exactly the state a set-0 bind would have recorded, and only
+                // for slot 0: the global sets keep their tracked handles, which
+                // is what lets their bind below stay skippable across dispatches.
+                _state->bind_state.push_descriptor_sets(
                     bind_point,
                     detail::handle_to_uint64(shader->pipeline_layout()),
                     0u);
-                  desc_sets->clear();
-                  } else {
-                  if (!write_desc_sets->empty()) {
+                desc_sets->clear();
+            } else {
+                if (!write_desc_sets->empty()) {
                     LUISA_ASSERT(
                         write_desc_sets->size() <=
                             std::numeric_limits<uint32_t>::max(),
@@ -4389,7 +4684,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         device()->mark_optional_extension_active(
                             detail::OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE);
                     }
-      write_desc_sets->clear();
+                    write_desc_sets->clear();
                 }
                 desc_sets->clear();
                 desc_sets->push_back(visitor.desc_set);
@@ -4464,8 +4759,11 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
 
             auto prepare_shader =
                 device()->prepare_indirect_kernel.get(device());
+            // Phase 3B (opt A): the indirect-preparation kernel's set is deliberately
+            // not cached (id 0): it is bound once per indirect command and the state
+            // records the "uncached allocation" so its pools are reset on retirement.
             VkDescriptorSet prepare_set = _state->allocate_descriptor_set(
-                prepare_shader->desc_set_layout()[0]);
+                0u, prepare_shader->desc_set_layout()[0]);
             std::array descriptor_infos{
                 VkDescriptorBufferInfo{
                     source->vk_buffer(), 0u, source->byte_size()},

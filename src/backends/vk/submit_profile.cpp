@@ -58,6 +58,9 @@ struct GlobalCounters {
     std::atomic<uint64_t> restore_host_ns{0u};
     std::atomic<uint64_t> restore_memory_barriers{0u};
     std::atomic<uint64_t> restore_buffer_barriers{0u};
+    // Phase 3B (opt D): tracked buffers the restore published through its single
+    // coalesced VkMemoryBarrier2 instead of one buffer struct each.
+    std::atomic<uint64_t> restore_coalesced_buffers{0u};
     std::atomic<uint64_t> restore_image_barriers{0u};
     std::atomic<uint64_t> restore_state_buffers{0u};
     std::atomic<uint64_t> restore_state_texture_mips{0u};
@@ -140,6 +143,7 @@ void fold(SubmitProfileCounters &c) noexcept {
     add(g.restore_host_ns, c.restore_host_ns);
     add(g.restore_memory_barriers, c.restore_memory_barriers);
     add(g.restore_buffer_barriers, c.restore_buffer_barriers);
+    add(g.restore_coalesced_buffers, c.restore_coalesced_buffers);
     add(g.restore_image_barriers, c.restore_image_barriers);
     add(g.restore_state_buffers, c.restore_state_buffers);
     add(g.restore_state_texture_mips, c.restore_state_texture_mips);
@@ -229,6 +233,7 @@ SubmitProfileCounters snapshot() noexcept {
     result.restore_host_ns = g.restore_host_ns.load(std::memory_order_relaxed);
     result.restore_memory_barriers = g.restore_memory_barriers.load(std::memory_order_relaxed);
     result.restore_buffer_barriers = g.restore_buffer_barriers.load(std::memory_order_relaxed);
+    result.restore_coalesced_buffers = g.restore_coalesced_buffers.load(std::memory_order_relaxed);
     result.restore_image_barriers = g.restore_image_barriers.load(std::memory_order_relaxed);
     result.restore_state_buffers = g.restore_state_buffers.load(std::memory_order_relaxed);
     result.restore_state_texture_mips = g.restore_state_texture_mips.load(std::memory_order_relaxed);
@@ -348,6 +353,7 @@ luisa::string query(luisa::string_view key) noexcept {
  if (key == "vk_profile_restore_host_ns") { return count_string(c.restore_host_ns); }
  if (key == "vk_profile_restore_memory_barriers") { return count_string(c.restore_memory_barriers); }
  if (key == "vk_profile_restore_buffer_barriers") { return count_string(c.restore_buffer_barriers); }
+ if (key == "vk_profile_restore_coalesced_buffers") { return count_string(c.restore_coalesced_buffers); }
  if (key == "vk_profile_restore_image_barriers") { return count_string(c.restore_image_barriers); }
  if (key == "vk_profile_restore_state_buffers") { return count_string(c.restore_state_buffers); }
  if (key == "vk_profile_restore_state_texture_mips") { return count_string(c.restore_state_texture_mips); }

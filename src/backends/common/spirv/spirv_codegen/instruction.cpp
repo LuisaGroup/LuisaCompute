@@ -62,22 +62,430 @@ struct FastMathFmaPlan {
 }
 
 [[nodiscard]] bool is_deferred_fast_math_fma_multiply(
-    const xir::ArithmeticInst *inst) noexcept {
-    if (inst == nullptr) { return false; }
-    const xir::Use *only_use = nullptr;
-    for (auto *use : inst->use_list()) {
-        if (only_use != nullptr) { return false; }
-        only_use = use;
-    }
-    if (only_use == nullptr || only_use->user() == nullptr ||
-        !only_use->user()->isa<xir::ArithmeticInst>()) {
-        return false;
-    }
-    auto *add = static_cast<const xir::ArithmeticInst *>(
-        only_use->user());
-    auto plan = plan_fast_math_fma(add);
-    return plan && plan.multiply == inst;
-}
+      const xir::ArithmeticInst *inst) noexcept {
+      if (inst == nullptr) { return false; }
+      const xir::Use *only_use = nullptr;
+      for (auto *use : inst->use_list()) {
+          if (only_use != nullptr) { return false; }
+          only_use = use;
+      }
+      if (only_use == nullptr || only_use->user() == nullptr ||
+          !only_use->user()->isa<xir::ArithmeticInst>()) {
+          return false;
+      }
+      auto *add = static_cast<const xir::ArithmeticInst *>(
+          only_use->user());
+      auto plan = plan_fast_math_fma(add);
+      return plan && plan.multiply == inst;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Integer bitfield decode peepholes.
+  //
+  // The `q8_0`/`w4` weight decoders sign-extend a packed code with the exact
+  // two's-complement idiom
+  //     cast<int>(((word >> k) & mask) ^ half) - half   with half = 1 << (w - 1)
+  // which costs five SPIR-V instructions per weight (OpShiftRightLogical,
+  // OpBitwiseAnd, OpBitwiseXor, OpBitcast, OpISub) plus the final integer to
+  // float conversion, and XIR normalization rewrites the subtraction into
+  // `+ (-half)`. The value is exactly the `w`-bit signed field `word[k .. k+w)`
+  // sign-extended to 32 bits, i.e. a single `OpBitFieldSExtract`; LLVM performs
+  // the same fold for the CUDA backend (`cvt.s32.s8`).
+  //
+  // `bf16` decode likewise writes `(word & 0xFFFFu) << 16u` to move the high
+  // half into the binary32 exponent field. Whenever the mask is exactly the low
+  // bits that survive the constant left shift, `(x & mask) << k` is `x << k`.
+  //
+  // Both rewrites are exact identities on 32-bit two's-complement integers. Any
+  // module that does not match every precondition below keeps the generic
+  // emission path, so the folds cannot change a value that the patterns do not
+  // cover.
+  [[nodiscard]] bool is_uint32_scalar_or_vector(const Type *type) noexcept {
+      return type != nullptr &&
+             (type->is_uint32() ||
+              (type->is_vector() && type->element()->is_uint32()));
+  }
+
+  [[nodiscard]] bool is_int32_scalar_or_vector(const Type *type) noexcept {
+      return type != nullptr &&
+             (type->is_int32() ||
+              (type->is_vector() && type->element()->is_int32()));
+  }
+
+  [[nodiscard]] bool has_same_shape(const Type *lhs, const Type *rhs) noexcept {
+      if (lhs == nullptr || rhs == nullptr) { return false; }
+      return lhs->is_vector() == rhs->is_vector() &&
+             (!lhs->is_vector() || lhs->dimension() == rhs->dimension());
+  }
+
+  // Decodes a 32-bit integer constant as raw bits, accepting a uniform vector
+  // splat. Signed and unsigned 32-bit types are interchangeable here because
+  // every consumer compares bit patterns: the decode idiom mixes a uint32 `^`
+  // with a signed `- half`, and `-half` only survives as a bit pattern.
+  [[nodiscard]] bool decode_uint32_constant_bits(
+      const xir::Value *value, uint32_t &bits) noexcept {
+      if (value == nullptr || !value->isa<xir::Constant>()) { return false; }
+      auto *constant = static_cast<const xir::Constant *>(value);
+      auto *type = constant->type();
+      if (type == nullptr) { return false; }
+      auto *element = type->is_vector() ? type->element() : type;
+      if (!element->is_int32() && !element->is_uint32()) { return false; }
+      auto *data = static_cast<const uint32_t *>(constant->data());
+      bits = data[0u];
+      if (type->is_vector()) {
+          for (auto i = 1u; i < type->dimension(); ++i) {
+              if (data[i] != bits) { return false; }
+          }
+      }
+      return true;
+  }
+
+  // Returns the only instruction that uses `inst`, or null when the value has
+  // no instruction user or more than one distinct user. Folding a node away is
+  // only safe while the consumer being rewritten is its sole reader.
+  [[nodiscard]] const xir::Instruction *single_instruction_user(
+      const xir::Instruction *inst) noexcept {
+      const xir::Instruction *user = nullptr;
+      for (auto *use : inst->use_list()) {
+          auto *candidate = use->user();
+          if (candidate == nullptr || !candidate->isa<xir::Instruction>()) {
+              return nullptr;
+          }
+          auto *candidate_inst =
+              static_cast<const xir::Instruction *>(candidate);
+          if (user != nullptr && user != candidate_inst) { return nullptr; }
+          user = candidate_inst;
+      }
+      return user;
+  }
+
+  struct MaskedShiftLeftPlan {
+      const xir::Value *base{nullptr};
+      const xir::Instruction *bit_and{nullptr};
+      [[nodiscard]] explicit operator bool() const noexcept {
+          return base != nullptr;
+      }
+  };
+
+  // `(x & mask) << k` -> `x << k` for a constant `k` in `[1, 32)` whose
+  // redundant-mask proof holds: `mask << k == ~0u << k`, i.e. the mask keeps
+  // exactly the bits that the shift leaves inside the word. Both sides then
+  // equal `x[0 .. 32-k)` and every higher bit is zero in either form.
+  [[nodiscard]] MaskedShiftLeftPlan plan_masked_shift_left(
+      const xir::ArithmeticInst *shift) noexcept {
+      if (shift == nullptr ||
+          shift->op() != xir::ArithmeticOp::BINARY_SHIFT_LEFT ||
+          shift->operand_count() != 2u ||
+          !is_uint32_scalar_or_vector(shift->type())) {
+          return {};
+      }
+      auto shift_bits = uint32_t{0u};
+      if (!decode_uint32_constant_bits(shift->operand(1u), shift_bits) ||
+          shift_bits == 0u || shift_bits >= 32u) {
+          return {};
+      }
+      auto *masked = shift->operand(0u);
+      if (masked == nullptr || !masked->isa<xir::ArithmeticInst>()) {
+          return {};
+      }
+      auto *bit_and = static_cast<const xir::ArithmeticInst *>(masked);
+      if (bit_and->op() != xir::ArithmeticOp::BINARY_BIT_AND ||
+          bit_and->operand_count() != 2u ||
+          bit_and->type() != shift->type()) {
+          return {};
+      }
+      auto expected_mask = ~0u << shift_bits;
+      const xir::Value *base = nullptr;
+      auto mask_seen = false;
+      for (auto i = 0u; i < 2u; ++i) {
+          auto mask_bits = uint32_t{0u};
+          auto *candidate = bit_and->operand(i);
+          if (decode_uint32_constant_bits(candidate, mask_bits)) {
+              if (mask_seen || (mask_bits << shift_bits) != expected_mask) {
+                  return {};
+              }
+              mask_seen = true;
+          } else {
+              base = candidate;
+          }
+      }
+      if (!mask_seen || base == nullptr || base->isa<xir::Constant>() ||
+          base->type() != shift->type()) {
+          return {};
+      }
+      return {.base = base, .bit_and = bit_and};
+  }
+
+  struct UnsignedRightShiftPlan {
+      const xir::Value *base{nullptr};
+      uint32_t amount{0u};
+      const xir::Instruction *shift{nullptr};
+      [[nodiscard]] explicit operator bool() const noexcept {
+          return base != nullptr;
+      }
+  };
+
+  // `x >> k` with a 32-bit unsigned, therefore logical, shift and a constant
+  // count. A signed or non-32-bit shift is never part of a decode idiom.
+  [[nodiscard]] UnsignedRightShiftPlan plan_unsigned_right_shift(
+      const xir::Value *value) noexcept {
+      if (value == nullptr || !value->isa<xir::ArithmeticInst>()) {
+          return {};
+      }
+      auto *shift = static_cast<const xir::ArithmeticInst *>(value);
+      if (shift->op() != xir::ArithmeticOp::BINARY_SHIFT_RIGHT ||
+          shift->operand_count() != 2u ||
+          !is_uint32_scalar_or_vector(shift->type()) ||
+          shift->operand(0u)->type() != shift->type()) {
+          return {};
+      }
+      auto amount = uint32_t{0u};
+      if (!decode_uint32_constant_bits(shift->operand(1u), amount) ||
+          amount >= 32u) {
+          return {};
+      }
+      return {.base = shift->operand(0u), .amount = amount, .shift = shift};
+  }
+
+  struct SignedBitfieldExtractPlan {
+      const xir::Value *base{nullptr};
+      uint32_t offset{0u};
+      uint32_t count{0u};
+      const xir::Instruction *cast{nullptr};
+      const xir::Instruction *bit_xor{nullptr};
+      const xir::Instruction *bit_and{nullptr};
+      // A duplicated `(v & mask) & mask`: the decoders mask the packed word at
+      // the call site and again inside the decode helper, so the inner node is
+      // just as dead as the outer one once the field is extracted.
+      const xir::Instruction *nested_mask{nullptr};
+      const xir::Instruction *shift{nullptr};
+      [[nodiscard]] explicit operator bool() const noexcept {
+          return base != nullptr;
+      }
+  };
+
+  // Recognises `cast<int>(((x >> k) & mask) ^ half) - half` and its `+ (-half)`
+  // normalization, for `half == 1 << (count - 1)`, `mask == (1 << count) - 1`
+  // and `0 <= k` with `k + count <= 32`. The signed field is exactly
+  // `OpBitFieldSExtract(bitcast(x), k, count)`.
+  //
+  // The unmasked `((x >> k) ^ half) - half` form is accepted only when
+  // `k + count == 32`: the logical shift must already leave exactly `count`
+  // bits, otherwise the XOR would not be looking at the field's sign bit.
+  [[nodiscard]] SignedBitfieldExtractPlan plan_signed_bitfield_extract(
+      const xir::ArithmeticInst *inst) noexcept {
+      if (inst == nullptr || inst->operand_count() != 2u ||
+          !is_int32_scalar_or_vector(inst->type())) {
+          return {};
+      }
+      // `-half` only ever appears as the bit pattern of a negated power of two,
+      // so a single check covers the SUB and the normalized ADD form.
+      auto count_of_half = [](uint32_t bits) noexcept {
+          if (bits == 0u || (bits & (bits - 1u)) != 0u ||
+              bits > 0x40000000u) {
+              return 0u;
+          }
+          auto count = 0u;
+          while ((bits >>= 1u) != 0u) { ++count; }
+          return count + 1u;
+      };
+      const xir::Value *cast_value = nullptr;
+      auto count = uint32_t{0u};
+      if (inst->op() == xir::ArithmeticOp::BINARY_SUB) {
+          auto half_bits = uint32_t{0u};
+          if (!decode_uint32_constant_bits(inst->operand(1u), half_bits)) {
+              return {};
+          }
+          cast_value = inst->operand(0u);
+          count = count_of_half(half_bits);
+      } else {
+          auto constant = static_cast<const xir::Value *>(nullptr);
+          auto half_bits = uint32_t{0u};
+          for (auto i = 0u; i < 2u; ++i) {
+              if (decode_uint32_constant_bits(inst->operand(i), half_bits)) {
+                  if (constant != nullptr) { return {}; }
+                  constant = inst->operand(i);
+              } else {
+                  cast_value = inst->operand(i);
+              }
+          }
+          if (constant == nullptr) { return {}; }
+          count = count_of_half(0u - half_bits);
+      }
+      if (count == 0u || cast_value == nullptr ||
+          !cast_value->isa<xir::CastInst>()) {
+          return {};
+      }
+      auto *cast = static_cast<const xir::CastInst *>(cast_value);
+      if (cast->op() != xir::CastOp::STATIC_CAST ||
+          cast->type() != inst->type() ||
+          !is_uint32_scalar_or_vector(cast->value()->type()) ||
+          !has_same_shape(cast->type(), cast->value()->type())) {
+          return {};
+      }
+      auto *xor_value = cast->value();
+      if (!xor_value->isa<xir::ArithmeticInst>()) { return {}; }
+      auto *bit_xor = static_cast<const xir::ArithmeticInst *>(xor_value);
+      if (bit_xor->op() != xir::ArithmeticOp::BINARY_BIT_XOR ||
+          bit_xor->operand_count() != 2u ||
+          bit_xor->type() != xor_value->type()) {
+          return {};
+      }
+      auto half = 1u << (count - 1u);
+      const xir::Value *masked = nullptr;
+      auto half_seen = false;
+      for (auto i = 0u; i < 2u; ++i) {
+          auto bits = uint32_t{0u};
+          if (decode_uint32_constant_bits(bit_xor->operand(i), bits) &&
+              bits == half) {
+              if (half_seen) { return {}; }
+              half_seen = true;
+          } else {
+              masked = bit_xor->operand(i);
+          }
+      }
+      if (!half_seen || masked == nullptr || masked->isa<xir::Constant>()) {
+          return {};
+      }
+      auto mask = (1u << count) - 1u;
+      auto *bit_and = static_cast<const xir::Instruction *>(nullptr);
+      auto *nested_mask = static_cast<const xir::Instruction *>(nullptr);
+      auto offset = uint32_t{0u};
+      auto shift = UnsignedRightShiftPlan{};
+      if (masked->isa<xir::ArithmeticInst>()) {
+          auto *and_candidate =
+              static_cast<const xir::ArithmeticInst *>(masked);
+          if (and_candidate->op() == xir::ArithmeticOp::BINARY_BIT_AND &&
+              and_candidate->operand_count() == 2u &&
+              and_candidate->type() == bit_xor->type()) {
+              auto *inner = static_cast<const xir::Value *>(nullptr);
+              auto mask_seen = false;
+              for (auto i = 0u; i < 2u; ++i) {
+                  auto bits = uint32_t{0u};
+                  auto *candidate = and_candidate->operand(i);
+                  if (decode_uint32_constant_bits(candidate, bits)) {
+                      if (mask_seen || bits != mask) { return {}; }
+                      mask_seen = true;
+                  } else {
+                      inner = candidate;
+                  }
+              }
+              if (!mask_seen || inner == nullptr ||
+                  inner->isa<xir::Constant>() ||
+                  inner->type() != bit_xor->type()) {
+                  return {};
+              }
+              bit_and = and_candidate;
+              masked = inner;
+              // `(v & mask) & mask` collapses to one mask: the decoders mask
+              // the packed word at the call site and again inside the decode
+              // helper, so peel an identical nested mask off as well.
+              if (masked->isa<xir::ArithmeticInst>()) {
+                  auto *nested =
+                      static_cast<const xir::ArithmeticInst *>(masked);
+                  if (nested->op() == xir::ArithmeticOp::BINARY_BIT_AND &&
+                      nested->operand_count() == 2u &&
+                      nested->type() == bit_xor->type()) {
+                      auto *peeled = static_cast<const xir::Value *>(nullptr);
+                      auto nested_mask_seen = false;
+                      for (auto i = 0u; i < 2u; ++i) {
+                          auto bits = uint32_t{0u};
+                          auto *candidate = nested->operand(i);
+                          if (decode_uint32_constant_bits(candidate, bits)) {
+                              if (nested_mask_seen || bits != mask) { return {}; }
+                              nested_mask_seen = true;
+                          } else {
+                              peeled = candidate;
+                          }
+                      }
+                      if (!nested_mask_seen || peeled == nullptr ||
+                          peeled->isa<xir::Constant>() ||
+                          peeled->type() != bit_xor->type()) {
+                          return {};
+                      }
+                      nested_mask = nested;
+                      masked = peeled;
+                  }
+              }
+          }
+      }
+      if (bit_and != nullptr) {
+          if (auto planned_shift = plan_unsigned_right_shift(masked)) {
+              if (planned_shift.amount + count > 32u) { return {}; }
+              offset = planned_shift.amount;
+              shift = planned_shift;
+          } else {
+              // `x & mask` alone: the field starts at bit zero. A masked value
+              // that hides a non-shift producer keeps the generic path.
+              offset = 0u;
+              shift = {.base = masked};
+          }
+      } else {
+          auto planned_shift = plan_unsigned_right_shift(masked);
+          if (!planned_shift || planned_shift.amount + count != 32u) {
+              return {};
+          }
+          offset = planned_shift.amount;
+          shift = planned_shift;
+      }
+      return {.base = shift.base,
+              .offset = offset,
+              .count = count,
+              .cast = cast,
+              .bit_xor = bit_xor,
+              .bit_and = bit_and,
+              .nested_mask = nested_mask,
+              .shift = shift.shift};
+  }
+
+  // True when `inst` is a node that a consumer fold rewrites away. Emission
+  // skips such a node so the surplus instructions never reach the module; the
+  // node still counts as defined because no other value reads it. The walk
+  // covers at most `mask -> xor -> cast -> consumer`.
+  [[nodiscard]] bool is_bitfield_peephole_candidate(
+      const xir::Instruction *inst) noexcept {
+      if (inst->isa<xir::CastInst>()) {
+          auto *cast = static_cast<const xir::CastInst *>(inst);
+          return cast->op() == xir::CastOp::STATIC_CAST &&
+                 is_int32_scalar_or_vector(cast->type()) &&
+                 is_uint32_scalar_or_vector(cast->value()->type());
+      }
+      if (inst->isa<xir::ArithmeticInst>()) {
+          auto *arith = static_cast<const xir::ArithmeticInst *>(inst);
+          if (!is_uint32_scalar_or_vector(arith->type())) { return false; }
+          return arith->op() == xir::ArithmeticOp::BINARY_BIT_AND ||
+                 arith->op() == xir::ArithmeticOp::BINARY_BIT_XOR ||
+                 arith->op() == xir::ArithmeticOp::BINARY_SHIFT_RIGHT;
+      }
+      return false;
+  }
+
+  [[nodiscard]] bool is_folded_bitfield_peephole_node(
+      const xir::Instruction *inst) noexcept {
+      auto *current = inst;
+      for (auto depth = 0u; depth < 5u; ++depth) {
+          auto *user = single_instruction_user(current);
+          if (user == nullptr) { return false; }
+          if (user->isa<xir::ArithmeticInst>()) {
+              auto *consumer =
+                  static_cast<const xir::ArithmeticInst *>(user);
+              if (consumer->op() == xir::ArithmeticOp::BINARY_SHIFT_LEFT) {
+                  auto plan = plan_masked_shift_left(consumer);
+                  if (plan && plan.bit_and == inst) { return true; }
+              } else if (consumer->op() == xir::ArithmeticOp::BINARY_SUB ||
+                         consumer->op() == xir::ArithmeticOp::BINARY_ADD) {
+                  auto plan = plan_signed_bitfield_extract(consumer);
+                  if (plan && (plan.cast == inst || plan.bit_xor == inst ||
+                               plan.bit_and == inst || plan.nested_mask == inst ||
+                               plan.shift == inst)) {
+                      return true;
+                  }
+              }
+          }
+          current = user;
+      }
+      return false;
+  }
 
 // Returns the bitmask of top-level struct member indices extracted from a
 // ray-query read instruction. Returns ~0u conservatively if any use is not a
@@ -313,7 +721,24 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto binary = [&](spv::Op op) noexcept -> spv::Id {
         return _builder.createBinOp(op, type, operand(0), operand(1));
     };
-    auto mark_no_contraction = [&](spv::Id arithmetic) noexcept {
+    auto emit_signed_bitfield_extract = [&](const SignedBitfieldExtractPlan &plan) noexcept -> spv::Id {
+          // OpBitFieldSExtract requires Base and Result Type to be the same
+          // signed 32-bit type, and Offset/Count to be scalar integer
+          // constants even for a vector Base. The bit-cast is a register
+          // renaming no-op; it replaces the four instructions of the
+          // two's-complement decode idiom (OpShiftRightLogical, OpBitwiseAnd,
+          // OpBitwiseXor and the OpIAdd of -half).
+          auto signed_base = _builder.createUnaryOp(
+              spv::Op::OpBitcast, type, _emit_value(plan.base));
+          auto offset = _builder.makeIntConstant(
+              _builder.makeUintType(32), plan.offset, false);
+          auto count = _builder.makeIntConstant(
+              _builder.makeUintType(32), plan.count, false);
+          return _builder.createTriOp(
+              spv::Op::OpBitFieldSExtract, type,
+              signed_base, offset, count);
+      };
+      auto mark_no_contraction = [&](spv::Id arithmetic) noexcept {
         if (!_enable_fast_math) {
             _builder.addDecoration(
                 arithmetic, spv::Decoration::NoContraction);
@@ -1100,23 +1525,27 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     auto b = _emit_value(fma.multiply->operand(1u));
                     auto c = _emit_value(fma.addend);
                     id = _builder.createBuiltinCall(type, _glsl450, GLSLstd450Fma, {a, b, c});
-                } else {
-                    id = binary(spv::Op::OpFAdd);
-                }
-            } else {
-                id = binary(is_float ?
-                                spv::Op::OpFAdd :
-                                spv::Op::OpIAdd);
-            }
-            break;
-        }
-        case xir::ArithmeticOp::BINARY_SUB:
-            if (is_float)
-                id = binary(spv::Op::OpFSub);
-            else
-                id = binary(spv::Op::OpISub);
-            break;
-        case xir::ArithmeticOp::BINARY_MUL: {
+} else {
+                      id = binary(spv::Op::OpFAdd);
+                  }
+              } else if (auto bitfield = plan_signed_bitfield_extract(inst)) {
+                  id = emit_signed_bitfield_extract(bitfield);
+              } else {
+                  id = binary(is_float ?
+                                  spv::Op::OpFAdd :
+                                  spv::Op::OpIAdd);
+              }
+              break;
+          }
+          case xir::ArithmeticOp::BINARY_SUB:
+              if (is_float)
+                  id = binary(spv::Op::OpFSub);
+              else if (auto bitfield = plan_signed_bitfield_extract(inst))
+                  id = emit_signed_bitfield_extract(bitfield);
+              else
+                  id = binary(spv::Op::OpISub);
+              break;
+          case xir::ArithmeticOp::BINARY_MUL: {
             id = binary(is_float ?
                             spv::Op::OpFMul :
                             spv::Op::OpIMul);
@@ -1204,9 +1633,18 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             else
                 id = binary(spv::Op::OpBitwiseXor);
             break;
-        case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
-            id = binary(spv::Op::OpShiftLeftLogical);
-            break;
+case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
+              if (auto masked = plan_masked_shift_left(inst)) {
+                  // `(x & mask) << k` with a mask that keeps exactly the bits
+                  // the shift keeps: the mask is redundant, so shift the source
+                  // directly instead of materializing a dead OpBitwiseAnd.
+                  id = _builder.createBinOp(
+                      spv::Op::OpShiftLeftLogical, type,
+                      _emit_value(masked.base), operand(1u));
+              } else {
+                  id = binary(spv::Op::OpShiftLeftLogical);
+              }
+              break;
         case xir::ArithmeticOp::BINARY_SHIFT_RIGHT:
             if (is_signed_int)
                 id = binary(spv::Op::OpShiftRightArithmetic);
@@ -5982,16 +6420,23 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             set_result(id);
             break;
         }
-        case xir::DerivedInstructionTag::ARITHMETIC: {
-            auto *arithmetic =
-                static_cast<const xir::ArithmeticInst *>(inst);
-            if (_enable_fast_math &&
-                is_deferred_fast_math_fma_multiply(arithmetic)) {
-                break;
-            }
-            _emit_arithmetic_inst(arithmetic);
-            break;
-        }
+case xir::DerivedInstructionTag::ARITHMETIC: {
+              auto *arithmetic =
+                  static_cast<const xir::ArithmeticInst *>(inst);
+              if (_enable_fast_math &&
+                  is_deferred_fast_math_fma_multiply(arithmetic)) {
+                  break;
+              }
+              // A decode node consumed by a folded `OpBitFieldSExtract` or by a
+              // redundant-mask shift has no reader left; emit nothing rather
+              // than materializing instructions the fold already replaced.
+              if (is_bitfield_peephole_candidate(inst) &&
+                  is_folded_bitfield_peephole_node(inst)) {
+                  break;
+              }
+              _emit_arithmetic_inst(arithmetic);
+              break;
+          }
         case xir::DerivedInstructionTag::CALL: {
             auto call = static_cast<const xir::CallInst *>(inst);
             auto callee = static_cast<const xir::Function *>(call->callee());
@@ -6086,9 +6531,15 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             set_result(id);
             break;
         }
-        case xir::DerivedInstructionTag::CAST: {
-            auto cast = static_cast<const xir::CastInst *>(inst);
-            auto val = _emit_value(cast->value());
+case xir::DerivedInstructionTag::CAST: {
+              auto cast = static_cast<const xir::CastInst *>(inst);
+              // The uint32-to-int32 reinterpreting cast of a folded signed
+              // bitfield decode is consumed by the OpBitFieldSExtract itself.
+              if (is_bitfield_peephole_candidate(inst) &&
+                  is_folded_bitfield_peephole_node(inst)) {
+                  break;
+              }
+              auto val = _emit_value(cast->value());
             auto from = cast->value()->type();
             auto to = cast->type();
             auto spv_to = _convert_type(to, Usage::READ);

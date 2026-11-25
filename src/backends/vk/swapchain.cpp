@@ -1399,8 +1399,12 @@ void Swapchain::present(
     if (!_vertex_buffer) {
         _create_vertex_buffer(cmdbuffer, cmdbuffer.states()->callbacks, device()->physical_device(), device()->logic_device(), device(), _vertex_buffer, _vertex_buffer_memory);
     }
+    // Phase 3B (opt A): the present path owns a private layout (it is not an
+    // interned shader layout), so it always allocates and marks the state
+    // uncached - which is what keeps the state's pools reset on retirement.
     VkDescriptorSet descriptor_set =
-        cmdbuffer.states()->allocate_descriptor_set(_descriptor_set_layout);
+        cmdbuffer.states()->allocate_descriptor_set(
+            0u, _descriptor_set_layout);
     auto image = tex->vk_image();
     auto image_format = Texture::to_vk_format(tex->format());
     cmdbuffer.resource_barrier->record(

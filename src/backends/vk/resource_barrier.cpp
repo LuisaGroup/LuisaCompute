@@ -1129,22 +1129,57 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
     _memory_barriers.clear();
     _buffer_barriers.clear();
     _tex_barriers.clear();
+    // Phase 3B (opt D): the restore of the *ordinary* tracked buffers is coalesced
+    // into one whole-memory barrier instead of one whole-buffer
+    // VkBufferMemoryBarrier2 per buffer. A decode batch tracks ~300 buffers, and the
+    // individual structs all carried the same stage masks
+    // (ALL_COMMANDS -> ALL_COMMANDS) and the same destination scope
+    // (MEMORY_READ|MEMORY_WRITE), so a VkMemoryBarrier2 with the union of their
+    // source access masks publishes exactly the same thing for every one of them and
+    // is strictly broader for memory it does not name - which nothing can observe,
+    // because the tracker drops every entry at the end of this function.
+    //
+    // The source access mask is only forwarded when at least one tracked buffer was
+    // actually written in this submission (`has_write_access`): with no write there is
+    // no data to flush, and an execution-only barrier (srcAccess = dstAccess = NONE
+    // with ALL_COMMANDS on both sides) already orders the next submission after every
+    // command of this one, which is what makes a later write of these buffers (WAR)
+    // and a later read of something they read safe.
+    //
+    // A buffer with an explicit `_saved_buffer_restore_states` entry keeps its own
+    // exact struct: that destination scope is a narrower contract published by
+    // `VulkanDeviceConfigExt`, and coalescing it would widen it.
+    VkAccessFlags2 coalesced_src_access = VK_ACCESS_2_NONE;
+    auto coalesced_buffers = size_t{0u};
     for (auto &entry : _buffer_frame_states) {
         auto identity = entry.first;
         auto &state = entry.second;
-        auto &barrier = _buffer_barriers.emplace_back();
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        barrier.srcAccessMask = state.range.before_access;
-        barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-        barrier.buffer = state.buffer;
-        barrier.offset = 0;
-        barrier.size = std::numeric_limits<uint64_t>::max();
         if (auto iter = _saved_buffer_restore_states.find(identity)) {
             auto &saved = iter.value();
+            auto &barrier = _buffer_barriers.emplace_back();
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             barrier.dstStageMask = saved.after_stage;
+            barrier.srcAccessMask = state.range.before_access;
             barrier.dstAccessMask = saved.after_access;
+            barrier.buffer = state.buffer;
+            barrier.offset = 0;
+            barrier.size = std::numeric_limits<uint64_t>::max();
+            continue;
         }
+        coalesced_src_access |= state.range.before_access;
+        ++coalesced_buffers;
+    }
+    if (coalesced_buffers != 0u) {
+        auto const wrote = detail::has_write_access(coalesced_src_access);
+        auto &barrier = _memory_barriers.emplace_back();
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.srcAccessMask = wrote ? coalesced_src_access : VK_ACCESS_2_NONE;
+        barrier.dstAccessMask =
+            wrote ? (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT) :
+                    VK_ACCESS_2_NONE;
+        barrier_filter(barrier);
+        submit_profile::record_restore_coalesced_buffers(coalesced_buffers);
     }
     for (auto &entry : _texture_frame_states) {
         auto identity = entry.first;

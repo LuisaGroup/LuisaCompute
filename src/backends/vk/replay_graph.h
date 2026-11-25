@@ -108,6 +108,23 @@ struct ReplayGraph {
 // cycle with `Device::_stream_mtx` or a stream's `_dispatch_mtx`.
 class ReplayRegistry {
 public:
+    // Phase 3C: the hot-path view of one graph, used by
+    // `VulkanReplayExt::replay()` - the call a device-greedy decode loop makes once
+    // per token. It carries exactly what a submission needs and nothing else:
+    // `snapshot()` is for the diagnostic entry points (`status()`, `destroy()`,
+    // `update()`), which may copy the free-form `message`; this one copies the
+    // message only when the graph is invalidated (i.e. on the error path), so a
+    // successful replay allocates no string at all.
+    struct ReplayHandle {
+        bool found{false};
+        uint64_t stream_handle{0u};
+        uint64_t command_buffer{0u};// bit-cast VkCommandBuffer, 0 when released
+        luisa::compute::VulkanReplayInvalidationReason invalidation{
+            luisa::compute::VulkanReplayInvalidationReason::NONE};
+        // Only filled when `invalidation != NONE`; empty otherwise.
+        luisa::string message;
+    };
+
     struct Snapshot {
         bool found{false};
         uint64_t stream_handle{0u};
@@ -143,6 +160,11 @@ public:
     // nothing) when the handle space is exhausted.
     [[nodiscard]] uint64_t add(ReplayGraph *graph) noexcept;
     [[nodiscard]] Snapshot snapshot(uint64_t handle) const noexcept;
+    // The allocation-free hot path of `snapshot()`: no `luisa::string` copy unless
+    // the graph is invalidated, no diagnostic counters, no layout counts. All the
+    // safety checks of `replay()` are preserved - a missing handle, an invalidated
+    // graph and a released command buffer are all reported through the fields.
+    [[nodiscard]] ReplayHandle prepare_replay(uint64_t handle) const noexcept;
     // Removes the graph from the registry and hands it to the caller, who then
     // owns (and must delete) it.
     [[nodiscard]] ReplayGraph *take(uint64_t handle) noexcept;

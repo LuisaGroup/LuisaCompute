@@ -464,8 +464,10 @@ void Tlas::pre_build(
             ResourceBarrier::Usage::kComputeUAV);
         auto shader = device()->set_accel_kernel.get(device());
         resource_barrier->update_states(cmdbuffer.cmdbuffer());
+        // Phase 3B (opt A): the accel-set kernel's set is not cached (id 0); it is
+        // bound once per TLAS update and marks the state uncached.
         VkDescriptorSet desc_set = cmdbuffer.states()->allocate_descriptor_set(
-            shader->desc_set_layout()[0]);
+            0u, shader->desc_set_layout()[0]);
         const uint modification_size = static_cast<uint>(modifications.size() + _pending_refresh_count);
         uint2 value = {
             modification_size,
