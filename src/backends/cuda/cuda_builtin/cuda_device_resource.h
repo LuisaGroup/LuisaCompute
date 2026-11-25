@@ -1918,6 +1918,12 @@ enum LCHitTypePrefix : lc_uint {
     LC_HIT_TYPE_PREFIX_MASK = 0xfu << 28u,
 };
 
+struct LCIntersectionResult {
+    lc_float t_hit{};
+    lc_bool committed{};
+    lc_bool terminated{};
+};
+
 struct LCRayQuery {
     LCAccel accel;
     LCRay ray;
@@ -1925,6 +1931,7 @@ struct LCRayQuery {
     lc_uint mask;
     lc_uint flags;
     LCCommittedHit hit;
+    LCIntersectionResult result{};
 };
 
 using LCRayQueryAll = LCRayQuery;
@@ -2098,12 +2105,6 @@ void lc_ray_query_terminate() noexcept {
 #error "LUISA_RAY_QUERY_IMPL_COUNT must be less than or equal to 32"
 #endif
 
-struct LCIntersectionResult {
-    lc_float t_hit{};
-    lc_bool committed{};
-    lc_bool terminated{};
-};
-
 #define LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(index) \
     [[nodiscard]] __device__ __forceinline__ LCIntersectionResult lc_ray_query_procedural_intersection_##index(void *ctx_in) noexcept
 
@@ -2114,13 +2115,13 @@ struct LCIntersectionResult {
 #define LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT(q) lc_ray_query_triangle_candidate()
 #define LC_RAY_QUERY_WORLD_RAY(q) lc_ray_query_world_ray()
 #define LC_RAY_QUERY_OBJECT_RAY(q) lc_ray_query_object_ray()
-#define LC_RAY_QUERY_COMMIT_TRIANGLE(q) static_cast<void>(result.committed = true)
+#define LC_RAY_QUERY_COMMIT_TRIANGLE(q) static_cast<void>((q).result.committed = true)
 #define LC_RAY_QUERY_COMMIT_PROCEDURAL(q, t) \
     do {                                     \
-        result.committed = true;             \
-        result.t_hit = t;                    \
+        (q).result.committed = true;         \
+        (q).result.t_hit = t;                \
     } while (false)
-#define LC_RAY_QUERY_TERMINATE(q) static_cast<void>(result.terminated = true)
+#define LC_RAY_QUERY_TERMINATE(q) static_cast<void>((q).result.terminated = true)
 
 // declare `lc_ray_query_intersection` for at most 32 implementations
 LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(0);

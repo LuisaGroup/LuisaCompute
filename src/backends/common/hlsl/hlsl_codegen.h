@@ -370,9 +370,8 @@ template<>
 struct PrintValue<float> {
     void operator()(float const &v, vstd::StringBuilder &str) {
         if (luisa::isnan(v)) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
-        }
-        if (luisa::isinf(v)) [[unlikely]] {
+            str.append(luisa::format("asfloat({:#x}u)", luisa::bit_cast<uint32_t>(v)));
+        } else if (luisa::isinf(v)) [[unlikely]] {
             str.append(v < 0.0f ? "(-_INF_f)" : "(_INF_f)");
         } else {
             switch (luisa::bit_cast<uint32_t>(v)) {
@@ -392,9 +391,11 @@ template<>
 struct PrintValue<double> {
     void operator()(double const &v, vstd::StringBuilder &str) {
         if (luisa::isnan(v)) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
-        }
-        if (luisa::isinf(v)) [[unlikely]] {
+            auto bits = luisa::bit_cast<uint64_t>(v);
+            str.append(luisa::format("asdouble({:#x}u, {:#x}u)",
+                                     static_cast<uint32_t>(bits & 0xffffffffull),
+                                     static_cast<uint32_t>(bits >> 32u)));
+        } else if (luisa::isinf(v)) [[unlikely]] {
             str.append(v < 0.0 ? "(-_INF_d)" : "(_INF_d)");
         } else {
             str.append(luisa::format("float64_t({})", v));
@@ -406,9 +407,9 @@ template<>
 struct PrintValue<half> {
     void operator()(half const &v, vstd::StringBuilder &str) {
         if (luisa::isnan(v)) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
-        }
-        if (luisa::isinf(v)) [[unlikely]] {
+            str.append(luisa::format("float16_t(asfloat({:#x}u))",
+                                     luisa::bit_cast<uint32_t>(static_cast<float>(v))));
+        } else if (luisa::isinf(v)) [[unlikely]] {
             str.append(v < 0.0f ? "(-_INF_f)" : "(_INF_f)");
         } else {
             str.append(luisa::format("float16_t({})", static_cast<float>(v)));

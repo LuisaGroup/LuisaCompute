@@ -79,7 +79,7 @@ void ScheduleEmitter::_emit_instruction(
             _assert(instruction);
             break;
         case schedule::Opcode::assume:
-            _assume(instruction);
+            _emit_assume(instruction);
             break;
         case schedule::Opcode::clock:
             value = _clock(instruction);

@@ -23,14 +23,10 @@ llvm::Value *CUDACodegenLLVMImpl::_read_special_register(IB &b, const FunctionCo
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_read_block_id(IB &b, const FunctionContext &func_ctx) noexcept {
-    if (_rt_analysis.uses_ray_tracing) {// block_id = (dispatch_id + block_size - uint3(1)) / block_size
+    if (_rt_analysis.uses_ray_tracing) {// block_id = dispatch_id / block_size
         auto llvm_dispatch_id = _read_dispatch_id(b, func_ctx);
         auto llvm_block_size = _read_block_size(b, func_ctx);
-        auto llvm_v3i32_one = llvm::ConstantDataVector::get(_llvm_context, std::array{1u, 1u, 1u});
-        auto llvm_block_size_minus_one = b.CreateSub(llvm_block_size, llvm_v3i32_one);
-        auto llvm_dispatch_id_padded = b.CreateAdd(llvm_dispatch_id, llvm_block_size_minus_one);
-        auto llvm_block_id = b.CreateUDiv(llvm_dispatch_id_padded, llvm_block_size, "sreg.block.id");
-        return llvm_block_id;
+        return b.CreateUDiv(llvm_dispatch_id, llvm_block_size, "sreg.block.id");
     }
     auto llvm_i32_type = b.getInt32Ty();
     auto llvm_bid_x = b.CreateIntrinsic(llvm_i32_type, llvm::Intrinsic::nvvm_read_ptx_sreg_ctaid_x, {});
@@ -94,7 +90,6 @@ llvm::Value *CUDACodegenLLVMImpl::_read_dispatch_id(IB &b, const FunctionContext
     if (_rt_analysis.uses_ray_tracing) {
         // asm("call (%0), _optix_get_launch_index_$axis, ();" : "=r"(out) : );
         auto call = [this, &b](uint32_t axis) noexcept -> llvm::Value * {
-            if (_config.block_size[axis] <= 1u) { b.getInt32(0); }
             constexpr std::array axis_names = {"x", "y", "z"};
             auto llvm_asm_str = fmt::format("call ($0), _optix_get_launch_index_{}, ();", axis_names[axis]);
             auto llvm_asm = _get_inline_asm(llvm_asm_str, "=r", false);
@@ -115,12 +110,10 @@ llvm::Value *CUDACodegenLLVMImpl::_read_dispatch_id(IB &b, const FunctionContext
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_read_warp_size(IB &b, const FunctionContext &) const noexcept {
-    if (_rt_analysis.uses_ray_tracing) { LUISA_NOT_IMPLEMENTED(); }
     return b.getInt32(32);
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_read_warp_lane_id(IB &b, const FunctionContext &) const noexcept {
-    if (_rt_analysis.uses_ray_tracing) { LUISA_NOT_IMPLEMENTED(); }
     return b.CreateIntrinsic(b.getInt32Ty(), llvm::Intrinsic::nvvm_read_ptx_sreg_laneid,
                              {}, {}, "sreg.warp.lane.id");
 }
@@ -130,14 +123,12 @@ llvm::Value *CUDACodegenLLVMImpl::_read_kernel_id(IB &, const FunctionContext &f
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_read_warp_active_lane_mask(IB &b) const noexcept {
-    if (_rt_analysis.uses_ray_tracing) { LUISA_NOT_IMPLEMENTED(); }
     auto mask = b.CreateIntrinsic(b.getInt32Ty(), llvm::Intrinsic::nvvm_activemask, {});
     mask->setName("sreg.warp.active.mask");
     return mask;
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_read_warp_prefix_lane_mask(IB &b) const noexcept {
-    if (_rt_analysis.uses_ray_tracing) { LUISA_NOT_IMPLEMENTED(); }
     return b.CreateIntrinsic(b.getInt32Ty(), llvm::Intrinsic::nvvm_read_ptx_sreg_lanemask_lt,
                              {}, {}, "sreg.warp.prefix.lane.mask");
 }

@@ -345,7 +345,7 @@ void CUDACompiler::process_builtin(luisa::string &result, char const *data, size
 
 uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *const> options) noexcept {
     auto hash = hash_value(src);
-    for (auto o : options) { hash = hash_value(o, hash); }
+    for (auto o : options) { hash = hash_value(luisa::string_view{o}, hash); }
     return hash;
 }
 

@@ -216,9 +216,9 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
                                                             b.CreateFDiv(lhs, rhs);
         });
         case xir::ArithmeticOp::BINARY_MOD: return translate_binary([&](auto lhs, auto rhs) noexcept {
-            return inst->type()->is_int_or_int_vector()   ? b.CreateSRem(lhs, rhs) :
-                   inst->type()->is_uint_or_uint_vector() ? b.CreateURem(lhs, rhs) :
-                                                            b.CreateFRem(lhs, rhs);
+            if (inst->type()->is_int_or_int_vector()) { return b.CreateSRem(lhs, rhs); }
+            if (inst->type()->is_uint_or_uint_vector()) { return b.CreateURem(lhs, rhs); }
+            return _call_libdevice_binary_op(b, "fmod", lhs, rhs);
         });
         case xir::ArithmeticOp::BINARY_BIT_AND: return translate_binary([&](auto lhs, auto rhs) noexcept {
             LUISA_DEBUG_ASSERT(lhs->getType()->isIntOrIntVectorTy());
@@ -975,7 +975,8 @@ llvm::Value *CUDACodegenLLVMImpl::_call_libdevice_unary_op(IB &b, llvm::StringRe
 llvm::Value *CUDACodegenLLVMImpl::_call_libdevice_binary_op(IB &b, llvm::StringRef op_name, llvm::Value *llvm_lhs, llvm::Value *llvm_rhs) noexcept {
     auto llvm_lhs_scalar_t = llvm_lhs->getType()->getScalarType();
     auto llvm_rhs_scalar_t = llvm_rhs->getType()->getScalarType();
-    auto op = detail::find_libdevice_function(*_llvm_module, op_name, llvm_lhs_scalar_t, _config.enable_fast_math);
+    auto use_fast_math = _config.enable_fast_math && op_name != "fmod";
+    auto op = detail::find_libdevice_function(*_llvm_module, op_name, llvm_lhs_scalar_t, use_fast_math);
     auto lhs_should_cast_to_float = llvm_lhs_scalar_t->isFloatingPointTy() && !llvm_lhs_scalar_t->isFloatTy() && !llvm_lhs_scalar_t->isDoubleTy();
     auto rhs_should_cast_to_float = llvm_rhs_scalar_t->isFloatingPointTy() && !llvm_rhs_scalar_t->isFloatTy() && !llvm_rhs_scalar_t->isDoubleTy();
     auto call_scalar = [&](llvm::Value *llvm_lhs_elem, llvm::Value *llvm_rhs_elem) noexcept {

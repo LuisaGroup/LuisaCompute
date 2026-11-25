@@ -486,6 +486,7 @@ public:
             Visitor bindings_visitor{visitor};
             bindings_visitor.collect_validation = false;
             decode_cmd(cs->arg_bindings(), bindings_visitor);
+            visitor.arg = bindings_visitor.arg;
         }
         decode_cmd(cmd->arguments(), visitor);
         // `_validate_*` fields trail all uniform fields in `_Args`

@@ -270,7 +270,7 @@ void ScheduleEmitter::_assert(
     _builder.SetInsertPoint(continuation);
 }
 
-void ScheduleEmitter::_assume(
+void ScheduleEmitter::_emit_assume(
     const schedule::Instruction &instruction) {
     if (instruction.result || instruction.operands.size() != 1u ||
         instruction.message) {

@@ -1,4 +1,6 @@
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/binary_io.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/core/stl/string.h>
 
 #include "cuda_error.h"
@@ -56,7 +58,8 @@ namespace cuda_shader_native_detail {
 
 CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> ptx,
                                    const char *entry, const CUDAShaderMetadata &metadata,
-                                   luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
+                                   luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
+                                   bool enable_cache) noexcept
     : CUDAShader{CUDAShaderPrinter::create(metadata.format_types), metadata.argument_usages},
       _entry{entry},
       _block_size{metadata.block_size.x,
@@ -101,6 +104,46 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
             LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
             return CUDA_SUCCESS;
         }
+        auto bind_module_functions = [&]() noexcept {
+            LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
+            if (cuModuleGetFunction(&_indirect_function, _module, "kernel_launcher") != CUDA_SUCCESS) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to find kernel_launcher() in the PTX module. "
+                    "Indirect dispatch will not be available for this kernel.");
+                _indirect_function = nullptr;
+            }
+        };
+        auto cubin_cache_name = [&]() -> luisa::string {
+            if (!enable_cache || device->io() == nullptr) { return {}; }
+            static constexpr auto cache_tag = luisa::string_view{"luisa-cuda-linked-cubin-v1"};
+            auto ptx_hash = luisa::hash64(ptx, ptx_size, luisa::hash64_default_seed);
+            auto devrt_hash = luisa::hash64(devrt.data(), devrt.size(), luisa::hash64_default_seed);
+            auto cc = static_cast<uint64_t>(device->handle().compute_capability());
+            auto drv = static_cast<uint64_t>(device->handle().driver_version());
+            auto key = luisa::hash_combine({
+                luisa::hash_value(cache_tag),
+                ptx_hash,
+                devrt_hash,
+                cc,
+                drv,
+            });
+            return luisa::format("cubin_{:016x}.sm{}.drv{}.bin", key, cc, drv);
+        }();
+        if (!cubin_cache_name.empty()) {
+            if (auto stream = device->io()->read_shader_cache(cubin_cache_name);
+                stream != nullptr && stream->length() > 0u) {
+                luisa::vector<std::byte> cached_cubin(stream->length());
+                stream->read(cached_cubin);
+                if (cuModuleLoadData(&_module, cached_cubin.data()) == CUDA_SUCCESS) {
+                    _module_image = std::move(cached_cubin);
+                    bind_module_functions();
+                    return CUDA_SUCCESS;
+                }
+                LUISA_WARNING_WITH_LOCATION(
+                    "Cached linked CUDA cubin '{}' failed to load; relinking.",
+                    cubin_cache_name);
+            }
+        }
         CUlinkState link_state{};
         size_t cubin_size;
         void *cubin = nullptr;
@@ -125,16 +168,13 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
         // kernel_launcher) and would fail a standalone (re)load.
         auto image = static_cast<const std::byte *>(cubin);
         _module_image.assign(image, image + cubin_size);
-        LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
-        if (!devrt.empty()) {
-            if (cuModuleGetFunction(&_indirect_function, _module, "kernel_launcher") != CUDA_SUCCESS) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "Failed to find kernel_launcher() in the PTX module. "
-                    "Indirect dispatch will not be available for this kernel.");
-                _indirect_function = nullptr;
-            }
-        }
+        bind_module_functions();
         LUISA_CHECK_CUDA(cuLinkDestroy(link_state));
+        if (!cubin_cache_name.empty()) {
+            static_cast<void>(device->io()->write_shader_cache(
+                cubin_cache_name,
+                luisa::span<const std::byte>{_module_image.data(), _module_image.size()}));
+        }
         return CUDA_SUCCESS;
     };
 
