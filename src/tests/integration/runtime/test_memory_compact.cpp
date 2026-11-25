@@ -44,10 +44,7 @@ public:
 };
 #endif
 
-void test_memory_compact(Device &device_from_ut) {
-    auto argv = boost::ut::detail::cfg::largv;
-    (void)device_from_ut;
-    luisa::string backend = argv[1];
+void test_memory_compact(luisa::string_view backend, const char *exe_path) {
     bool use_dx = false;
 
     if (backend == "dx") {
@@ -63,7 +60,7 @@ void test_memory_compact(Device &device_from_ut) {
         LUISA_WARNING("This test requires the dx or vk backend");
         return;
     }
-    Context context{argv[0]};
+    Context context{exe_path == nullptr ? "" : exe_path};
     DeviceConfig config;
     luisa::move_only_function<void()> *defragment_func;
 
@@ -148,11 +145,14 @@ void test_memory_compact(Device &device_from_ut) {
 }
 
 int main(int argc, char *argv[]) {
-    auto dc = luisa::test::create_device_from_ut(argc, argv);
-    if (!dc) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    // Resolve the backend name only: this test creates the device it needs
+    // with a config extension, and the Vulkan backend allows only one live
+    // device per process.
+    auto backend = luisa::test::backend_name_from_ut(argc, argv);
+    if (!backend) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
-    auto &device = dc->device;
-    test_memory_compact(device);
+    auto *exe = argc > 0 && argv != nullptr ? argv[0] : luisa::test::safe_argv0();
+    test_memory_compact(*backend, exe);
 }

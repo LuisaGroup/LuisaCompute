@@ -249,6 +249,13 @@ namespace {
                                     hit->distance().as<uint>()));
     };
     bool passed = true;
+    // Strict FP32 subnormal preservation is a CUDA `--ftz=false` guarantee. Vulkan
+    // only promises it when
+    // VkPhysicalDeviceVulkan12Properties::shaderDenormPreserveFloat32 is VK_TRUE;
+    // otherwise the backend legally omits `OpExecutionMode DenormPreserve 32` and
+    // the driver flushes subnormals, so the flushed (`fast`) oracle is an equally
+    // valid result there. The cross-stage and hit oracles below stay exact.
+    bool strict_denormal = device.backend_name() == "cuda";
     for (auto fast_math : {false, true}) {
         ShaderOption options{.enable_cache = false, .enable_fast_math = fast_math};
         auto compute_shader = device.compile(compute, options);
@@ -259,6 +266,7 @@ namespace {
                << trace_shader(scene, inputs, observed, hits).dispatch(count * 2u)
                << observed.copy_to(luisa::span{host_observed})
                << hits.copy_to(luisa::span{host_hits}) << synchronize();
+        auto allow_flush = !fast_math && !strict_denormal;
         for (auto stage = 0u; stage < 3u; stage++) {
             for (auto row = 0u; row < count; row++) {
                 auto actual = host_observed[stage * count + row];
@@ -271,14 +279,32 @@ namespace {
                                actual_bits == expected_bits;
                 };
                 auto correct = matches(actual.x, expected.x) && matches(actual.y, expected.y);
+                if (allow_flush) {
+                    // Accept either the strict or the flushed result, treating a
+                    // flushed zero by magnitude only (nsz).
+                    auto accepts = [](uint actual_bits, uint candidate_bits) noexcept {
+                        return candidate_bits == 0u ?
+                                   (actual_bits & 0x7fffffffu) == 0u :
+                                   actual_bits == candidate_bits;
+                    };
+                    auto flushed = cases[row].fast;
+                    correct = (accepts(actual.x, expected.x) || accepts(actual.x, flushed.x)) &&
+                              (accepts(actual.y, expected.y) || accepts(actual.y, flushed.y));
+                }
                 if (stage != 0u) {
                     auto expected_hit = make_uint4(static_cast<uint>(stage == 1u ? HitType::Surface : HitType::Procedural),
                                                    stage - 1u, 0u, 0x3f800000u);
                     correct &= all(host_hits[(stage - 1u) * count + row] == expected_hit);
+                    if (allow_flush) {
+                        // Whatever the driver's denormal mode, the compute stage, AH
+                        // and IS must observe the same result for the same operands.
+                        correct &= all(actual == host_observed[row]);
+                    }
                 }
                 expect(correct) << luisa::format(
-                    "denormal arithmetic: stage={} fast={} case={} input={} actual_bits={} expected_bits={}",
-                    stage, fast_math, row, cases[row].operands, actual, expected);
+                    "denormal arithmetic: stage={} fast={} flush_allowed={} case={} input={} actual_bits={} expected_bits={} flushed_bits={}",
+                    stage, fast_math, allow_flush, row, cases[row].operands, actual, expected,
+                    cases[row].fast);
                 passed &= correct;
             }
         }

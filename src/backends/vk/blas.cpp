@@ -118,7 +118,10 @@ void Blas::_pre_build(
         LUISA_ERROR("BLAS vertex motion blur requires VK_NV_ray_tracing_motion_blur, "
                     "which is not enabled on this device.");
     }
-    if (_option.motion.is_enabled()) {
+    // The flag follows the geometry that was actually submitted: a motion-flagged
+    // build without a chained VkAccelerationStructureGeometryMotionTrianglesDataNV
+    // faults the GPU, and `pre_build` may fall back to a static geometry.
+    if (_motion_geometry_attached) {
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV;
     }
     _acceleration_build_geometry_info->geometryCount = 1;
@@ -166,7 +169,7 @@ void Blas::_pre_build(
     acceleration_structure_create_info.buffer = _accel_buffer->vk_buffer();
     acceleration_structure_create_info.size = acceleration_structure_build_sizes_info.accelerationStructureSize;
     acceleration_structure_create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-    if (_option.motion.is_enabled()) {
+    if (_motion_geometry_attached) {
         acceleration_structure_create_info.createFlags = VK_ACCELERATION_STRUCTURE_CREATE_MOTION_BIT_NV;
     }
     auto recreate = !update;
@@ -224,6 +227,9 @@ void Blas::pre_build(
     aabbs.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
     aabbs.data = aabb_data_device_address;
     aabbs.stride = sizeof(luisa::compute::AABB);
+    // An AABB geometry can never chain the NV motion triangles struct, so a
+    // procedural build is always static.
+    _motion_geometry_attached = false;
     _pre_build(cmdbuffer, acceleration_structure_geometry, cmd->aabb_buffer_size() / sizeof(luisa::compute::AABB), cmd->request());
     cmdbuffer.resource_barrier->record(
         reinterpret_cast<Buffer const *>(cmd->aabb_buffer()),
@@ -338,6 +344,7 @@ void Blas::pre_build(
         motion_triangles->pNext = nullptr;
         motion_triangles->vertexData.deviceAddress = vertex_buffer_base + keyframe_size_bytes;
         triangles.pNext = motion_triangles;
+        _motion_geometry_attached = true;
 
         // Base geometry uses keyframe 0 vertices only
         triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
@@ -360,6 +367,7 @@ void Blas::pre_build(
         triangles.indexData = index_data_device_address;
         // Null unless a backend-internal caller attached a built micromap.
         triangles.pNext = opacity_micromap;
+        _motion_geometry_attached = false;
     }
 
     _pre_build(cmdbuffer, acceleration_structure_geometry, cmd->triangle_buffer_size() / 12, cmd->request());
@@ -603,6 +611,7 @@ void Blas::replace_from_archive(
     _accel_size = logical_size;
     _is_compacted = is_compacted;
     _last_primitive_count = primitive_count;
+    _motion_geometry_attached = false;
     if (had_old || has_tlas_refs()) {
         _sync_tlas();
     }

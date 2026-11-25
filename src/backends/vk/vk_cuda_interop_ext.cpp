@@ -1039,9 +1039,12 @@ uint64_t VkCudaInteropImpl::create_cuda_kernel_shader(uint64_t cuda_shader_handl
         LUISA_WARNING("CUDA shader has no entry point; cannot import.");
         return 0u;
     }
-    // The image is the PTX text or linked cubin the cuda backend loaded the
-    // shader from. The CUDA module loader consumes PTX as a null-terminated
-    // string (a trailing byte is harmless for cubins), so guarantee one.
+    // The image is the PTX text (or a linked cubin, when the cuda device links
+    // cudadevrt) the cuda backend loaded the shader from. VK_NV_cuda_kernel_launch
+    // expects self-contained plain PTX, not a cudadevrt-linked CDP2 cubin, so the
+    // importing cuda device must disable
+    // `CUDADeviceConfigExt::use_cudadevrt()`. The CUDA module loader also consumes
+    // PTX as a null-terminated string, so guarantee one.
     luisa::vector<std::byte> image_storage{image.begin(), image.end()};
     if (image_storage.empty() || image_storage.back() != std::byte{0}) {
         image_storage.emplace_back(std::byte{0});
@@ -1052,9 +1055,21 @@ uint64_t VkCudaInteropImpl::create_cuda_kernel_shader(uint64_t cuda_shader_handl
         .pNext = nullptr,
         .dataSize = image_storage.size(),
         .pData = image_storage.data()};
-    LUISA_CHECK_VULKAN(_cuda_launch_funcs.create_cuda_module(
-        _device->logic_device(), &module_info,
-        Device::alloc_callbacks(), &shader->module));
+    if (auto result = _cuda_launch_funcs.create_cuda_module(
+            _device->logic_device(), &module_info,
+            Device::alloc_callbacks(), &shader->module);
+        result != VK_SUCCESS) {
+        // Unimportable images are reported and skipped, like every check above.
+        delete shader;
+        LUISA_WARNING(
+            "vkCreateCudaModuleNV failed for kernel '{}': {} (code = {}). "
+            "VK_NV_cuda_kernel_launch requires self-contained plain PTX, so the "
+            "compiling cuda device must disable "
+            "CUDADeviceConfigExt::use_cudadevrt(); cudadevrt-linked CDP2 cubins "
+            "cannot be imported.",
+            entry, ::luisa::to_string(result), luisa::to_underlying(result));
+        return 0u;
+    }
     luisa::string kernel_name{entry};
     VkCudaFunctionCreateInfoNV function_info{
         .sType = VK_STRUCTURE_TYPE_CUDA_FUNCTION_CREATE_INFO_NV,

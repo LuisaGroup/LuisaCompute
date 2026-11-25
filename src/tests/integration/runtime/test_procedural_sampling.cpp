@@ -218,9 +218,8 @@ void test_procedural_sampling(Device &device) {
                         };
                     })
                     .trace();
-                results.write(i, def<TraceResult>(t_best, prim_best + 1000u,
-                                                cast<uint>(r->origin.x * 1000.f) + 2000u,
-                                                select(0u, 1u, t_best < 1e29f)));
+                results.write(i, def<TraceResult>(t_best, prim_best, kind_best,
+                                                 select(0u, 1u, t_best < 1e29f)));
             });
 
         luisa::vector<RayInput> rays;

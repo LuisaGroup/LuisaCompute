@@ -38,6 +38,13 @@ private:
     const Buffer *_scratch_buffer{nullptr};
     uint64_t _scratch_buffer_offset{0};
     uint32_t _last_primitive_count{0u};
+    // Whether the geometry handed to `_pre_build` actually chains a
+    // VkAccelerationStructureGeometryMotionTrianglesDataNV. Building a
+    // motion-flagged acceleration structure without that struct faults the GPU,
+    // so the motion flags follow this bit instead of the requested option: a
+    // mesh with a keyframe count the NV extension cannot express falls back to
+    // a static build and must not be flagged as motion.
+    bool _motion_geometry_attached{false};
     // Opacity micromap attached to this BLAS (VK_KHR_opacity_micromap), or null.
     // Set by `pre_build(MeshBuildCommand)` from the command's micromap binding (and
     // always assigned, so a build without a micromap detaches a stale one). Never
@@ -72,7 +79,7 @@ public:
     [[nodiscard]] bool is_compacted() const noexcept { return _is_compacted; }
     [[nodiscard]] bool compaction_query_written() const noexcept { return _compaction_query_written; }
     [[nodiscard]] auto &option() const { return _option; }
-    [[nodiscard]] bool has_motion() const noexcept { return _option.motion.is_enabled(); }
+    [[nodiscard]] bool has_motion() const noexcept override { return _motion_geometry_attached; }
     [[nodiscard]] bool has_tlas_refs() const noexcept { return !_handles.empty(); }
     [[nodiscard]] bool try_compact_in_place(Stream &stream);
     [[nodiscard]] VkDeviceSize query_compacted_size() const;

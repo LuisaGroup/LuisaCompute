@@ -30,6 +30,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/backends/ext/vk_cuda_interop.h>
 #include <luisa/backends/ext/native_resource_ext.hpp>
+#include <luisa/backends/ext/cuda/cuda_config_ext.h>
 
 #include <cmath>
 #include <cstring>
@@ -42,6 +43,16 @@ using namespace boost::ut::literals;
 namespace {
 
 constexpr uint32_t k_block_size = 256u;
+
+// Imported through VK_NV_cuda_kernel_launch, so the module image must be
+// self-contained plain PTX: a cudadevrt-linked cubin (the default, used for
+// indirect dispatch and device-side graphs) is rejected by
+// vkCreateCudaModuleNV with VK_ERROR_INITIALIZATION_FAILED. Neither cudadevrt
+// feature is usable from an imported kernel anyway.
+class CudaKernelLaunchDeviceConfigExt final : public CUDADeviceConfigExt {
+public:
+    [[nodiscard]] bool use_cudadevrt() const noexcept override { return false; }
+};
 
 [[nodiscard]] auto make_axpy_kernel() noexcept {
     return Kernel1D{[](BufferFloat x, BufferFloat y, Float a, UInt n) {
@@ -429,6 +440,7 @@ int main(int argc, char *argv[]) {
     // Pair the cuda device with the same physical GPU (LUID-matched): the
     // compiled module image targets that GPU's compute capability.
     DeviceConfig cuda_config{.device_index = static_cast<size_t>(ext->cuda_device_index())};
+    cuda_config.extension = luisa::make_unique<CudaKernelLaunchDeviceConfigExt>();
     Device cuda_device = dc->context.create_device("cuda", &cuda_config);
     log_level_verbose();
 

@@ -332,7 +332,16 @@ struct Options {
         auto optix_ir = llvm_codegen && ir_env != nullptr && std::strcmp(ir_env, "1") == 0;
         auto package_stem = luisa::format("test_cuda_llvm_ray_query_hardware_payload_{}_{}", snapshot_count,
                                           std::chrono::steady_clock::now().time_since_epoch().count());
-        auto package_leaf = luisa::format("{}{}", package_stem, optix_ir ? ".optixir" : ".ptx");
+        // AOT artifact shape is backend-specific: the cuda backend writes a `.ptx`
+        // (or `.optixir`) package plus a `.ptx.metadata` sidecar and rediscovers a
+        // package from its extensionless stem, while the Vulkan backend writes one
+        // self-describing bytecode artifact under exactly the requested name and
+        // no sidecar. Only the artifact-shape expectations below are CUDA-only;
+        // every ray-query execution and capture check still runs on both.
+        bool cuda_artifacts = device.backend_name() == "cuda";
+        auto package_leaf = luisa::format(
+            "{}{}", package_stem,
+            cuda_artifacts ? (optix_ir ? ".optixir" : ".ptx") : ".spv");
         auto package_path = luisa::filesystem::absolute(package_leaf.c_str());
         auto package_name = luisa::to_string(package_path);
         auto extensionless_name = luisa::to_string(luisa::filesystem::absolute(package_stem.c_str()));
@@ -369,12 +378,16 @@ struct Options {
                                                        .enable_cache = false,
                                                        .compile_only = true,
                                                        .name = package_name});
-            auto produced = !producer && producer.compile_ok() &&
-                            luisa::filesystem::is_regular_file(package_path) &&
-                            luisa::filesystem::is_regular_file(metadata_path) &&
-                            luisa::filesystem::file_size(package_path) != 0u &&
-                            luisa::filesystem::file_size(metadata_path) != 0u;
-            expect(produced) << "compile-only producer writes a package and sidecar without a live shader";
+            bool package_written = luisa::filesystem::is_regular_file(package_path) &&
+                                   luisa::filesystem::file_size(package_path) != 0u;
+            bool sidecar_written = !cuda_artifacts ||
+                                   (luisa::filesystem::is_regular_file(metadata_path) &&
+                                    luisa::filesystem::file_size(metadata_path) != 0u);
+            bool produced = !producer && producer.compile_ok() &&
+                            package_written && sidecar_written;
+            expect(produced) << (cuda_artifacts ?
+                                     "compile-only producer writes a package and sidecar without a live shader" :
+                                     "compile-only producer writes its single bytecode artifact without a live shader");
             if (!produced) { return false; }
         }
         LUISA_INFO("Hardware payload compile-only producer ends: snapshots={}.", snapshot_count);
@@ -396,31 +409,53 @@ struct Options {
             return 0u;
         };
         auto serialized_payload_count = read_payload_count();
-        LUISA_INFO("Hardware payload artifact: snapshots={}, payload words={}, expected={}.",
-                   snapshot_count, serialized_payload_count, expected_payload_count);
-        auto correct_payload_count = serialized_payload_count == expected_payload_count;
-        expect(correct_payload_count) << "serialized payload count matches the actual capture boundary";
-        if (!correct_payload_count) { return false; }
+        // RAY_QUERY_PAYLOAD_COUNT is a record of the CUDA `.metadata` sidecar. The
+        // Vulkan artifact keeps its ABI inside the bytecode header instead, so this
+        // serialized-count assertion stays CUDA-only.
+        if (cuda_artifacts) {
+            LUISA_INFO("Hardware payload artifact: snapshots={}, payload words={}, expected={}.",
+                       snapshot_count, serialized_payload_count, expected_payload_count);
+            auto correct_payload_count = serialized_payload_count == expected_payload_count;
+            expect(correct_payload_count) << "serialized payload count matches the actual capture boundary";
+            if (!correct_payload_count) { return false; }
+        } else {
+            LUISA_INFO("Hardware payload artifact: snapshots={}, backend '{}' writes no `.metadata` sidecar.",
+                       snapshot_count, device.backend_name());
+        }
         // Give only our owned files a distinct older timestamp. A named warm
         // compile must read them without rewriting; no timing heuristic is used.
         auto old_timestamp = luisa::filesystem::file_time_type::clock::now() - std::chrono::hours{24};
         luisa::filesystem::last_write_time(package_path, old_timestamp);
-        luisa::filesystem::last_write_time(metadata_path, old_timestamp);
         auto package_timestamp = luisa::filesystem::last_write_time(package_path);
-        auto metadata_timestamp = luisa::filesystem::last_write_time(metadata_path);
+        // Without a sidecar there is no second file to keep unchanged.
+        auto metadata_timestamp = package_timestamp;
+        if (cuda_artifacts) {
+            luisa::filesystem::last_write_time(metadata_path, old_timestamp);
+            metadata_timestamp = luisa::filesystem::last_write_time(metadata_path);
+        }
         auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
         auto warm_shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
-        auto reused_artifact = luisa::filesystem::last_write_time(package_path) == package_timestamp &&
-                               luisa::filesystem::last_write_time(metadata_path) == metadata_timestamp &&
-                               read_payload_count() == expected_payload_count;
-        expect(reused_artifact) << "warm compile must adopt the cached payload count without regenerating artifacts";
+        auto reused_artifact = luisa::filesystem::last_write_time(package_path) == package_timestamp;
+        if (cuda_artifacts) {
+            reused_artifact = reused_artifact &&
+                              luisa::filesystem::last_write_time(metadata_path) == metadata_timestamp &&
+                              read_payload_count() == expected_payload_count;
+        }
+        expect(reused_artifact) << "warm compile must adopt the cached artifact without regenerating it";
         if (!reused_artifact) { return false; }
         auto loaded_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(package_name);
-        expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized OptiX ABI";
+        expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized ABI";
         if (!loaded_shader) { return false; }
-        auto extensionless_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(extensionless_name);
-        expect(static_cast<bool>(extensionless_shader)) << "extensionless AOT load discovers the actual PTX or OptiX IR package";
-        if (!extensionless_shader) { return false; }
+        // Extensionless discovery belongs to the cuda artifact store; Vulkan AOT
+        // loads address the single artifact by its exact name, so the last epoch
+        // below re-dispatches the AOT-loaded shader there.
+        auto extensionless_shader = cuda_artifacts ?
+                                        device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(extensionless_name) :
+                                        Shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>{};
+        if (cuda_artifacts) {
+            expect(static_cast<bool>(extensionless_shader)) << "extensionless AOT load discovers the actual PTX or OptiX IR package";
+            if (!extensionless_shader) { return false; }
+        }
         auto inputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count));
         auto outputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count * 2u));
         auto hits = device.create_buffer<uint4>(ray_count * 2u);
@@ -436,7 +471,8 @@ struct Options {
             }
             const auto &active_shader = epoch == 0u ? shader : epoch == 1u ? warm_shader :
                                                            epoch == 2u     ? loaded_shader :
-                                                                             extensionless_shader;
+                                                           cuda_artifacts ? extensionless_shader :
+                                                                            loaded_shader;
             stream << inputs.copy_from(luisa::span{host_inputs})
                    << active_shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count);
             if (snapshot_count != 0u) { stream << outputs.copy_to(luisa::span{host_outputs}); }
@@ -549,7 +585,14 @@ struct Options {
         auto optix_ir = llvm_codegen && ir_env != nullptr && std::strcmp(ir_env, "1") == 0;
         auto package_stem = luisa::format("test_cuda_llvm_ray_query_payload_{}_{}", snapshot_count,
                                           std::chrono::steady_clock::now().time_since_epoch().count());
-        auto package_leaf = luisa::format("{}{}", package_stem, optix_ir ? ".optixir" : ".ptx");
+        // Same backend-specific artifact shape as the hardware payload boundary
+        // above: a cuda package plus `.metadata` sidecar, or one Vulkan bytecode
+        // artifact. Only the artifact-shape expectations are CUDA-only; every
+        // capture and dispatch verification below still runs on both.
+        bool cuda_artifacts = device.backend_name() == "cuda";
+        auto package_leaf = luisa::format(
+            "{}{}", package_stem,
+            cuda_artifacts ? (optix_ir ? ".optixir" : ".ptx") : ".spv");
         auto package_path = luisa::filesystem::absolute(package_leaf.c_str());
         auto package_name = luisa::to_string(package_path);
         auto extensionless_name = luisa::to_string(luisa::filesystem::absolute(package_stem.c_str()));
@@ -586,12 +629,16 @@ struct Options {
                                                        .enable_cache = false,
                                                        .compile_only = true,
                                                        .name = package_name});
-            auto produced = !producer && producer.compile_ok() &&
-                            luisa::filesystem::is_regular_file(package_path) &&
-                            luisa::filesystem::is_regular_file(metadata_path) &&
-                            luisa::filesystem::file_size(package_path) != 0u &&
-                            luisa::filesystem::file_size(metadata_path) != 0u;
-            expect(produced) << "compile-only producer writes a package and sidecar without a live shader";
+            bool package_written = luisa::filesystem::is_regular_file(package_path) &&
+                                   luisa::filesystem::file_size(package_path) != 0u;
+            bool sidecar_written = !cuda_artifacts ||
+                                   (luisa::filesystem::is_regular_file(metadata_path) &&
+                                    luisa::filesystem::file_size(metadata_path) != 0u);
+            bool produced = !producer && producer.compile_ok() &&
+                            package_written && sidecar_written;
+            expect(produced) << (cuda_artifacts ?
+                                     "compile-only producer writes a package and sidecar without a live shader" :
+                                     "compile-only producer writes its single bytecode artifact without a live shader");
             if (!produced) { return false; }
         }
         LUISA_INFO("Ray-query compile-only producer ends: snapshots={}.", snapshot_count);
@@ -611,31 +658,52 @@ struct Options {
             return 0u;
         };
         auto serialized_payload_count = read_payload_count();
-        LUISA_INFO("Ray-query payload artifact: snapshots={}, payload words={}, expected={}.",
-                   snapshot_count, serialized_payload_count, expected_payload_count);
-        auto correct_payload_count = serialized_payload_count == expected_payload_count;
-        expect(correct_payload_count) << "serialized payload count matches the actual capture boundary";
-        if (!correct_payload_count) { return false; }
+        // As above, RAY_QUERY_PAYLOAD_COUNT only exists in the CUDA `.metadata`
+        // sidecar; the Vulkan bytecode artifact keeps its ABI in its header.
+        if (cuda_artifacts) {
+            LUISA_INFO("Ray-query payload artifact: snapshots={}, payload words={}, expected={}.",
+                       snapshot_count, serialized_payload_count, expected_payload_count);
+            auto correct_payload_count = serialized_payload_count == expected_payload_count;
+            expect(correct_payload_count) << "serialized payload count matches the actual capture boundary";
+            if (!correct_payload_count) { return false; }
+        } else {
+            LUISA_INFO("Ray-query payload artifact: snapshots={}, backend '{}' writes no `.metadata` sidecar.",
+                       snapshot_count, device.backend_name());
+        }
         // Give only our owned files a distinct older timestamp. A named warm
         // compile must read them without rewriting; no timing heuristic is used.
         auto old_timestamp = luisa::filesystem::file_time_type::clock::now() - std::chrono::hours{24};
         luisa::filesystem::last_write_time(package_path, old_timestamp);
-        luisa::filesystem::last_write_time(metadata_path, old_timestamp);
         auto package_timestamp = luisa::filesystem::last_write_time(package_path);
-        auto metadata_timestamp = luisa::filesystem::last_write_time(metadata_path);
+        // Without a sidecar there is no second file to keep unchanged.
+        auto metadata_timestamp = package_timestamp;
+        if (cuda_artifacts) {
+            luisa::filesystem::last_write_time(metadata_path, old_timestamp);
+            metadata_timestamp = luisa::filesystem::last_write_time(metadata_path);
+        }
         auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
         auto warm_shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
-        auto reused_artifact = luisa::filesystem::last_write_time(package_path) == package_timestamp &&
-                               luisa::filesystem::last_write_time(metadata_path) == metadata_timestamp &&
-                               read_payload_count() == expected_payload_count;
-        expect(reused_artifact) << "warm compile must adopt the cached payload count without regenerating artifacts";
+        auto reused_artifact = luisa::filesystem::last_write_time(package_path) == package_timestamp;
+        if (cuda_artifacts) {
+            reused_artifact = reused_artifact &&
+                              luisa::filesystem::last_write_time(metadata_path) == metadata_timestamp &&
+                              read_payload_count() == expected_payload_count;
+        }
+        expect(reused_artifact) << "warm compile must adopt the cached artifact without regenerating it";
         if (!reused_artifact) { return false; }
         auto loaded_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(package_name);
-        expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized OptiX ABI";
+        expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized ABI";
         if (!loaded_shader) { return false; }
-        auto extensionless_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(extensionless_name);
-        expect(static_cast<bool>(extensionless_shader)) << "extensionless AOT load discovers the actual PTX or OptiX IR package";
-        if (!extensionless_shader) { return false; }
+        // Extensionless discovery belongs to the cuda artifact store; Vulkan AOT
+        // loads address the single artifact by its exact name, so the last epoch
+        // below re-dispatches the AOT-loaded shader there.
+        auto extensionless_shader = cuda_artifacts ?
+                                        device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(extensionless_name) :
+                                        Shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>{};
+        if (cuda_artifacts) {
+            expect(static_cast<bool>(extensionless_shader)) << "extensionless AOT load discovers the actual PTX or OptiX IR package";
+            if (!extensionless_shader) { return false; }
+        }
         auto inputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count));
         auto outputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count * 3u));
         auto hits = device.create_buffer<uint4>(ray_count * 3u);
@@ -650,7 +718,9 @@ struct Options {
                 }
             }
             const auto &active_shader = epoch == 0u ? shader : epoch == 1u ? warm_shader :
-                                            epoch == 2u ? loaded_shader : extensionless_shader;
+                                            epoch == 2u ? loaded_shader :
+                                            cuda_artifacts ? extensionless_shader :
+                                                             loaded_shader;
             stream << inputs.copy_from(luisa::span{host_inputs})
                    << active_shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count);
             if (snapshot_count != 0u) { stream << outputs.copy_to(luisa::span{host_outputs}); }

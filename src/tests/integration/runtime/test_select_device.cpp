@@ -12,11 +12,11 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void test_select_device(Device &device, const char *exe_path) {
+void test_select_device(luisa::string_view backend_name, const char *exe_path) {
     Context context{exe_path == nullptr ? "" : exe_path};
 
     // Get hardware device names for the specified backend
-    luisa::vector<luisa::string> device_names = context.backend_device_names(device.backend_name());
+    luisa::vector<luisa::string> device_names = context.backend_device_names(backend_name);
     if (device_names.empty()) {
         LUISA_WARNING("No hardware device found.");
         expect(false) << "No hardware device found.";
@@ -43,17 +43,18 @@ void test_select_device(Device &device, const char *exe_path) {
     // Create device with the selected index
     DeviceConfig device_config{
         .device_index = device_index};
-    auto selected_device = context.create_device(device.backend_name(), &device_config);
+    auto selected_device = context.create_device(backend_name, &device_config);
     expect(static_cast<bool>(selected_device)) << "Failed to create the selected hardware device.";
 }
 
 int main(int argc, char *argv[]) {
-    auto dc = luisa::test::create_device_from_ut(argc, argv);
-    if (!dc) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    // Resolve the backend name only: this test creates its own device, and the
+    // Vulkan backend allows only one live device per process.
+    auto backend_name = luisa::test::backend_name_from_ut(argc, argv);
+    if (!backend_name) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
-    auto &device = dc->device;
     auto *exe = argc > 0 && argv != nullptr ? argv[0] : luisa::test::safe_argv0();
-    test_select_device(device, exe);
+    test_select_device(*backend_name, exe);
 }

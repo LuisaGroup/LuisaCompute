@@ -6,6 +6,10 @@
 // Usage from Boost.UT test:
 //   auto [context, device] = luisa::test::create_device_from_ut();
 //
+// Tests that must own the only live device of a backend resolve the backend
+// name without creating one:
+//   auto backend = luisa::test::backend_name_from_ut(argc, argv);
+//
 // Both parse the backend name from argv[1] and print usage on missing arg.
 
 #pragma once
@@ -14,6 +18,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -58,6 +63,24 @@ inline const char *safe_argv0() noexcept {
 #else
     return "";
 #endif
+}
+
+/// Resolve the backend name given as argv[1] without creating any device.
+/// Tests that must own the only live device of a backend (the Vulkan backend
+/// keeps process-global Volk dispatch tables and refuses to run a second
+/// device) resolve the backend name here and create their device themselves.
+/// Prints usage and returns std::nullopt if no backend argument is given.
+[[nodiscard]] inline luisa::optional<luisa::string> backend_name_from_ut(
+    int argc, char *argv[]) {
+    const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
+    // A leading '-' means a Boost.UT option (e.g. --list-test-names-only),
+    // not a backend name.
+    if (argc <= 1 || argv == nullptr || argv[1] == nullptr ||
+        argv[1][0] == '\0' || argv[1][0] == '-') {
+        print_device_usage(exe);
+        return luisa::nullopt;
+    }
+    return luisa::string{argv[1]};
 }
 
 /// Create a device from main(argc, argv).
