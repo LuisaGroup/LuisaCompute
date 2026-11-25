@@ -389,12 +389,56 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         }
     };
 
+    // Inline single-call-site internal PTX device callables before/between IR passes so
+    // large struct/pointer arguments scalarize cleanly into registers instead of .local stack frames.
+    auto apply_callsite_inline_policy = [&](bool is_secondary) noexcept {
+        bool any_changed = false;
+        if (_rt_analysis.uses_ray_tracing) {
+            return any_changed;
+        }
+        for (auto &f : *_llvm_module) {
+            if (f.isDeclaration() || f.getCallingConv() != llvm::CallingConv::PTX_Device ||
+                !f.hasLocalLinkage()) {
+                continue;
+            }
+            size_t call_sites = 0u;
+            bool all_direct_nonrecursive = true;
+            for (auto *user : f.users()) {
+                auto *call = llvm::dyn_cast<llvm::CallBase>(user);
+                if (call == nullptr || call->getCalledFunction() != &f || call->getFunction() == &f) {
+                    all_direct_nonrecursive = false;
+                    break;
+                }
+                ++call_sites;
+            }
+            size_t inst_count = 0u;
+            for (auto &bb : f) {
+                inst_count += bb.size();
+                if (inst_count > 65536u) { break; }
+            }
+            if (all_direct_nonrecursive && call_sites == 1u && inst_count <= 65536u) {
+                if (f.hasFnAttribute(llvm::Attribute::NoInline) ||
+                    !f.hasFnAttribute(llvm::Attribute::AlwaysInline)) {
+                    f.removeFnAttr(llvm::Attribute::NoInline);
+                    f.addFnAttr(llvm::Attribute::AlwaysInline);
+                    any_changed = true;
+                }
+            } else if (!is_secondary && call_sites > 1u &&
+                       !f.hasFnAttribute(llvm::Attribute::AlwaysInline) &&
+                       (f.size() > 512u || inst_count > 4096u)) {
+                f.addFnAttr(llvm::Attribute::NoInline);
+            }
+        }
+        return any_changed;
+    };
+
     // primary optimization pass
+    static_cast<void>(apply_callsite_inline_policy(false));
     do_optimize("primary optimization");
 
     // run a second pass if any eligible device function is not inlined
     {
-        auto any_not_inlined = false;
+        auto any_not_inlined = apply_callsite_inline_policy(true);
         const auto is_huge_ir = !_rt_analysis.uses_ray_tracing && measure_huge_ir();
         for (auto &f : *_llvm_module) {
             if (!f.isDeclaration() && f.getCallingConv() == llvm::CallingConv::PTX_Device &&
@@ -422,8 +466,10 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
                         if (exceeds_budget) { continue; }
                     }
                 }
-                f.addFnAttr(llvm::Attribute::AlwaysInline);
-                any_not_inlined = true;
+                if (!f.hasFnAttribute(llvm::Attribute::AlwaysInline)) {
+                    f.addFnAttr(llvm::Attribute::AlwaysInline);
+                    any_not_inlined = true;
+                }
             }
         }
         if (any_not_inlined) {

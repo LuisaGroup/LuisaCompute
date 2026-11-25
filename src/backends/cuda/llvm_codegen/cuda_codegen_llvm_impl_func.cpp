@@ -271,11 +271,7 @@ llvm::BasicBlock *CUDACodegenLLVMImpl::_translate_function_definition(FunctionCo
             }
         }
     }
-    if (!_rt_analysis.uses_ray_tracing &&
-        func_ctx.llvm_func->getCallingConv() == llvm::CallingConv::PTX_Device &&
-        (func_ctx.packed_spill_slots.size() > 64u || f->basic_blocks().count_size() > 512u)) {
-        func_ctx.llvm_func->addFnAttr(llvm::Attribute::NoInline);
-    }
+    // Multi-call-site size heuristics are applied once call-site counts are known in _run_optimization_passes.
 
     for (auto bb : f->basic_blocks()) {
         auto llvm_bb = llvm::BasicBlock::Create(_llvm_context, bb->name().value_or(""), func_ctx.llvm_func);

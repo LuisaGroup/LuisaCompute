@@ -215,7 +215,9 @@ private:
     Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint, uint>
         _gather_selected_shader;
     Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint, uint, uint> _compact_shader;
+    Shader1D<uint> _init_identity_shader;
     Buffer<uint> _resume_index;
+    Buffer<uint> _identity_index;
     Buffer<uint> _resume_count;
     Buffer<uint> _resume_offset;
     Buffer<uint> _global_buffer;
@@ -260,6 +262,8 @@ private:
     uint _queue_count{0u};
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
+    uint _identity_initialized_count{0u};
+    uint _deterministic_entry_target{0u};
     bool _has_hint_sort{false};
     bool _gather_selected_4x{false};
     bool _has_dispatched{false};
@@ -304,6 +308,224 @@ private:
             if (hint) { count++; }
         }
         return count;
+    }
+
+    [[nodiscard]] static bool _is_target_token_member(
+        const Expression *expr, uint frame_var_uid) noexcept {
+        if (expr == nullptr || expr->tag() != Expression::Tag::MEMBER) {
+            return false;
+        }
+        auto *member = static_cast<const MemberExpr *>(expr);
+        if (member->is_swizzle() || member->member_index() != 6u ||
+            member->self() == nullptr ||
+            member->self()->tag() != Expression::Tag::REF) {
+            return false;
+        }
+        return static_cast<const RefExpr *>(member->self())->variable().uid() == frame_var_uid;
+    }
+
+    [[nodiscard]] static bool _literal_equals_uint(
+        const Expression *expr, uint expected) noexcept {
+        if (expr == nullptr || expr->tag() != Expression::Tag::LITERAL) {
+            return false;
+        }
+        auto *lit = static_cast<const LiteralExpr *>(expr);
+        return luisa::visit(
+            [expected]<typename T>(const T &v) noexcept -> bool {
+                if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+                    return static_cast<uint>(v) == expected;
+                }
+                return false;
+            },
+            lit->value());
+    }
+
+    [[nodiscard]] static bool _expr_references_var(
+        const Expression *expr, uint var_uid) noexcept {
+        if (expr == nullptr) { return false; }
+        switch (expr->tag()) {
+            case Expression::Tag::REF:
+                return static_cast<const RefExpr *>(expr)->variable().uid() == var_uid;
+            case Expression::Tag::UNARY:
+                return _expr_references_var(static_cast<const UnaryExpr *>(expr)->operand(), var_uid);
+            case Expression::Tag::BINARY: {
+                auto *bin = static_cast<const BinaryExpr *>(expr);
+                return _expr_references_var(bin->lhs(), var_uid) ||
+                       _expr_references_var(bin->rhs(), var_uid);
+            }
+            case Expression::Tag::MEMBER:
+                return _expr_references_var(static_cast<const MemberExpr *>(expr)->self(), var_uid);
+            case Expression::Tag::ACCESS: {
+                auto *acc = static_cast<const AccessExpr *>(expr);
+                return _expr_references_var(acc->range(), var_uid) ||
+                       _expr_references_var(acc->index(), var_uid);
+            }
+            case Expression::Tag::CALL: {
+                auto *call = static_cast<const CallExpr *>(expr);
+                for (auto *arg : call->arguments()) {
+                    if (_expr_references_var(arg, var_uid)) { return true; }
+                }
+                return false;
+            }
+            case Expression::Tag::CAST:
+                return _expr_references_var(static_cast<const CastExpr *>(expr)->expression(), var_uid);
+            case Expression::Tag::LITERAL:
+            case Expression::Tag::CONSTANT:
+            case Expression::Tag::TYPE_ID:
+            case Expression::Tag::STRING_ID:
+            case Expression::Tag::FUNC_REF:
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    struct _ScopeTokenAnalysis {
+        bool always_returns{false};
+        bool normal_expected{false};
+        bool all_returns_ok{true};
+    };
+
+    [[nodiscard]] static _ScopeTokenAnalysis _analyze_scope_target_token(
+        const ScopeStmt *scope, uint frame_var_uid,
+        uint expected_token, bool definitely_expected) noexcept {
+        if (scope == nullptr) {
+            return {false, definitely_expected, true};
+        }
+        for (auto *stmt : scope->statements()) {
+            if (stmt == nullptr) { continue; }
+            switch (stmt->tag()) {
+                case Statement::Tag::COMMENT:
+                case Statement::Tag::DEBUG_BREAK:
+                    break;
+                case Statement::Tag::ASSIGN: {
+                    auto *assign = static_cast<const AssignStmt *>(stmt);
+                    if (_is_target_token_member(assign->lhs(), frame_var_uid)) {
+                        if (_expr_references_var(assign->rhs(), frame_var_uid)) {
+                            definitely_expected = false;
+                        } else {
+                            definitely_expected = _literal_equals_uint(assign->rhs(), expected_token);
+                        }
+                    } else if (_expr_references_var(assign->lhs(), frame_var_uid)) {
+                        // A non-target_token member write might still clobber if whole-frame or aliased;
+                        // only direct non-token frame member writes (MemberExpr != 6) preserve target_token.
+                        bool safe_other_member = false;
+                        if (assign->lhs()->tag() == Expression::Tag::MEMBER) {
+                            auto *m = static_cast<const MemberExpr *>(assign->lhs());
+                            if (!m->is_swizzle() && m->member_index() != 6u &&
+                                m->self() != nullptr && m->self()->tag() == Expression::Tag::REF &&
+                                static_cast<const RefExpr *>(m->self())->variable().uid() == frame_var_uid) {
+                                safe_other_member = true;
+                            }
+                        }
+                        if (!safe_other_member || _expr_references_var(assign->rhs(), frame_var_uid)) {
+                            definitely_expected = false;
+                        }
+                    }
+                    break;
+                }
+                case Statement::Tag::EXPR: {
+                    auto *expr = static_cast<const ExprStmt *>(stmt)->expression();
+                    if (_expr_references_var(expr, frame_var_uid)) {
+                        definitely_expected = false;
+                    }
+                    break;
+                }
+                case Statement::Tag::SCOPE: {
+                    auto inner = _analyze_scope_target_token(
+                        static_cast<const ScopeStmt *>(stmt),
+                        frame_var_uid, expected_token, definitely_expected);
+                    if (!inner.all_returns_ok) { return {false, false, false}; }
+                    if (inner.always_returns) { return {true, false, true}; }
+                    definitely_expected = inner.normal_expected;
+                    break;
+                }
+                case Statement::Tag::IF: {
+                    auto *ifs = static_cast<const IfStmt *>(stmt);
+                    if (_expr_references_var(ifs->condition(), frame_var_uid)) {
+                        definitely_expected = false;
+                    }
+                    auto t = _analyze_scope_target_token(
+                        ifs->true_branch(), frame_var_uid, expected_token, definitely_expected);
+                    auto f = _analyze_scope_target_token(
+                        ifs->false_branch(), frame_var_uid, expected_token, definitely_expected);
+                    if (!t.all_returns_ok || !f.all_returns_ok) {
+                        return {false, false, false};
+                    }
+                    if (t.always_returns && f.always_returns) {
+                        return {true, false, true};
+                    }
+                    if (!t.always_returns && !f.always_returns) {
+                        definitely_expected = t.normal_expected && f.normal_expected;
+                    } else if (!t.always_returns) {
+                        definitely_expected = t.normal_expected;
+                    } else {
+                        definitely_expected = f.normal_expected;
+                    }
+                    break;
+                }
+                case Statement::Tag::RETURN:
+                    return {true, false, definitely_expected};
+                default:
+                    // Conservative fail-closed on loops, switches, or extension statements.
+                    return {false, false, false};
+            }
+        }
+        return {false, definitely_expected, true};
+    }
+
+    [[nodiscard]] uint _detect_deterministic_entry_target(const Coro &coro) const noexcept {
+        if (!_config.incremental_continuation_counts ||
+            !_config.fused_continuation_counts ||
+            _continuation_count <= 1u ||
+            _extension_routes.empty() ||
+            !_extension_routes[0u].empty()) {
+            return 0u;
+        }
+        const auto &entry_node = coro.graph().node(0u);
+        if (entry_node.targets.size() != 1u) {
+            return 0u;
+        }
+        const auto target = entry_node.targets.front();
+        if (target == 0u || target >= _continuation_count) {
+            return 0u;
+        }
+        auto entry_sub = coro.entry();
+        if (!entry_sub) { return 0u; }
+        Function wrapper = entry_sub.function();
+        if (!wrapper || wrapper.body() == nullptr ||
+            wrapper.body()->statements().size() != 1u ||
+            wrapper.arguments().empty()) {
+            return 0u;
+        }
+        auto *stmt = wrapper.body()->statements().front();
+        if (stmt->tag() != Statement::Tag::EXPR) { return 0u; }
+        auto *expr = static_cast<const ExprStmt *>(stmt)->expression();
+        if (expr == nullptr || expr->tag() != Expression::Tag::CALL) { return 0u; }
+        auto *call = static_cast<const CallExpr *>(expr);
+        if (!call->is_custom() || call->arguments().empty() ||
+            call->arguments().front()->tag() != Expression::Tag::REF) {
+            return 0u;
+        }
+        auto wrapper_frame_uid = wrapper.arguments().front().uid();
+        if (static_cast<const RefExpr *>(call->arguments().front())->variable().uid() != wrapper_frame_uid) {
+            return 0u;
+        }
+        Function cc = call->custom();
+        if (!cc || cc.body() == nullptr || cc.arguments().empty()) {
+            return 0u;
+        }
+        auto cc_frame = cc.arguments().front();
+        const auto expected_token = static_cast<uint>(coro.graph().node(target).token);
+        if (expected_token == 0u || expected_token == CoroFrame::TERMINAL_TOKEN) {
+            return 0u;
+        }
+        auto res = _analyze_scope_target_token(
+            cc.body(), cc_frame.uid(), expected_token, false);
+        if (res.all_returns_ok && (res.always_returns || res.normal_expected)) {
+            return static_cast<uint>(target);
+        }
+        return 0u;
     }
 
     template<typename Kernel>
@@ -684,6 +906,9 @@ private:
         // ByteBufferView semantics for user arguments.
         auto *frame_buffer = &_frame_buffer;
         _resume_index = device.create_buffer<uint>(_config.thread_count);
+        if (_config.incremental_continuation_counts) {
+            _identity_index = device.create_buffer<uint>(_config.thread_count);
+        }
         _resume_count = device.create_buffer<uint>(_queue_count);
         auto *resume_count_buffer = &_resume_count;
         auto fuse_continuation_counts =
@@ -1087,6 +1312,19 @@ private:
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "wavefront_initialize"),
             "wavefront_initialize");
+
+        if (_config.incremental_continuation_counts) {
+            Kernel1D init_identity_kernel = [identity_buf = &_identity_index](UInt n) {
+                auto x = dispatch_x();
+                $if (x < n) { Expr<Buffer<uint>>{*identity_buf}.write(x, x); };
+            };
+            _init_identity_shader = _compile_shader(
+                device, init_identity_kernel,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option, "wavefront_init_identity"),
+                "wavefront_init_identity");
+        }
+        _deterministic_entry_target = _detect_deterministic_entry_target(coro);
 
         Kernel1D clear_count_kernel = [](BufferUInt buffer, UInt n) {
             auto x = dispatch_x();
@@ -1802,6 +2040,14 @@ private:
                 deterministic_sink_continuation[c] = !emits_aux;
             }
         }
+        bool entry_emits_aux = false;
+        for (auto &&registered : _auxiliary_work) {
+            if (!registered.max_emitted_per_continuation.empty() &&
+                registered.max_emitted_per_continuation[0u] != 0u) {
+                entry_emits_aux = true;
+                break;
+            }
+        }
         auto iteration_count = uint64_t{0u};
         auto gather_scan_count = uint64_t{0u};
         auto compact_scan_count = uint64_t{0u};
@@ -2386,6 +2632,12 @@ private:
                 if (_config.frame_buffer_compaction) {
                     _used_frame_count = frame_offset + gen_count;
                 }
+                if (_deterministic_entry_target != 0u && !entry_emits_aux &&
+                    _config.incremental_continuation_counts &&
+                    _config.fused_continuation_counts && !verify_queues) {
+                    _host_count[_deterministic_entry_target] += gen_count;
+                    counts_known_on_host = true;
+                }
             } else {
                 if (dispatch_auxiliary != _auxiliary_work.size()) {
                     auto &&registered =
@@ -2422,6 +2674,7 @@ private:
                     }
                 }
                 bool fused_extension_gather = false;
+                bool use_identity_selected = false;
                 if (_config.incremental_continuation_counts &&
                     selected < nq && selected_count != 0u &&
                     scan_count != 0u) {
@@ -2464,8 +2717,16 @@ private:
                                         first_handler.gathers_selected_frames();
                                 }
                             }
+                        } else if (selected_count == scan_count &&
+                                   !(_has_hint_sort && selected < _have_hint.size() && _have_hint[selected])) {
+                            if (_identity_initialized_count < _config.thread_count) {
+                                pending_commands << _init_identity_shader(_config.thread_count)
+                                                        .dispatch(_config.thread_count);
+                                _identity_initialized_count = _config.thread_count;
+                            }
+                            use_identity_selected = true;
                         }
-                        if (!fused_extension_gather) {
+                        if (!fused_extension_gather && !use_identity_selected) {
                             auto count_slot = global_count_slot;
                             global_count_slot ^= 1u;
                             auto gather_threads = _gather_selected_4x ?
@@ -2644,6 +2905,9 @@ private:
                             _resume_index.view().subview(_host_offset[i], count),
                             _sort_index.view().subview(_host_offset[i], count)};
                         resume(i, static_cast<uint>(i), indices[sorted_index], count);
+                    } else if (use_identity_selected && i == selected) {
+                        resume(i, static_cast<uint>(i),
+                               _identity_index.view().subview(0u, count), count);
                     } else {
                         resume(i, static_cast<uint>(i),
                                _resume_index.view().subview(_host_offset[i], count), count);

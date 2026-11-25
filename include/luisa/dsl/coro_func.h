@@ -121,6 +121,7 @@ public:
 
     public:
         explicit operator bool() const noexcept { return static_cast<bool>(_f); }
+        [[nodiscard]] Function function() const noexcept { return _f; }
 
         void operator()(CoroFrame &frame, const Var<std::remove_cvref_t<Args>> &...args) const noexcept {
             luisa::vector<const Expression *> source_call_args;
