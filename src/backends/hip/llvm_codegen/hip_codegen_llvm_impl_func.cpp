@@ -749,6 +749,30 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture2d_read_function(llvm::VectorTyp
     create_case(PixelStorage::FLOAT1, llvm_f32_type);
     create_case(PixelStorage::FLOAT2, llvm_f32_type);
     create_case(PixelStorage::FLOAT4, llvm_f32_type);
+    auto create_bc_case = [&](PixelStorage storage) noexcept {
+        auto llvm_case_block = llvm::BasicBlock::Create(
+            _llvm_context, fmt::format("switch.case.{}", luisa::to_string(storage)), llvm_func);
+        llvm_switch->addCase(b.getInt64(luisa::to_underlying(storage)), llvm_case_block);
+        b.SetInsertPoint(llvm_case_block);
+        auto llvm_const_ptr = b.CreateIntToPtr(
+            llvm_handle,
+            llvm::PointerType::get(_llvm_context, amdgpu_address_space_constant),
+            "rsrc.ptr");
+        auto llvm_rsrc = b.CreateLoad(llvm_v8i32_type, llvm_const_ptr, "rsrc");
+        auto llvm_raw = b.CreateIntrinsic(
+            llvm::Intrinsic::amdgcn_image_load_2d,
+            {llvm_v4f32_type, llvm_i32_type, llvm_v8i32_type},
+            {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_rsrc, b.getInt32(0), b.getInt32(0)});
+        b.CreateRet(_texel_cast(b, llvm_raw, llvm_value_type));
+    };
+    create_bc_case(PixelStorage::BC1);
+    create_bc_case(PixelStorage::BC2);
+    create_bc_case(PixelStorage::BC3);
+    create_bc_case(PixelStorage::BC4);
+    create_bc_case(PixelStorage::BC5);
+    create_bc_case(PixelStorage::BC6);
+    create_bc_case(PixelStorage::BC7);
+    create_bc_case(PixelStorage::BC7_SRGB);
     if (!_config.assume_no_packed_textures) {
         create_packed_case();
     }

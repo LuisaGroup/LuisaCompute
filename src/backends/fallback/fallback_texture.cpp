@@ -14,6 +14,10 @@ struct alignas(stride) Pixel : std::array<std::byte, stride> {};
 }// namespace detail
 
 void FallbackTextureView::copy_from(const void *data) const noexcept {
+    if (is_block_compressed(_storage)) {
+        std::memcpy(_data, data, size_bytes());
+        return;
+    }
     auto LC_TEXTURE_COPY = [data, this]<uint dim, uint stride>() mutable noexcept {
         auto p = static_cast<const detail::Pixel<stride> *>(data);
         for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
@@ -89,24 +93,36 @@ static constexpr const std::array ewa_filter_weight_lut{
 FallbackTexture::FallbackTexture(PixelStorage storage, uint dim, uint3 size, uint levels) noexcept
     : _storage{static_cast<uint16_t>(storage)}, _mip_levels{levels}, _dimension{dim}, _is_external{false} {
     if (_dimension == 2u) {
-        _pixel_stride_shift = std::bit_width(static_cast<uint>(pixel_storage_size(storage, make_uint3(1u)))) - 1u;
-        if (storage == PixelStorage::BC6 || storage == PixelStorage::BC7) {
-            _pixel_stride_shift = 0u;
-        }
         _size[0] = size.x;
         _size[1] = size.y;
         _size[2] = 1u;
         _mip_offsets[0] = 0u;
-        auto sz = make_uint2(size);
-        for (auto i = 1u; i < levels; i++) {
+        if (is_block_compressed(storage)) {
+            _pixel_stride_shift = 0u;
+            auto sz = make_uint2(size);
+            for (auto i = 1u; i < levels; i++) {
+                const auto mip_bytes = pixel_storage_size(storage, make_uint3(sz, 1u));
+                _mip_offsets[i] = _mip_offsets[i - 1u] + static_cast<uint>(mip_bytes);
+                sz = luisa::max(sz >> 1u, 1u);
+            }
+            const auto total_bytes =
+                static_cast<size_t>(_mip_offsets[levels - 1u]) +
+                pixel_storage_size(storage, make_uint3(sz, 1u));
+            _data = luisa::allocate_with_allocator<std::byte>(total_bytes);
+        } else {
+            _pixel_stride_shift = std::bit_width(static_cast<uint>(pixel_storage_size(storage, make_uint3(1u)))) - 1u;
+            auto sz = make_uint2(size);
+            for (auto i = 1u; i < levels; i++) {
+                auto s = (sz + block_size - 1u) / block_size * block_size;
+                _mip_offsets[i] = _mip_offsets[i - 1u] + s.x * s.y;
+                sz = luisa::max(sz >> 1u, 1u);
+            }
             auto s = (sz + block_size - 1u) / block_size * block_size;
-            _mip_offsets[i] = _mip_offsets[i - 1u] + s.x * s.y;
-            sz = luisa::max(sz >> 1u, 1u);
+            auto size_pixels = _mip_offsets[levels - 1u] + s.x * s.y;
+            _data = luisa::allocate_with_allocator<std::byte>(static_cast<size_t>(size_pixels) << _pixel_stride_shift);
         }
-        auto s = (sz + block_size - 1u) / block_size * block_size;
-        auto size_pixels = _mip_offsets[levels - 1u] + s.x * s.y;
-        _data = luisa::allocate_with_allocator<std::byte>(static_cast<size_t>(size_pixels) << _pixel_stride_shift);
     } else {
+        LUISA_ASSERT(!is_block_compressed(storage), "Block compressed 3D textures are not supported.");
         _pixel_stride_shift = std::bit_width(static_cast<uint>(pixel_storage_size(storage, make_uint3(1u)))) - 1u;
         _size[0] = size.x;
         _size[1] = size.y;
@@ -126,24 +142,31 @@ FallbackTexture::FallbackTexture(PixelStorage storage, uint dim, uint3 size, uin
 FallbackTexture::FallbackTexture(PixelStorage storage, uint dim, uint3 size, uint levels, std::byte *external_buffer) noexcept
     : _storage{static_cast<uint16_t>(storage)}, _mip_levels{levels}, _dimension{dim}, _is_external{true} {
     if (_dimension == 2u) {
-        _pixel_stride_shift = std::bit_width(static_cast<uint>(pixel_storage_size(storage, make_uint3(1u)))) - 1u;
-        if (storage == PixelStorage::BC6 || storage == PixelStorage::BC7) {
-            _pixel_stride_shift = 0u;
-        }
         _size[0] = size.x;
         _size[1] = size.y;
         _size[2] = 1u;
         _mip_offsets[0] = 0u;
-        auto sz = make_uint2(size);
-        for (auto i = 1u; i < levels; i++) {
-            auto s = (sz + block_size - 1u) / block_size * block_size;
-            _mip_offsets[i] = _mip_offsets[i - 1u] + s.x * s.y;
-            sz = luisa::max(sz >> 1u, 1u);
+        if (is_block_compressed(storage)) {
+            _pixel_stride_shift = 0u;
+            auto sz = make_uint2(size);
+            for (auto i = 1u; i < levels; i++) {
+                const auto mip_bytes = pixel_storage_size(storage, make_uint3(sz, 1u));
+                _mip_offsets[i] = _mip_offsets[i - 1u] + static_cast<uint>(mip_bytes);
+                sz = luisa::max(sz >> 1u, 1u);
+            }
+            _data = external_buffer;
+        } else {
+            _pixel_stride_shift = std::bit_width(static_cast<uint>(pixel_storage_size(storage, make_uint3(1u)))) - 1u;
+            auto sz = make_uint2(size);
+            for (auto i = 1u; i < levels; i++) {
+                auto s = (sz + block_size - 1u) / block_size * block_size;
+                _mip_offsets[i] = _mip_offsets[i - 1u] + s.x * s.y;
+                sz = luisa::max(sz >> 1u, 1u);
+            }
+            _data = external_buffer;
         }
-        auto s = (sz + block_size - 1u) / block_size * block_size;
-        auto size_pixels = _mip_offsets[levels - 1u] + s.x * s.y;
-        _data = external_buffer;
     } else {
+        LUISA_ASSERT(!is_block_compressed(storage), "Block compressed 3D textures are not supported.");
         _pixel_stride_shift = std::bit_width(static_cast<uint>(pixel_storage_size(storage, make_uint3(1u)))) - 1u;
         _size[0] = size.x;
         _size[1] = size.y;
@@ -154,8 +177,6 @@ FallbackTexture::FallbackTexture(PixelStorage storage, uint dim, uint3 size, uin
             _mip_offsets[i] = _mip_offsets[i - 1u] + s.x * s.y * s.z;
             size = luisa::max(size >> 1u, 1u);
         }
-        auto s = (size + block_size - 1u) / block_size * block_size;
-        auto size_pixels = _mip_offsets[levels - 1u] + s.x * s.y * s.z;
         _data = external_buffer;
     }
 }

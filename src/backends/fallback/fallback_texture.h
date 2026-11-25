@@ -12,6 +12,16 @@
 #include <luisa/runtime/rhi/sampler.h>
 
 namespace luisa::compute::fallback {
+namespace bc {
+void decode_bc_pixel(
+    PixelStorage storage,
+    const std::byte *data,
+    uint32_t width,
+    uint32_t height,
+    uint32_t x,
+    uint32_t y,
+    float *out) noexcept;
+}// namespace bc
 namespace detail {
 
 template<typename T>
@@ -546,6 +556,13 @@ public:
     template<typename T>
     [[nodiscard]] inline Vector<T, 4u> read2d(uint2 xy) const noexcept {
         if (_out_of_bounds(xy)) [[unlikely]] { return {}; }
+        if constexpr (std::is_same_v<T, float>) {
+            if (is_block_compressed(_storage)) {
+                float4 out{};
+                bc::decode_bc_pixel(_storage, _data, _width, _height, xy.x, xy.y, &out.x);
+                return out;
+            }
+        }
         return detail::read_pixel<T>(_storage, _pixel2d(xy));
     }
 

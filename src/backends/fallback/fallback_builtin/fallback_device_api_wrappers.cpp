@@ -635,7 +635,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_lev
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
     const auto *t = reinterpret_cast<const TextureHeader *>(texture);
     const uint filter = sampler >> 2u;
-    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+    if (((level <= 0.0f) | (t->mip_levels <= 1u)) &&
         luisa_fallback_try_tex2d_sample_level0_fast(t, filter, sampler & 0x03u, uv->x, uv->y, out)) {
         return;
     }
@@ -657,7 +657,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_gra
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
     const auto *t = reinterpret_cast<const TextureHeader *>(texture);
     const uint filter = sampler >> 2u;
-    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+    if (((level <= 0.0f) | (t->mip_levels <= 1u)) &&
         luisa_fallback_try_tex2d_sample_level0_fast(t, filter, sampler & 0x03u, uv->x, uv->y, out)) {
         return;
     }
@@ -675,7 +675,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_sam
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_level_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, float level, uint filter, uint address, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
     const auto *t = reinterpret_cast<const TextureHeader *>(texture);
-    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+    if (((level <= 0.0f) | (t->mip_levels <= 1u)) &&
         luisa_fallback_try_tex2d_sample_level0_fast(t, filter, address, uv->x, uv->y, out)) {
         return;
     }
@@ -697,7 +697,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_gra
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_grad_level_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, const float2 *ddx, const float2 *ddy, float level, uint filter, uint address, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
     const auto *t = reinterpret_cast<const TextureHeader *>(texture);
-    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+    if (((level <= 0.0f) | (t->mip_levels <= 1u)) &&
         luisa_fallback_try_tex2d_sample_level0_fast(t, filter, address, uv->x, uv->y, out)) {
         return;
     }

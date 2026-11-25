@@ -160,6 +160,7 @@ set_target_properties(luisa-compute-simd-compiler PROPERTIES
 
 luisa_compute_add_backend(simd SOURCES
         ../fallback/fallback_texture.cpp
+        ../fallback/fallback_texture_bc.cpp
         runtime/simd_accel.cpp
         runtime/simd_accel_motion.cpp
         runtime/simd_bindless_array.cpp
