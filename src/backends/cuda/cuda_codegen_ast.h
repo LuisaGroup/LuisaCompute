@@ -133,6 +133,9 @@ public:
     /// Name of the first cluster/mbarrier operation the kernel used, or an
     /// empty view. See `_cluster_feature`.
     [[nodiscard]] auto cluster_feature() const noexcept { return _cluster_feature; }
+    [[nodiscard]] bool requires_procedural_ray_query() const noexcept;
+    [[nodiscard]] uint32_t ray_query_payload_count() const noexcept;
+    [[nodiscard]] uint32_t ray_query_payload_rw_mask() const noexcept;
 };
 
 }// namespace luisa::compute::cuda

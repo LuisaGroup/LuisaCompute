@@ -212,6 +212,7 @@ private:
     std::vector<llvm::CallInst *> _ray_query_trace_calls;
     uint32_t _ray_query_payload_count{2u};
     uint32_t _ray_query_payload_rw_mask{0u};
+    bool _requires_procedural_ray_query{false};
     llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, std::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
@@ -457,6 +458,7 @@ public:
     [[nodiscard]] luisa::string generate(const xir::Module &xir_module) noexcept;
     [[nodiscard]] uint32_t ray_query_payload_count() const noexcept { return _ray_query_payload_count; }
     [[nodiscard]] uint32_t ray_query_payload_rw_mask() const noexcept { return _ray_query_payload_rw_mask; }
+    [[nodiscard]] bool requires_procedural_ray_query() const noexcept { return _requires_procedural_ray_query; }
 };
 
 }// namespace luisa::compute::cuda

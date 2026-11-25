@@ -13,7 +13,8 @@ void CUDACodegenLLVMImpl::_legalize_optix_ir_atomics() noexcept {
         for (auto &block : function) {
             for (auto &inst : block) {
                 if (auto atomic = llvm::dyn_cast<llvm::AtomicRMWInst>(&inst);
-                    atomic != nullptr && atomic->getType()->isFloatingPointTy()) {
+                    atomic != nullptr && (atomic->getType()->isFloatingPointTy() ||
+                                          atomic->getOperation() == llvm::AtomicRMWInst::Sub)) {
                     atomics.emplace_back(atomic);
                 }
             }
@@ -21,16 +22,26 @@ void CUDACodegenLLVMImpl::_legalize_optix_ir_atomics() noexcept {
     }
     for (auto atomic : atomics) {
         auto value_type = atomic->getType();
-        auto bit_width = value_type->getPrimitiveSizeInBits().getFixedValue();
-        LUISA_ASSERT(bit_width == 32u || bit_width == 64u,
-                     "OptiX IR floating-point atomics require 32-bit or 64-bit values.");
-        auto integer_type = llvm::IntegerType::get(_llvm_context, bit_width);
         auto pointer = atomic->getPointerOperand();
         auto operand = atomic->getValOperand();
         auto alignment = atomic->getAlign();
         auto ordering = atomic->getOrdering();
         auto scope = atomic->getSyncScopeID();
         auto is_volatile = atomic->isVolatile();
+        if (!value_type->isFloatingPointTy() && atomic->getOperation() == llvm::AtomicRMWInst::Sub) {
+            llvm::IRBuilder<> b{atomic};
+            auto negated = b.CreateNeg(operand);
+            auto replacement = b.CreateAtomicRMW(llvm::AtomicRMWInst::Add, pointer, negated,
+                                                 alignment, ordering, scope);
+            replacement->setVolatile(is_volatile);
+            atomic->replaceAllUsesWith(replacement);
+            atomic->eraseFromParent();
+            continue;
+        }
+        auto bit_width = value_type->getPrimitiveSizeInBits().getFixedValue();
+        LUISA_ASSERT(bit_width == 32u || bit_width == 64u,
+                     "OptiX IR floating-point atomics require 32-bit or 64-bit values.");
+        auto integer_type = llvm::IntegerType::get(_llvm_context, bit_width);
         if (atomic->getOperation() == llvm::AtomicRMWInst::Xchg) {
             llvm::IRBuilder<> b{atomic};
             auto bits = b.CreateBitCast(operand, integer_type);

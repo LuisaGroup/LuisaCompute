@@ -5,10 +5,13 @@
 #include <luisa/core/logging.h>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/InlineAsm.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/IntrinsicsNVPTX.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Operator.h>
 
@@ -24,9 +27,25 @@ namespace {
         case llvm::Intrinsic::umax:
         case llvm::Intrinsic::smin:
         case llvm::Intrinsic::smax:
+        case llvm::Intrinsic::usub_sat:
+        case llvm::Intrinsic::uadd_sat:
+        case llvm::Intrinsic::sadd_sat:
+        case llvm::Intrinsic::ssub_sat:
+        case llvm::Intrinsic::abs:
+        case llvm::Intrinsic::fshl:
+        case llvm::Intrinsic::fshr:
         case llvm::Intrinsic::vector_reduce_fadd: return true;
         default: return false;
     }
+}
+
+[[nodiscard]] llvm::Constant *splat_int_constant(llvm::Type *type, const llvm::APInt &value) noexcept {
+    auto *scalar = llvm::ConstantInt::get(type->getScalarType(), value);
+    if (auto *vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+        return llvm::ConstantVector::getSplat(vector->getElementCount(), scalar);
+    }
+    LUISA_ASSERT(!type->isVectorTy(), "OptiX IR integer legalization does not support scalable vectors.");
+    return scalar;
 }
 
 [[nodiscard]] llvm::Value *legalize_scalar_rint(llvm::IRBuilder<> &builder, llvm::Value *value) noexcept {
@@ -284,6 +303,357 @@ struct SurfaceMemoryOperation {
     return static_cast<unsigned>(calls.size());
 }
 
+[[nodiscard]] unsigned legalize_activemask_operations(llvm::Module &module) noexcept {
+    llvm::SmallVector<llvm::CallInst *, 16u> calls;
+    llvm::Function *activemask_decl = nullptr;
+    for (auto &function : module) {
+        if (function.getIntrinsicID() == llvm::Intrinsic::nvvm_activemask) {
+            activemask_decl = &function;
+            for (auto *user : function.users()) {
+                if (auto *call = llvm::dyn_cast<llvm::CallInst>(user)) {
+                    calls.emplace_back(call);
+                }
+            }
+        }
+    }
+    if (!calls.empty()) {
+        auto *i32 = llvm::Type::getInt32Ty(module.getContext());
+        auto *fn_type = llvm::FunctionType::get(i32, false);
+        auto *body = llvm::InlineAsm::get(fn_type, "activemask.b32 $0;", "=r", true);
+        for (auto *call : calls) {
+            llvm::IRBuilder<> builder{call};
+            builder.SetCurrentDebugLocation(call->getDebugLoc());
+            auto *replacement = builder.CreateCall(fn_type, body, {});
+            replacement->setDoesNotThrow();
+            replacement->setDebugLoc(call->getDebugLoc());
+            replacement->takeName(call);
+            call->replaceAllUsesWith(replacement);
+            call->eraseFromParent();
+        }
+    }
+    if (activemask_decl != nullptr && activemask_decl->use_empty() &&
+        !activemask_decl->isUsedByMetadata()) {
+        activemask_decl->eraseFromParent();
+    }
+    return static_cast<unsigned>(calls.size());
+}
+
+[[nodiscard]] unsigned legalize_lanemask_operations(llvm::Module &module) noexcept {
+    llvm::SmallVector<llvm::CallInst *, 16u> calls;
+    llvm::SmallVector<llvm::Function *, 5u> declarations;
+    auto sreg_for_intrinsic = [](llvm::Intrinsic::ID id) noexcept -> const char * {
+        switch (id) {
+            case llvm::Intrinsic::nvvm_read_ptx_sreg_lanemask_eq: return "mov.u32 $0, %lanemask_eq;";
+            case llvm::Intrinsic::nvvm_read_ptx_sreg_lanemask_le: return "mov.u32 $0, %lanemask_le;";
+            case llvm::Intrinsic::nvvm_read_ptx_sreg_lanemask_lt: return "mov.u32 $0, %lanemask_lt;";
+            case llvm::Intrinsic::nvvm_read_ptx_sreg_lanemask_ge: return "mov.u32 $0, %lanemask_ge;";
+            case llvm::Intrinsic::nvvm_read_ptx_sreg_lanemask_gt: return "mov.u32 $0, %lanemask_gt;";
+            default: return nullptr;
+        }
+    };
+    for (auto &function : module) {
+        if (sreg_for_intrinsic(function.getIntrinsicID()) != nullptr) {
+            declarations.emplace_back(&function);
+            for (auto *user : function.users()) {
+                if (auto *call = llvm::dyn_cast<llvm::CallInst>(user)) {
+                    calls.emplace_back(call);
+                }
+            }
+        }
+    }
+    auto *i32 = llvm::Type::getInt32Ty(module.getContext());
+    auto *fn_type = llvm::FunctionType::get(i32, false);
+    for (auto *call : calls) {
+        auto asm_str = sreg_for_intrinsic(call->getCalledFunction()->getIntrinsicID());
+        auto *body = llvm::InlineAsm::get(fn_type, asm_str, "=r", true);
+        llvm::IRBuilder<> builder{call};
+        builder.SetCurrentDebugLocation(call->getDebugLoc());
+        auto *replacement = builder.CreateCall(fn_type, body, {});
+        replacement->setDoesNotThrow();
+        replacement->setDebugLoc(call->getDebugLoc());
+        replacement->takeName(call);
+        call->replaceAllUsesWith(replacement);
+        call->eraseFromParent();
+    }
+    for (auto *decl : declarations) {
+        if (decl->use_empty() && !decl->isUsedByMetadata()) { decl->eraseFromParent(); }
+    }
+    return static_cast<unsigned>(calls.size());
+}
+
+[[nodiscard]] unsigned legalize_match_all_operations(llvm::Module &module) noexcept {
+    llvm::SmallVector<llvm::CallInst *, 16u> calls;
+    llvm::SmallVector<llvm::Function *, 2u> declarations;
+    for (auto &function : module) {
+        auto id = function.getIntrinsicID();
+        if (id == llvm::Intrinsic::nvvm_match_all_sync_i32p ||
+            id == llvm::Intrinsic::nvvm_match_all_sync_i64p) {
+            declarations.emplace_back(&function);
+            for (auto *user : function.users()) {
+                if (auto *call = llvm::dyn_cast<llvm::CallInst>(user)) {
+                    calls.emplace_back(call);
+                }
+            }
+        }
+    }
+    auto *i1 = llvm::Type::getInt1Ty(module.getContext());
+    auto *i32 = llvm::Type::getInt32Ty(module.getContext());
+    auto *i64 = llvm::Type::getInt64Ty(module.getContext());
+    auto *ret_type = llvm::StructType::get(module.getContext(), {i32, i1});
+    for (auto *call : calls) {
+        auto is_i64 = call->getCalledFunction()->getIntrinsicID() == llvm::Intrinsic::nvvm_match_all_sync_i64p;
+        auto *val_type = is_i64 ? i64 : i32;
+        auto *fn_type = llvm::FunctionType::get(ret_type, {i32, val_type}, false);
+        auto callee = module.getOrInsertFunction(
+            is_i64 ? "llvm.nvvm.match.all.sync.i64" : "llvm.nvvm.match.all.sync.i32",
+            fn_type);
+        if (auto *fn = llvm::dyn_cast<llvm::Function>(callee.getCallee())) {
+            fn->addFnAttr(llvm::Attribute::NoUnwind);
+        }
+        llvm::IRBuilder<> builder{call};
+        builder.SetCurrentDebugLocation(call->getDebugLoc());
+        auto *mask = call->getArgOperand(0u);
+        auto *val = call->getArgOperand(1u);
+        auto *replacement = builder.CreateCall(fn_type, callee.getCallee(), {mask, val});
+        replacement->setDoesNotThrow();
+        replacement->setDebugLoc(call->getDebugLoc());
+        replacement->takeName(call);
+        call->replaceAllUsesWith(replacement);
+        call->eraseFromParent();
+    }
+    for (auto *decl : declarations) {
+        if (decl->use_empty() && !decl->isUsedByMetadata()) { decl->eraseFromParent(); }
+    }
+    return static_cast<unsigned>(calls.size());
+}
+
+[[nodiscard]] unsigned legalize_warp_sync_operations(llvm::Module &module) noexcept {
+    llvm::SmallVector<llvm::CallInst *, 32u> calls;
+    llvm::SmallVector<llvm::Function *, 16u> declarations;
+    auto is_warp_sync = [](llvm::Intrinsic::ID id) noexcept {
+        switch (id) {
+            case llvm::Intrinsic::nvvm_vote_ballot_sync:
+            case llvm::Intrinsic::nvvm_vote_all_sync:
+            case llvm::Intrinsic::nvvm_vote_any_sync:
+            case llvm::Intrinsic::nvvm_shfl_sync_idx_i32:
+            case llvm::Intrinsic::nvvm_shfl_sync_bfly_i32:
+            case llvm::Intrinsic::nvvm_shfl_sync_up_i32:
+            case llvm::Intrinsic::nvvm_shfl_sync_down_i32:
+            case llvm::Intrinsic::nvvm_redux_sync_add:
+            case llvm::Intrinsic::nvvm_redux_sync_and:
+            case llvm::Intrinsic::nvvm_redux_sync_or:
+            case llvm::Intrinsic::nvvm_redux_sync_xor:
+            case llvm::Intrinsic::nvvm_redux_sync_min:
+            case llvm::Intrinsic::nvvm_redux_sync_max:
+            case llvm::Intrinsic::nvvm_redux_sync_umin:
+            case llvm::Intrinsic::nvvm_redux_sync_umax: return true;
+            default: return false;
+        }
+    };
+    for (auto &function : module) {
+        if (is_warp_sync(function.getIntrinsicID())) {
+            declarations.emplace_back(&function);
+            for (auto *user : function.users()) {
+                if (auto *call = llvm::dyn_cast<llvm::CallInst>(user)) {
+                    calls.emplace_back(call);
+                }
+            }
+        }
+    }
+    auto *i1 = llvm::Type::getInt1Ty(module.getContext());
+    auto *i32 = llvm::Type::getInt32Ty(module.getContext());
+    auto *pair_type = llvm::StructType::get(module.getContext(), {i32, i1});
+    auto get_nvvm_fn = [&](llvm::StringRef name, llvm::FunctionType *fn_type, bool convergent) noexcept {
+        auto callee = module.getOrInsertFunction(name, fn_type);
+        if (auto *fn = llvm::dyn_cast<llvm::Function>(callee.getCallee())) {
+            fn->addFnAttr(llvm::Attribute::NoUnwind);
+            if (convergent) { fn->addFnAttr(llvm::Attribute::Convergent); }
+        }
+        return callee;
+    };
+    for (auto *call : calls) {
+        auto id = call->getCalledFunction()->getIntrinsicID();
+        llvm::IRBuilder<> builder{call};
+        builder.SetCurrentDebugLocation(call->getDebugLoc());
+        llvm::Value *replacement = nullptr;
+        switch (id) {
+            case llvm::Intrinsic::nvvm_vote_all_sync:
+            case llvm::Intrinsic::nvvm_vote_any_sync:
+            case llvm::Intrinsic::nvvm_vote_ballot_sync: {
+                auto *fn_type = llvm::FunctionType::get(pair_type, {i32, i32, i1}, false);
+                auto callee = get_nvvm_fn("llvm.nvvm.vote.sync", fn_type, true);
+                auto mode = id == llvm::Intrinsic::nvvm_vote_all_sync ? 0u :
+                            id == llvm::Intrinsic::nvvm_vote_any_sync ? 1u :
+                                                                        3u;
+                auto *vote_call = builder.CreateCall(
+                    fn_type, callee.getCallee(),
+                    {call->getArgOperand(0u), builder.getInt32(mode), call->getArgOperand(1u)});
+                vote_call->setDoesNotThrow();
+                vote_call->setConvergent();
+                vote_call->setDebugLoc(call->getDebugLoc());
+                auto elem_idx = id == llvm::Intrinsic::nvvm_vote_ballot_sync ? 0u : 1u;
+                replacement = builder.CreateExtractValue(vote_call, elem_idx);
+                break;
+            }
+            case llvm::Intrinsic::nvvm_shfl_sync_idx_i32:
+            case llvm::Intrinsic::nvvm_shfl_sync_up_i32:
+            case llvm::Intrinsic::nvvm_shfl_sync_down_i32:
+            case llvm::Intrinsic::nvvm_shfl_sync_bfly_i32: {
+                auto *fn_type = llvm::FunctionType::get(pair_type, {i32, i32, i32, i32, i32}, false);
+                auto callee = get_nvvm_fn("llvm.nvvm.shfl.sync.i32", fn_type, true);
+                auto mode = id == llvm::Intrinsic::nvvm_shfl_sync_idx_i32  ? 0u :
+                            id == llvm::Intrinsic::nvvm_shfl_sync_up_i32   ? 1u :
+                            id == llvm::Intrinsic::nvvm_shfl_sync_down_i32 ? 2u :
+                                                                             3u;
+                auto *shfl_call = builder.CreateCall(
+                    fn_type, callee.getCallee(),
+                    {call->getArgOperand(0u), builder.getInt32(mode), call->getArgOperand(1u),
+                     call->getArgOperand(2u), call->getArgOperand(3u)});
+                shfl_call->setDoesNotThrow();
+                shfl_call->setConvergent();
+                shfl_call->setDebugLoc(call->getDebugLoc());
+                replacement = builder.CreateExtractValue(shfl_call, 0u);
+                break;
+            }
+            case llvm::Intrinsic::nvvm_redux_sync_add:
+            case llvm::Intrinsic::nvvm_redux_sync_umin:
+            case llvm::Intrinsic::nvvm_redux_sync_min:
+            case llvm::Intrinsic::nvvm_redux_sync_umax:
+            case llvm::Intrinsic::nvvm_redux_sync_max:
+            case llvm::Intrinsic::nvvm_redux_sync_and:
+            case llvm::Intrinsic::nvvm_redux_sync_or:
+            case llvm::Intrinsic::nvvm_redux_sync_xor: {
+                auto *fn_type = llvm::FunctionType::get(i32, {i32, i32, i32}, false);
+                auto callee = get_nvvm_fn("llvm.nvvm.redux.sync", fn_type, false);
+                auto mode = id == llvm::Intrinsic::nvvm_redux_sync_add  ? 1u :
+                            id == llvm::Intrinsic::nvvm_redux_sync_umin ? 2u :
+                            id == llvm::Intrinsic::nvvm_redux_sync_min  ? 3u :
+                            id == llvm::Intrinsic::nvvm_redux_sync_umax ? 4u :
+                            id == llvm::Intrinsic::nvvm_redux_sync_max  ? 5u :
+                            id == llvm::Intrinsic::nvvm_redux_sync_and  ? 6u :
+                            id == llvm::Intrinsic::nvvm_redux_sync_or   ? 8u :
+                                                                          10u;
+                auto *redux_call = builder.CreateCall(
+                    fn_type, callee.getCallee(),
+                    {builder.getInt32(mode), call->getArgOperand(0u), call->getArgOperand(1u)});
+                redux_call->setDoesNotThrow();
+                redux_call->setDebugLoc(call->getDebugLoc());
+                replacement = redux_call;
+                break;
+            }
+            default: LUISA_ERROR_WITH_LOCATION("Unhandled warp-sync intrinsic in OptiX IR legalizer.");
+        }
+        replacement->takeName(call);
+        call->replaceAllUsesWith(replacement);
+        call->eraseFromParent();
+    }
+    for (auto *decl : declarations) {
+        if (decl->use_empty() && !decl->isUsedByMetadata()) { decl->eraseFromParent(); }
+    }
+    return static_cast<unsigned>(calls.size());
+}
+
+[[nodiscard]] llvm::Value *freeze_value(llvm::IRBuilder<> &builder, llvm::Value *value) noexcept {
+    auto *type = value->getType();
+    if (llvm::isa<llvm::UndefValue>(value)) {
+        return llvm::Constant::getNullValue(type);
+    }
+    if (llvm::isGuaranteedNotToBeUndefOrPoison(value)) {
+        return value;
+    }
+    if (auto *vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+        llvm::Value *result = llvm::PoisonValue::get(type);
+        for (auto i = 0u; i < vector->getNumElements(); i++) {
+            auto *elem = freeze_value(builder, builder.CreateExtractElement(value, i));
+            result = builder.CreateInsertElement(result, elem, i);
+        }
+        return result;
+    }
+    if (auto *structure = llvm::dyn_cast<llvm::StructType>(type)) {
+        llvm::Value *result = llvm::PoisonValue::get(type);
+        for (auto i = 0u; i < structure->getNumElements(); i++) {
+            auto *field = freeze_value(builder, builder.CreateExtractValue(value, i));
+            result = builder.CreateInsertValue(result, field, i);
+        }
+        return result;
+    }
+    if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+        llvm::Value *result = llvm::PoisonValue::get(type);
+        for (auto i = 0u; i < array->getNumElements(); i++) {
+            auto *elem = freeze_value(builder, builder.CreateExtractValue(value, i));
+            result = builder.CreateInsertValue(result, elem, i);
+        }
+        return result;
+    }
+    auto emit_asm_barrier = [&](llvm::Value *v, const char *asm_str, const char *constraint) noexcept -> llvm::Value * {
+        auto *t = v->getType();
+        auto *ft = llvm::FunctionType::get(t, {t}, false);
+        auto *ia = llvm::InlineAsm::get(ft, asm_str, constraint, false);
+        auto *call = builder.CreateCall(ft, ia, {v});
+        call->setDoesNotThrow();
+        call->setDoesNotAccessMemory();
+        call->setDebugLoc(builder.getCurrentDebugLocation());
+        return call;
+    };
+    if (type->isPointerTy()) {
+        auto *i64 = builder.getInt64Ty();
+        auto *as_int = builder.CreatePtrToInt(value, i64);
+        auto *frozen_int = emit_asm_barrier(as_int, "mov.b64 $0, $1;", "=l,l");
+        return builder.CreateIntToPtr(frozen_int, type);
+    }
+    if (type->isHalfTy()) {
+        auto *i16 = builder.getInt16Ty();
+        auto *i32 = builder.getInt32Ty();
+        auto *bits = builder.CreateZExt(builder.CreateBitCast(value, i16), i32);
+        auto *frozen = emit_asm_barrier(bits, "mov.b32 $0, $1;", "=r,r");
+        return builder.CreateBitCast(builder.CreateTrunc(frozen, i16), type);
+    }
+    if (type->isFloatTy()) {
+        return emit_asm_barrier(value, "mov.f32 $0, $1;", "=f,f");
+    }
+    if (type->isDoubleTy()) {
+        return emit_asm_barrier(value, "mov.f64 $0, $1;", "=d,d");
+    }
+    if (type->isIntegerTy()) {
+        auto bits = type->getIntegerBitWidth();
+        if (bits == 64u) {
+            return emit_asm_barrier(value, "mov.b64 $0, $1;", "=l,l");
+        }
+        if (bits == 32u) {
+            return emit_asm_barrier(value, "mov.b32 $0, $1;", "=r,r");
+        }
+        if (bits < 32u) {
+            auto *i32 = builder.getInt32Ty();
+            auto *wide = builder.CreateZExt(value, i32);
+            auto *frozen = emit_asm_barrier(wide, "mov.b32 $0, $1;", "=r,r");
+            return builder.CreateTrunc(frozen, type);
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION("Unsupported freeze operand type in OptiX IR legalizer.");
+}
+
+[[nodiscard]] unsigned legalize_freeze_instructions(llvm::Module &module) noexcept {
+    llvm::SmallVector<llvm::FreezeInst *, 32u> worklist;
+    for (auto &function : module) {
+        for (auto &block : function) {
+            for (auto &inst : block) {
+                if (auto *freeze_inst = llvm::dyn_cast<llvm::FreezeInst>(&inst)) {
+                    worklist.emplace_back(freeze_inst);
+                }
+            }
+        }
+    }
+    for (auto *freeze_inst : worklist) {
+        llvm::IRBuilder<> builder{freeze_inst};
+        builder.SetCurrentDebugLocation(freeze_inst->getDebugLoc());
+        auto *replacement = freeze_value(builder, freeze_inst->getOperand(0));
+        replacement->takeName(freeze_inst);
+        freeze_inst->replaceAllUsesWith(replacement);
+        freeze_inst->eraseFromParent();
+    }
+    return static_cast<unsigned>(worklist.size());
+}
+
 }// namespace
 
 void luisa_compute_cuda_llvm_legalize_optix_ir(llvm::Module &module) noexcept {
@@ -322,6 +692,75 @@ void luisa_compute_cuda_llvm_legalize_optix_ir(llvm::Module &module) noexcept {
             for (auto i = 0u; i < type->getNumElements(); i++) {
                 replacement = builder.CreateFAdd(replacement, builder.CreateExtractElement(vector, i));
             }
+        } else if (id == llvm::Intrinsic::usub_sat) {
+            auto *type = call->getType();
+            auto bits = type->getScalarSizeInBits();
+            auto *a = call->getArgOperand(0);
+            auto *b = call->getArgOperand(1);
+            auto *zero = splat_int_constant(type, llvm::APInt::getZero(bits));
+            replacement = builder.CreateSelect(builder.CreateICmpUGT(a, b), builder.CreateSub(a, b), zero);
+        } else if (id == llvm::Intrinsic::uadd_sat) {
+            auto *type = call->getType();
+            auto bits = type->getScalarSizeInBits();
+            auto *a = call->getArgOperand(0);
+            auto *b = call->getArgOperand(1);
+            auto *sum = builder.CreateAdd(a, b);
+            auto *all_ones = splat_int_constant(type, llvm::APInt::getAllOnes(bits));
+            replacement = builder.CreateSelect(builder.CreateICmpULT(sum, a), all_ones, sum);
+        } else if (id == llvm::Intrinsic::sadd_sat) {
+            auto *type = call->getType();
+            auto bits = type->getScalarSizeInBits();
+            auto *a = call->getArgOperand(0);
+            auto *b = call->getArgOperand(1);
+            auto *zero = splat_int_constant(type, llvm::APInt::getZero(bits));
+            auto *smin = splat_int_constant(type, llvm::APInt::getSignedMinValue(bits));
+            auto *smax = splat_int_constant(type, llvm::APInt::getSignedMaxValue(bits));
+            auto *sum = builder.CreateAdd(a, b);
+            auto *ov = builder.CreateICmpSLT(builder.CreateAnd(builder.CreateXor(a, sum), builder.CreateXor(b, sum)), zero);
+            auto *sat = builder.CreateSelect(builder.CreateICmpSLT(a, zero), smin, smax);
+            replacement = builder.CreateSelect(ov, sat, sum);
+        } else if (id == llvm::Intrinsic::ssub_sat) {
+            auto *type = call->getType();
+            auto bits = type->getScalarSizeInBits();
+            auto *a = call->getArgOperand(0);
+            auto *b = call->getArgOperand(1);
+            auto *zero = splat_int_constant(type, llvm::APInt::getZero(bits));
+            auto *smin = splat_int_constant(type, llvm::APInt::getSignedMinValue(bits));
+            auto *smax = splat_int_constant(type, llvm::APInt::getSignedMaxValue(bits));
+            auto *diff = builder.CreateSub(a, b);
+            auto *ov = builder.CreateICmpSLT(builder.CreateAnd(builder.CreateXor(a, b), builder.CreateXor(a, diff)), zero);
+            auto *sat = builder.CreateSelect(builder.CreateICmpSLT(a, zero), smin, smax);
+            replacement = builder.CreateSelect(ov, sat, diff);
+        } else if (id == llvm::Intrinsic::abs) {
+            auto *type = call->getType();
+            auto bits = type->getScalarSizeInBits();
+            auto *x = call->getArgOperand(0);
+            auto *zero = splat_int_constant(type, llvm::APInt::getZero(bits));
+            replacement = builder.CreateSelect(builder.CreateICmpSLT(x, zero), builder.CreateSub(zero, x), x);
+        } else if (id == llvm::Intrinsic::fshl || id == llvm::Intrinsic::fshr) {
+            auto *type = call->getType();
+            auto bits = type->getScalarSizeInBits();
+            auto *a = call->getArgOperand(0);
+            auto *b = call->getArgOperand(1);
+            auto *s = call->getArgOperand(2);
+            auto *zero = splat_int_constant(type, llvm::APInt::getZero(bits));
+            auto *width_c = splat_int_constant(type, llvm::APInt{bits, bits});
+            auto is_pow2 = (bits & (bits - 1u)) == 0u;
+            auto *shift = is_pow2 ?
+                              builder.CreateAnd(s, splat_int_constant(type, llvm::APInt{bits, bits - 1u})) :
+                              builder.CreateURem(s, width_c);
+            auto *is_zero = builder.CreateICmpEQ(shift, zero);
+            auto *inv_shift = is_pow2 ?
+                                  builder.CreateAnd(builder.CreateSub(width_c, shift),
+                                                    splat_int_constant(type, llvm::APInt{bits, bits - 1u})) :
+                                  builder.CreateSelect(is_zero, zero, builder.CreateSub(width_c, shift));
+            if (id == llvm::Intrinsic::fshl) {
+                auto *combined = builder.CreateOr(builder.CreateShl(a, shift), builder.CreateLShr(b, inv_shift));
+                replacement = builder.CreateSelect(is_zero, a, combined);
+            } else {
+                auto *combined = builder.CreateOr(builder.CreateLShr(b, shift), builder.CreateShl(a, inv_shift));
+                replacement = builder.CreateSelect(is_zero, b, combined);
+            }
         } else {
             auto lhs = call->getArgOperand(0);
             auto rhs = call->getArgOperand(1);
@@ -340,8 +779,13 @@ void luisa_compute_cuda_llvm_legalize_optix_ir(llvm::Module &module) noexcept {
     }
     auto surface_operations = legalize_surface_memory_operations(module);
     auto bool_masks = legalize_bool_mask_comparisons(module);
-    LUISA_VERBOSE("Legalized {} intrinsic call(s), {} surface operation(s), and {} boolean mask(s) for the OptiX IR reader.",
-                  worklist.size(), surface_operations, bool_masks);
+    auto activemasks = legalize_activemask_operations(module);
+    auto lanemasks = legalize_lanemask_operations(module);
+    auto match_alls = legalize_match_all_operations(module);
+    auto warp_syncs = legalize_warp_sync_operations(module);
+    auto freezes = legalize_freeze_instructions(module);
+    LUISA_VERBOSE("Legalized {} intrinsic call(s), {} surface operation(s), {} boolean mask(s), {} activemask(s), {} lanemask(s), {} match.all(s), {} warp-sync op(s), and {} freeze(s) for the OptiX IR reader.",
+                  worklist.size(), surface_operations, bool_masks, activemasks, lanemasks, match_alls, warp_syncs, freezes);
 }
 
 }// namespace luisa::compute::cuda

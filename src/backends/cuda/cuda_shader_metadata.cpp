@@ -54,6 +54,9 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
     result.append(metadata.requires_trace_closest ? "TRACE_CLOSEST TRUE " : "TRACE_CLOSEST FALSE ");
     result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
     result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
+    if (metadata.requires_ray_query) {
+        result.append(metadata.requires_procedural_ray_query ? "RAY_QUERY_PROCEDURAL TRUE " : "RAY_QUERY_PROCEDURAL FALSE ");
+    }
     result.append(luisa::format("RAY_QUERY_PAYLOAD_COUNT {} ", metadata.ray_query_payload_count));
     if (metadata.ray_query_payload_rw_mask != 0u) {
         result.append(luisa::format("RAY_QUERY_PAYLOAD_RW_MASK {:x} ", metadata.ray_query_payload_rw_mask));
@@ -135,6 +138,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<bool> requires_trace_closest;
     luisa::optional<bool> requires_trace_any;
     luisa::optional<bool> requires_ray_query;
+    luisa::optional<bool> requires_procedural_ray_query;
     luisa::optional<uint32_t> ray_query_payload_count;
     luisa::optional<uint32_t> ray_query_payload_rw_mask;
     luisa::optional<bool> requires_printing;
@@ -294,6 +298,22 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             } else {
                 LUISA_WARNING_WITH_LOCATION(
                     "Invalid requires_ray_query flag '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        } else if (token == "RAY_QUERY_PROCEDURAL") {
+            if (requires_procedural_ray_query.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate requires_procedural_ray_query flag in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "TRUE") {
+                requires_procedural_ray_query.emplace(true);
+            } else if (x == "FALSE") {
+                requires_procedural_ray_query.emplace(false);
+            } else {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid requires_procedural_ray_query flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
         } else if (token == "RAY_QUERY_PAYLOAD_COUNT") {
@@ -628,6 +648,8 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .requires_trace_closest = requires_trace_closest.value(),
         .requires_trace_any = requires_trace_any.value(),
         .requires_ray_query = requires_ray_query.value(),
+        // Sidecars written before procedural specialization preserve custom IS capability.
+        .requires_procedural_ray_query = requires_ray_query.value() ? requires_procedural_ray_query.value_or(true) : false,
         // Sidecars written before the payload ABI field used the two-word context pointer.
         .ray_query_payload_count = ray_query_payload_count.value_or(2u),
         .ray_query_payload_rw_mask = ray_query_payload_rw_mask.value_or(0u),

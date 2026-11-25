@@ -16,6 +16,7 @@ struct CUDACodegenLLVMResult {
     luisa::string code;
     uint32_t ray_query_payload_count{2u};
     uint32_t ray_query_payload_rw_mask{0u};
+    bool requires_procedural_ray_query{false};
 };
 
 [[nodiscard]] CUDACodegenLLVMResult luisa_compute_cuda_codegen_llvm(

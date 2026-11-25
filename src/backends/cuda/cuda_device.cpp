@@ -442,9 +442,9 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 }  // namespace cuda_device_detail_3
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 29 honors explicit no-inline metadata in the CUDA LLVM pipeline.
+// Revision 30 omits unused custom intersection programs on triangle-only ray queries.
 namespace cuda_device_detail_2 {
-static constexpr uint64_t cuda_llvm_cache_revision = 29u;
+static constexpr uint64_t cuda_llvm_cache_revision = 30u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -1029,6 +1029,7 @@ template<bool allow_update_expected_metadata>
         expected_metadata.requires_trace_closest = metadata->requires_trace_closest;
         expected_metadata.requires_trace_any = metadata->requires_trace_any;
         expected_metadata.requires_ray_query = metadata->requires_ray_query;
+        expected_metadata.requires_procedural_ray_query = metadata->requires_procedural_ray_query;
         expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
         expected_metadata.ray_query_payload_rw_mask = metadata->ray_query_payload_rw_mask;
         expected_metadata.requires_printing = metadata->requires_printing;
@@ -1047,6 +1048,7 @@ template<bool allow_update_expected_metadata>
     if (candidate_metadata.ray_query_payload_count == 0u) {
         candidate_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
         candidate_metadata.ray_query_payload_rw_mask = metadata->ray_query_payload_rw_mask;
+        candidate_metadata.requires_procedural_ray_query = metadata->requires_procedural_ray_query;
     }
     // examine the metadata
     if (*metadata != candidate_metadata) {
@@ -1060,6 +1062,7 @@ template<bool allow_update_expected_metadata>
     }
     expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
     expected_metadata.ray_query_payload_rw_mask = metadata->ray_query_payload_rw_mask;
+    expected_metadata.requires_procedural_ray_query = metadata->requires_procedural_ray_query;
     // return the ptx string
     return ptx_data;
 }
@@ -1257,6 +1260,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             auto result = luisa_compute_cuda_codegen_llvm(*xir_module, config);
             generated_metadata.ray_query_payload_count = result.ray_query_payload_count;
             generated_metadata.ray_query_payload_rw_mask = result.ray_query_payload_rw_mask;
+            generated_metadata.requires_procedural_ray_query = result.requires_procedural_ray_query;
             return std::move(result.code);
         };
     }
@@ -1267,6 +1271,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     // CUDACodegenAST. Both must therefore report "no wait" to the launch policy.
     auto pdl_prologue = _pdl_auto_prologue && !generate_ptx &&
                         !(kernel.requires_raytracing() && !_use_fallback_rtx);
+    bool ast_requires_procedural_rq = false;
+    uint32_t ast_rq_payload_count = 2u;
+    uint32_t ast_rq_payload_rw_mask = 0u;
     auto print_formats = [&]() -> luisa::vector<std::pair<luisa::string, const Type *>> {
         if (generate_ptx) { return {}; }
         // Software traversal is part of the AST/NVRTC device library only.
@@ -1280,6 +1287,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         Clock clk;
         CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx, pdl_prologue};
         codegen.emit(kernel, device_lib, option.native_include);
+        ast_requires_procedural_rq = codegen.requires_procedural_ray_query();
+        ast_rq_payload_count = codegen.ray_query_payload_count();
+        ast_rq_payload_rw_mask = codegen.ray_query_payload_rw_mask();
         LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
         // Cluster launch control, shared-memory mbarriers, proxy fences and
         // cluster barriers expand to SM 90+ PTX. NVRTC happily emits PTX for an
@@ -1389,10 +1399,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
         if (generate_ptx) {
             auto hash = cuda_device_detail_2::cuda_llvm_shader_hash(kernel, option, _handle.compute_capability());
-            // OptiX IR revision 10 preserves LLVM 23 attributes/vector splats
-            // and carries fast-math FTZ in the container compilation options.
+            // OptiX IR revision 17 legalizes integer atomicrmw sub and lanemask_* intrinsics.
             return code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR ?
-                       luisa::hash_combine({static_cast<uint64_t>(code_format), 10u}, hash) : hash;
+                       luisa::hash_combine({static_cast<uint64_t>(code_format), 17u}, hash) : hash;
         }
 #endif
         return CUDACompiler::compute_hash(scratch.string(), nvrtc_options);
@@ -1415,7 +1424,11 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY) ||
                               kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
-        .ray_query_payload_count = generate_ptx && kernel.propagated_builtin_callables().uses_ray_query() ? 0u : 2u,
+        .requires_procedural_ray_query = !generate_ptx && ast_requires_procedural_rq,
+        .ray_query_payload_count = generate_ptx ?
+                                       (kernel.propagated_builtin_callables().uses_ray_query() ? 0u : 2u) :
+                                       ast_rq_payload_count,
+        .ray_query_payload_rw_mask = generate_ptx ? 0u : ast_rq_payload_rw_mask,
         .requires_printing = kernel.requires_printing() && !uses_cuda_printf,
         // Read from the AST here because the launch path cannot: a shader-cache
         // hit returns before any codegen, so the only reliable moment to record

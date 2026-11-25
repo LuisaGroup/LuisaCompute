@@ -22,7 +22,7 @@ CUDACodegenLLVMResult luisa_compute_cuda_codegen_llvm(const xir::Module &xir_mod
     if (dump_ptx && !optix_ir) {
         LUISA_INFO("Generated PTX:\n{}", code);
     }
-    return {std::move(code), impl.ray_query_payload_count(), impl.ray_query_payload_rw_mask()};
+    return {std::move(code), impl.ray_query_payload_count(), impl.ray_query_payload_rw_mask(), impl.requires_procedural_ray_query()};
 }
 
 }// namespace luisa::compute::cuda

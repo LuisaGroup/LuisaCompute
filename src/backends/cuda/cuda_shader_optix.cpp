@@ -106,12 +106,17 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
     };
     LUISA_ASSERT(metadata.ray_query_payload_count >= 2u && metadata.ray_query_payload_count <= 32u,
                  "Invalid OptiX ray-query payload count {}.", metadata.ray_query_payload_count);
+    const auto has_procedural_rq = metadata.requires_ray_query && metadata.requires_procedural_ray_query;
     // Both ABIs pass captures from the caller to the candidate handlers. Promoted
     // small mutable captures also write back through RW payload registers.
-    constexpr auto ro_semantics = OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
-                                  OPTIX_PAYLOAD_SEMANTICS_IS_READ | OPTIX_PAYLOAD_SEMANTICS_AH_READ;
-    constexpr auto rw_semantics = OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE |
-                                  OPTIX_PAYLOAD_SEMANTICS_IS_READ_WRITE | OPTIX_PAYLOAD_SEMANTICS_AH_READ_WRITE;
+    const auto ro_semantics =
+        OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
+        OPTIX_PAYLOAD_SEMANTICS_AH_READ |
+        (has_procedural_rq ? OPTIX_PAYLOAD_SEMANTICS_IS_READ : 0u);
+    const auto rw_semantics =
+        OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE |
+        OPTIX_PAYLOAD_SEMANTICS_AH_READ_WRITE |
+        (has_procedural_rq ? OPTIX_PAYLOAD_SEMANTICS_IS_READ_WRITE : 0u);
     std::array<uint32_t, 32u> ray_query_payload_semantics;
     for (auto i = 0u; i < 32u; i++) {
         auto is_rw = i < metadata.ray_query_payload_count && ((metadata.ray_query_payload_rw_mask & (1u << i)) != 0u);
@@ -148,7 +153,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
     // Typed payloads above declare their own word counts. OptiX requires this
     // untyped count to be zero when module_compile_options.numPayloadTypes > 0.
     pipeline_compile_options.numPayloadValues = 0u;
-    auto primitive_flags = metadata.requires_ray_query ?
+    auto primitive_flags = has_procedural_rq ?
                                (OPTIX_PRIMITIVE_TYPE_FLAGS_CUSTOM | OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
                                OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE;
     for (auto i = 0u; i < curve_basis_count; i++) {
@@ -229,8 +234,10 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
         program_group_desc_ch_query.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
         program_group_desc_ch_query.hitgroup.moduleAH = _module;
         program_group_desc_ch_query.hitgroup.entryFunctionNameAH = "__anyhit__ray_query";
-        program_group_desc_ch_query.hitgroup.moduleIS = _module;
-        program_group_desc_ch_query.hitgroup.entryFunctionNameIS = "__intersection__ray_query";
+        if (has_procedural_rq) {
+            program_group_desc_ch_query.hitgroup.moduleIS = _module;
+            program_group_desc_ch_query.hitgroup.entryFunctionNameIS = "__intersection__ray_query";
+        }
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
             optix::api().optixProgramGroupCreate(

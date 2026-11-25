@@ -46,6 +46,8 @@ namespace detail {
 class CUDACodegenAST::RayQueryLowering {
 
 public:
+    static constexpr uint32_t max_direct_payload_words = 24u;
+
     struct CapturedElement {
         Variable base_variable;
         const Type *element_type;
@@ -53,7 +55,7 @@ public:
     };
 
     struct OutlineInfo {
-        uint index;
+        uint index{0u};
         luisa::vector<Variable> captured_resources;
         luisa::vector<CapturedElement> captured_elements;
         // Kernel arguments are bound as `const auto &` in the generated
@@ -63,8 +65,13 @@ public:
         // copy-back is also semantically dead: by-value kernel arguments are
         // read-only for the whole dispatch, so no write-back is ever needed.
         luisa::unordered_set<Variable> read_only_elements;
+        luisa::unordered_set<Variable> written_variables;
+        luisa::vector<uint32_t> element_payload_words;
+        bool direct_payload{false};
+        uint32_t payload_word_count{0u};
         bool track_committed_t_max{false};
         bool disable_anyhit{false};
+        bool has_procedural_handler{false};
     };
 
     struct FunctionResource {
@@ -87,32 +94,66 @@ public:
 
 private:
     CUDACodegenAST *_codegen;
+    luisa::vector<std::pair<const RayQueryStmt *, Function>> _ray_query_list;
     luisa::unordered_map<const RayQueryStmt *, Function> _ray_query_statements;
     luisa::unordered_map<const RayQueryStmt *, OutlineInfo> _outline_infos;
     luisa::unordered_map<FunctionResource,
                          luisa::unique_ptr<luisa::unordered_set<Variable>>,
                          FunctionResourceHash>
         _root_resources;
+    bool _requires_procedural_ray_query{false};
+    uint32_t _ray_query_payload_count{2u};
+    uint32_t _ray_query_payload_rw_mask{0u};
 
 private:
+    [[nodiscard]] static uint32_t _scalar_payload_words(const Type *t) noexcept {
+        switch (t->tag()) {
+            case Type::Tag::BOOL:
+            case Type::Tag::INT8:
+            case Type::Tag::UINT8:
+            case Type::Tag::INT16:
+            case Type::Tag::UINT16:
+            case Type::Tag::FLOAT16:
+            case Type::Tag::INT32:
+            case Type::Tag::UINT32:
+            case Type::Tag::FLOAT32:
+                return 1u;
+            case Type::Tag::INT64:
+            case Type::Tag::UINT64:
+            case Type::Tag::FLOAT64:
+                return 2u;
+            default:
+                return 0u;
+        }
+    }
+
     void _collect_ray_query_statements(Function f) noexcept {
+        luisa::vector<Function> callees;
         traverse_expressions<true>(
             f.body(),
-            [this](auto expr) noexcept {
+            [&callees](auto expr) noexcept {
                 if (expr->tag() == Expression::Tag::CALL) {
                     auto call_expr = static_cast<const CallExpr *>(expr);
                     if (!call_expr->is_builtin()) {
-                        _collect_ray_query_statements(call_expr->custom());
+                        callees.emplace_back(call_expr->custom());
                     }
                 }
             },
             [this, f](auto s) noexcept {
                 if (s->tag() == Statement::Tag::RAY_QUERY) {
                     auto rq_stmt = static_cast<const RayQueryStmt *>(s);
-                    _ray_query_statements.emplace(rq_stmt, f);
+                    if (_ray_query_statements.emplace(rq_stmt, f).second) {
+                        _ray_query_list.emplace_back(rq_stmt, f);
+                    }
                 }
             },
             [](auto) noexcept {});
+        luisa::sort(callees.begin(), callees.end(), [](auto a, auto b) noexcept {
+            return a.hash() < b.hash();
+        });
+        for (auto callee : callees) {
+            _collect_ray_query_statements(callee);
+        }
     }
 
     void _glob_variables(luisa::unordered_set<Variable> &within_scope,
@@ -330,22 +371,21 @@ private:
                static_cast<const RefExpr *>(query)->variable();
     }
 
-    [[nodiscard]] static bool _scope_writes_any_captured_element(
+    [[nodiscard]] static void _collect_written_variables(
         const ScopeStmt *scope,
-        const luisa::unordered_set<Variable> &captured_element_vars) noexcept {
-        if (scope == nullptr || captured_element_vars.empty()) { return false; }
-        auto writes = false;
+        const luisa::unordered_set<Variable> &captured_element_vars,
+        luisa::unordered_set<Variable> &written_vars) noexcept {
+        if (scope == nullptr || captured_element_vars.empty()) { return; }
         traverse_expressions<true>(
             scope,
             [&](const Expression *expr) noexcept {
-                if (writes || expr->tag() != Expression::Tag::CALL) { return; }
+                if (expr->tag() != Expression::Tag::CALL) { return; }
                 auto *call = static_cast<const CallExpr *>(expr);
                 if (call->op() == CallOp::EXTERNAL) {
                     for (auto arg : call->arguments()) {
                         if (auto v = _extract_root_variable(arg);
                             v && captured_element_vars.contains(*v)) {
-                            writes = true;
-                            return;
+                            written_vars.emplace(*v);
                         }
                     }
                     return;
@@ -356,11 +396,10 @@ private:
                     auto args = call->arguments();
                     for (size_t i = 0u; i < std::min(params.size(), args.size()); i++) {
                         auto usage = callee.variable_usage(params[i].uid());
-                        if (usage != Usage::READ) {
+                        if (usage != Usage::READ || params[i].tag() == Variable::Tag::REFERENCE) {
                             if (auto v = _extract_root_variable(args[i]);
                                 v && captured_element_vars.contains(*v)) {
-                                writes = true;
-                                return;
+                                written_vars.emplace(*v);
                             }
                         }
                     }
@@ -370,28 +409,30 @@ private:
                     if (!call->arguments().empty()) {
                         if (auto v = _extract_root_variable(call->arguments().front());
                             v && captured_element_vars.contains(*v)) {
-                            writes = true;
+                            written_vars.emplace(*v);
                         }
                     }
                 }
             },
             [&](const Statement *s) noexcept {
-                if (!writes && s->tag() == Statement::Tag::ASSIGN) {
+                if (s->tag() == Statement::Tag::ASSIGN) {
                     auto *assign = static_cast<const AssignStmt *>(s);
                     if (auto v = _extract_root_variable(assign->lhs());
                         v && captured_element_vars.contains(*v)) {
-                        writes = true;
+                        written_vars.emplace(*v);
                     }
                 }
             },
             [](auto) noexcept {});
-        return writes;
     }
 
-    void _create_outline_definitions(Function f, const RayQueryStmt *s) noexcept {
-        // check if the ray query is already outlined
-        if (_outline_infos.contains(s)) { return; }
+    struct AnalyzedOutline {
+        OutlineInfo info;
+        luisa::unordered_set<Variable> local_variable_set;
+        luisa::unordered_set<Variable> grad_variables;
+    };
 
+    [[nodiscard]] AnalyzedOutline _analyze_ray_query(uint rq_index, Function f, const RayQueryStmt *s) noexcept {
         auto track_committed_t_max = _scope_uses_ray_query_ray(s->on_triangle_candidate());
 
         // sort variables used in the ray query
@@ -525,40 +566,328 @@ private:
         }
 
         auto grad_variables = detail::glob_variables_with_grad(f);
+        luisa::unordered_set<Variable> captured_element_vars;
+        for (auto &&e : captured_elements) {
+            captured_element_vars.emplace(e.base_variable);
+        }
+        luisa::unordered_set<Variable> written_variables;
+        for (auto v : captured_element_vars) {
+            if (grad_variables.contains(v)) {
+                written_variables.emplace(v);
+            }
+        }
+        _collect_written_variables(s->on_triangle_candidate(), captured_element_vars, written_variables);
+        _collect_written_variables(s->on_procedural_candidate(), captured_element_vars, written_variables);
+
         luisa::unordered_set<Variable> read_only_elements;
         for (auto arg : f.arguments()) { read_only_elements.emplace(arg); }
-        {
-            luisa::unordered_set<Variable> captured_element_vars;
-            for (auto &&e : captured_elements) {
-                captured_element_vars.emplace(e.base_variable);
-            }
-            auto writes_elements = false;
+        if (written_variables.empty()) {
             for (auto v : captured_element_vars) {
-                if (grad_variables.contains(v)) {
-                    writes_elements = true;
-                    break;
-                }
+                read_only_elements.emplace(v);
             }
-            if (!writes_elements) {
-                writes_elements =
-                    _scope_writes_any_captured_element(s->on_triangle_candidate(), captured_element_vars) ||
-                    _scope_writes_any_captured_element(s->on_procedural_candidate(), captured_element_vars);
-            }
-            if (!writes_elements) {
-                for (auto v : captured_element_vars) {
+        } else {
+            for (auto v : captured_element_vars) {
+                if (!written_variables.contains(v)) {
                     read_only_elements.emplace(v);
                 }
             }
         }
+        // Preserve const kernel parameter safety: never write back to a read-only kernel arg.
+        if (f.tag() == Function::Tag::KERNEL) {
+            for (auto arg : f.arguments()) {
+                auto usage = f.variable_usage(arg.uid());
+                if (usage != Usage::WRITE && usage != Usage::READ_WRITE) {
+                    written_variables.erase(arg);
+                    read_only_elements.emplace(arg);
+                }
+            }
+        }
 
-        // create outline struct
-        // TODO: we may pass the values directly through
-        //  OptiX registers if they are small enough
-        auto rq_index = static_cast<uint>(_outline_infos.size());
+        auto disable_anyhit = !track_committed_t_max &&
+                              captured_resources.empty() &&
+                              captured_elements.empty() &&
+                              s->on_procedural_candidate()->statements().empty() &&
+                              _scope_is_always_commit_only_triangle(s->on_triangle_candidate(), s->query());
+        auto has_procedural_handler = !disable_anyhit && !s->on_procedural_candidate()->statements().empty();
+
+        // Check direct OptiX payload register eligibility.
+        luisa::vector<uint32_t> element_payload_words;
+        bool direct_payload = false;
+        uint32_t payload_word_count = 0u;
+        if (!disable_anyhit &&
+            !track_committed_t_max &&
+            captured_resources.empty() &&
+            !captured_elements.empty()) {
+            auto has_grad = false;
+            for (auto v : captured_element_vars) {
+                if (grad_variables.contains(v)) {
+                    has_grad = true;
+                    break;
+                }
+            }
+            if (!has_grad) {
+                auto needs_id = _ray_query_list.size() > 1u;
+                auto words = needs_id ? 1u : 0u;
+                auto supported = true;
+                element_payload_words.reserve(captured_elements.size());
+                for (auto &&e : captured_elements) {
+                    auto elem_words = _scalar_payload_words(e.element_type);
+                    if (elem_words == 0u || words + elem_words > max_direct_payload_words) {
+                        supported = false;
+                        break;
+                    }
+                    element_payload_words.emplace_back(words);
+                    words += elem_words;
+                }
+                if (supported) {
+                    direct_payload = true;
+                    payload_word_count = std::max(2u, words);
+                } else {
+                    element_payload_words.clear();
+                }
+            }
+        }
+
+        OutlineInfo info{
+            .index = rq_index,
+            .captured_resources = std::move(captured_resources),
+            .captured_elements = std::move(captured_elements),
+            .read_only_elements = std::move(read_only_elements),
+            .written_variables = std::move(written_variables),
+            .element_payload_words = std::move(element_payload_words),
+            .direct_payload = direct_payload,
+            .payload_word_count = payload_word_count,
+            .track_committed_t_max = track_committed_t_max,
+            .disable_anyhit = disable_anyhit,
+            .has_procedural_handler = has_procedural_handler,
+        };
+        return {std::move(info), std::move(local_variable_set), std::move(grad_variables)};
+    }
+
+    template<typename EmitExpr>
+    void _emit_pack_scalar_expr(const Type *t, EmitExpr &&emit_expr, uint32_t word_idx) const noexcept {
+        switch (t->tag()) {
+            case Type::Tag::BOOL:
+                _codegen->_scratch << "_lc_rq_payload[" << word_idx << "u] = (";
+                emit_expr();
+                _codegen->_scratch << ") ? 1u : 0u;";
+                break;
+            case Type::Tag::INT8:
+            case Type::Tag::UINT8:
+                _codegen->_scratch << "_lc_rq_payload[" << word_idx << "u] = static_cast<lc_uint>(static_cast<lc_ubyte>(";
+                emit_expr();
+                _codegen->_scratch << "));";
+                break;
+            case Type::Tag::INT16:
+            case Type::Tag::UINT16:
+                _codegen->_scratch << "_lc_rq_payload[" << word_idx << "u] = static_cast<lc_uint>(static_cast<lc_ushort>(";
+                emit_expr();
+                _codegen->_scratch << "));";
+                break;
+            case Type::Tag::FLOAT16:
+                _codegen->_scratch << "_lc_rq_payload[" << word_idx << "u] = static_cast<lc_uint>(__half_as_ushort(";
+                emit_expr();
+                _codegen->_scratch << "));";
+                break;
+            case Type::Tag::INT32:
+            case Type::Tag::UINT32:
+                _codegen->_scratch << "_lc_rq_payload[" << word_idx << "u] = static_cast<lc_uint>(";
+                emit_expr();
+                _codegen->_scratch << ");";
+                break;
+            case Type::Tag::FLOAT32:
+                _codegen->_scratch << "_lc_rq_payload[" << word_idx << "u] = __float_as_uint(";
+                emit_expr();
+                _codegen->_scratch << ");";
+                break;
+            case Type::Tag::INT64:
+            case Type::Tag::UINT64:
+                _codegen->_scratch << "{ auto _lc_u64 = static_cast<lc_ulong>(";
+                emit_expr();
+                _codegen->_scratch << "); _lc_rq_payload[" << word_idx << "u] = static_cast<lc_uint>(_lc_u64); _lc_rq_payload["
+                                   << (word_idx + 1u) << "u] = static_cast<lc_uint>(_lc_u64 >> 32u); }";
+                break;
+            case Type::Tag::FLOAT64:
+                _codegen->_scratch << "{ auto _lc_u64 = lc_bit_cast<lc_ulong>(static_cast<lc_double>(";
+                emit_expr();
+                _codegen->_scratch << ")); _lc_rq_payload[" << word_idx << "u] = static_cast<lc_uint>(_lc_u64); _lc_rq_payload["
+                                   << (word_idx + 1u) << "u] = static_cast<lc_uint>(_lc_u64 >> 32u); }";
+                break;
+            default:
+                LUISA_ERROR_WITH_LOCATION("Unsupported scalar payload type {}.", t->description());
+        }
+    }
+
+    template<typename EmitWord>
+    void _emit_unpack_scalar_expr(const Type *t, EmitWord &&emit_word, uint32_t word_idx) const noexcept {
+        switch (t->tag()) {
+            case Type::Tag::BOOL:
+                _codegen->_scratch << "(";
+                emit_word(word_idx);
+                _codegen->_scratch << " != 0u)";
+                break;
+            case Type::Tag::INT8:
+                _codegen->_scratch << "static_cast<lc_byte>(";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::UINT8:
+                _codegen->_scratch << "static_cast<lc_ubyte>(";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::INT16:
+                _codegen->_scratch << "static_cast<lc_short>(";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::UINT16:
+                _codegen->_scratch << "static_cast<lc_ushort>(";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::FLOAT16:
+                _codegen->_scratch << "__ushort_as_half(static_cast<lc_ushort>(";
+                emit_word(word_idx);
+                _codegen->_scratch << "))";
+                break;
+            case Type::Tag::INT32:
+                _codegen->_scratch << "static_cast<lc_int>(";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::UINT32:
+                emit_word(word_idx);
+                break;
+            case Type::Tag::FLOAT32:
+                _codegen->_scratch << "__uint_as_float(";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::INT64:
+                _codegen->_scratch << "static_cast<lc_long>((static_cast<lc_ulong>(";
+                emit_word(word_idx + 1u);
+                _codegen->_scratch << ") << 32u) | ";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::UINT64:
+                _codegen->_scratch << "((static_cast<lc_ulong>(";
+                emit_word(word_idx + 1u);
+                _codegen->_scratch << ") << 32u) | ";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            case Type::Tag::FLOAT64:
+                _codegen->_scratch << "lc_bit_cast<lc_double>((static_cast<lc_ulong>(";
+                emit_word(word_idx + 1u);
+                _codegen->_scratch << ") << 32u) | ";
+                emit_word(word_idx);
+                _codegen->_scratch << ")";
+                break;
+            default:
+                LUISA_ERROR_WITH_LOCATION("Unsupported scalar payload type {}.", t->description());
+        }
+    }
+
+    template<typename EmitExpr>
+    void _emit_set_payload_scalar(const Type *t, EmitExpr &&emit_expr, uint32_t word_idx) const noexcept {
+        switch (t->tag()) {
+            case Type::Tag::BOOL:
+                _codegen->_scratch << "lc_set_payload<" << word_idx << "u>((";
+                emit_expr();
+                _codegen->_scratch << ") ? 1u : 0u);";
+                break;
+            case Type::Tag::INT8:
+            case Type::Tag::UINT8:
+                _codegen->_scratch << "lc_set_payload<" << word_idx << "u>(static_cast<lc_uint>(static_cast<lc_ubyte>(";
+                emit_expr();
+                _codegen->_scratch << ")));";
+                break;
+            case Type::Tag::INT16:
+            case Type::Tag::UINT16:
+                _codegen->_scratch << "lc_set_payload<" << word_idx << "u>(static_cast<lc_uint>(static_cast<lc_ushort>(";
+                emit_expr();
+                _codegen->_scratch << ")));";
+                break;
+            case Type::Tag::FLOAT16:
+                _codegen->_scratch << "lc_set_payload<" << word_idx << "u>(static_cast<lc_uint>(__half_as_ushort(";
+                emit_expr();
+                _codegen->_scratch << ")));";
+                break;
+            case Type::Tag::INT32:
+            case Type::Tag::UINT32:
+                _codegen->_scratch << "lc_set_payload<" << word_idx << "u>(static_cast<lc_uint>(";
+                emit_expr();
+                _codegen->_scratch << "));";
+                break;
+            case Type::Tag::FLOAT32:
+                _codegen->_scratch << "lc_set_payload<" << word_idx << "u>(__float_as_uint(";
+                emit_expr();
+                _codegen->_scratch << "));";
+                break;
+            case Type::Tag::INT64:
+            case Type::Tag::UINT64:
+                _codegen->_scratch << "{ auto _lc_u64 = static_cast<lc_ulong>(";
+                emit_expr();
+                _codegen->_scratch << "); lc_set_payload<" << word_idx << "u>(static_cast<lc_uint>(_lc_u64)); lc_set_payload<"
+                                   << (word_idx + 1u) << "u>(static_cast<lc_uint>(_lc_u64 >> 32u)); }";
+                break;
+            case Type::Tag::FLOAT64:
+                _codegen->_scratch << "{ auto _lc_u64 = lc_bit_cast<lc_ulong>(static_cast<lc_double>(";
+                emit_expr();
+                _codegen->_scratch << ")); lc_set_payload<" << word_idx << "u>(static_cast<lc_uint>(_lc_u64)); lc_set_payload<"
+                                   << (word_idx + 1u) << "u>(static_cast<lc_uint>(_lc_u64 >> 32u)); }";
+                break;
+            default:
+                LUISA_ERROR_WITH_LOCATION("Unsupported scalar payload type {}.", t->description());
+        }
+    }
+
+    void _create_outline_definitions(Function f, const RayQueryStmt *s) noexcept {
+        // Check if already outlined for definitions. Notice _outline_infos
+        // was pre-populated during preprocess(); use _outlined_stmts to guard
+        // against emitting duplicate C++ definitions if visited twice.
+        if (!_outlined_stmts.emplace(s).second) { return; }
+
+        auto analyzed = _analyze_ray_query(_outline_infos.at(s).index, f, s);
+        auto &&info = _outline_infos.at(s);
+        auto rq_index = info.index;
+        auto &&local_variable_set = analyzed.local_variable_set;
+        auto &&grad_variables = analyzed.grad_variables;
+        auto &&captured_resources = info.captured_resources;
+        auto &&captured_elements = info.captured_elements;
+        auto &&read_only_elements = info.read_only_elements;
+        auto track_committed_t_max = info.track_committed_t_max;
+        auto direct_payload = info.direct_payload;
+
+        // Collect uniquely-identified resources for this function.
+        luisa::vector<Variable> uniquely_identified_resources;
+        {
+            std::array target_scopes{s->on_triangle_candidate(),
+                                     s->on_procedural_candidate()};
+            luisa::unordered_set<Variable> within_scope_variables;
+            luisa::unordered_set<Variable> without_scope_variables;
+            _glob_variables(within_scope_variables,
+                            without_scope_variables,
+                            f.body(), target_scopes);
+            for (auto v : within_scope_variables) {
+                if (v.is_resource() && !local_variable_set.contains(v)) {
+                    LUISA_ASSERT(_root_resources.contains({f, v}), "Invalid variable.");
+                    if (_root_resources.at({f, v})->size() == 1u) {
+                        uniquely_identified_resources.emplace_back(v);
+                    }
+                }
+            }
+            luisa::sort(uniquely_identified_resources.begin(), uniquely_identified_resources.end(),
+                        [](auto a, auto b) noexcept { return a.uid() < b.uid(); });
+        }
+
+        // create outline struct when not promoted into direct OptiX payload registers
         auto has_ctx = !captured_elements.empty() ||
                        !captured_resources.empty() ||
                        track_committed_t_max;
-        if (has_ctx) {
+        if (has_ctx && !direct_payload) {
             _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
             if (track_committed_t_max) {
                 _codegen->_scratch << "\n  LCAccel _lc_rq_accel;"
@@ -589,7 +918,8 @@ private:
 
         auto any_element_writable = false;
         for (auto &&v : captured_elements) {
-            if (!read_only_elements.contains(v.base_variable)) {
+            if (info.written_variables.contains(v.base_variable) &&
+                !read_only_elements.contains(v.base_variable)) {
                 any_element_writable = true;
                 break;
             }
@@ -628,10 +958,31 @@ private:
                     }
                 }
             }
-            // captured variables through stack
-            if (!captured_elements.empty() ||
-                !captured_resources.empty()) {
-                // get ctx
+            if (direct_payload) {
+                luisa::unordered_set<Variable> emitted_variables;
+                for (size_t idx = 0u; idx < captured_elements.size(); idx++) {
+                    auto &&v = captured_elements[idx];
+                    if (emitted_variables.emplace(v.base_variable).second) {
+                        _codegen->_emit_indent();
+                        _codegen->_emit_type_name(v.base_variable.type());
+                        _codegen->_scratch << " ";
+                        _codegen->_emit_variable_name(v.base_variable);
+                        _codegen->_scratch << "{};\n";
+                    }
+                    _codegen->_emit_indent();
+                    _emit_captured_element(v.base_variable, v.access_indices);
+                    _codegen->_scratch << " = ";
+                    _emit_unpack_scalar_expr(
+                        v.element_type,
+                        [&](uint32_t w) noexcept {
+                            _codegen->_scratch << "lc_get_payload<" << w << "u>()";
+                        },
+                        info.element_payload_words[idx]);
+                    _codegen->_scratch << ";\n";
+                }
+            } else if (!captured_elements.empty() ||
+                       !captured_resources.empty()) {
+                // captured variables through stack
                 _codegen->_scratch << "  lc_assume(__isLocal(ctx_in));\n"
                                    << "  auto ctx = *static_cast<LCRayQueryCtx"
                                    << rq_index << " *>(ctx_in);\n";
@@ -693,25 +1044,43 @@ private:
             _codegen->_scratch << "} // intersection handling body\n";
             // copy back captured variables
             if (any_element_writable) {
-                for (auto v : captured_elements) {
-                    if (!read_only_elements.contains(v.base_variable)) {
-                        _codegen->_emit_indent();
-                        _codegen->_scratch << "ctx.";
-                        _emit_outline_context_member_name(
-                            v.base_variable, v.access_indices);
-                        _codegen->_scratch << " = ";
-                        _emit_captured_element(
-                            v.base_variable, v.access_indices);
-                        _codegen->_scratch << ";\n";
+                if (direct_payload) {
+                    for (size_t idx = 0u; idx < captured_elements.size(); idx++) {
+                        auto &&v = captured_elements[idx];
+                        if (info.written_variables.contains(v.base_variable) &&
+                            !read_only_elements.contains(v.base_variable)) {
+                            _codegen->_emit_indent();
+                            _emit_set_payload_scalar(
+                                v.element_type,
+                                [&]() noexcept {
+                                    _emit_captured_element(v.base_variable, v.access_indices);
+                                },
+                                info.element_payload_words[idx]);
+                            _codegen->_scratch << "\n";
+                        }
                     }
+                } else {
+                    for (auto v : captured_elements) {
+                        if (info.written_variables.contains(v.base_variable) &&
+                            !read_only_elements.contains(v.base_variable)) {
+                            _codegen->_emit_indent();
+                            _codegen->_scratch << "ctx.";
+                            _emit_outline_context_member_name(
+                                v.base_variable, v.access_indices);
+                            _codegen->_scratch << " = ";
+                            _emit_captured_element(
+                                v.base_variable, v.access_indices);
+                            _codegen->_scratch << ";\n";
+                        }
+                    }
+                    _codegen->_emit_indent();
+                    _codegen->_scratch << "lc_assume(__isLocal(ctx_in));\n";
+                    // One struct store publishes every captured value. This relies on the
+                    // context members being assignable, which is why resource members are
+                    // emitted without a leading `const` qualifier.
+                    _codegen->_scratch << "*static_cast<LCRayQueryCtx"
+                                       << rq_index << " *>(ctx_in) = ctx;\n";
                 }
-                _codegen->_emit_indent();
-                _codegen->_scratch << "lc_assume(__isLocal(ctx_in));\n";
-                // One struct store publishes every captured value. This relies on the
-                // context members being assignable, which is why resource members are
-                // emitted without a leading `const` qualifier.
-                _codegen->_scratch << "*static_cast<LCRayQueryCtx"
-                                   << rq_index << " *>(ctx_in) = ctx;\n";
             }
             _codegen->_indent = indent;
         };
@@ -774,36 +1143,73 @@ private:
         s->query()->accept(*_codegen);
         _codegen->_scratch << ".result;\n"
                               "}\n\n";
-
-        auto disable_anyhit = !track_committed_t_max &&
-                              captured_resources.empty() &&
-                              captured_elements.empty() &&
-                              s->on_procedural_candidate()->statements().empty() &&
-                              _scope_is_always_commit_only_triangle(s->on_triangle_candidate(), s->query());
-
-        // record the outline function
-        OutlineInfo info{rq_index,
-                         std::move(captured_resources),
-                         std::move(captured_elements),
-                         std::move(read_only_elements),
-                         track_committed_t_max,
-                         disable_anyhit};
-        _outline_infos.emplace(s, std::move(info));
     }
+
+    luisa::unordered_set<const RayQueryStmt *> _outlined_stmts;
 
 public:
     explicit RayQueryLowering(CUDACodegenAST *codegen) noexcept
         : _codegen{codegen} {}
 
+    [[nodiscard]] bool requires_procedural_ray_query() const noexcept { return _requires_procedural_ray_query; }
+    [[nodiscard]] uint32_t ray_query_payload_count() const noexcept { return _ray_query_payload_count; }
+    [[nodiscard]] uint32_t ray_query_payload_rw_mask() const noexcept { return _ray_query_payload_rw_mask; }
+
     void preprocess(Function f) noexcept {
         _find_root_resources(f);
         _collect_ray_query_statements(f);
+
+        _requires_procedural_ray_query = false;
+        _ray_query_payload_count = 2u;
+        _ray_query_payload_rw_mask = 0u;
+        auto all_direct_payload = true;
+        for (uint idx = 0u; idx < static_cast<uint>(_ray_query_list.size()); idx++) {
+            auto [rq, func] = _ray_query_list[idx];
+            auto analyzed = _analyze_ray_query(idx, func, rq);
+            auto &&info = analyzed.info;
+            if (!info.disable_anyhit) {
+                if (info.has_procedural_handler) {
+                    _requires_procedural_ray_query = true;
+                }
+                if (info.direct_payload) {
+                    _ray_query_payload_count = std::max(_ray_query_payload_count, info.payload_word_count);
+                    for (size_t e_idx = 0u; e_idx < info.captured_elements.size(); e_idx++) {
+                        auto &&e = info.captured_elements[e_idx];
+                        if (info.written_variables.contains(e.base_variable) &&
+                            !info.read_only_elements.contains(e.base_variable)) {
+                            auto w = info.element_payload_words[e_idx];
+                            auto n_words = _scalar_payload_words(e.element_type);
+                            for (auto k = 0u; k < n_words; k++) {
+                                _ray_query_payload_rw_mask |= (1u << (w + k));
+                            }
+                        }
+                    }
+                } else {
+                    auto has_ctx = !info.captured_elements.empty() ||
+                                   !info.captured_resources.empty() ||
+                                   info.track_committed_t_max;
+                    if (has_ctx) {
+                        all_direct_payload = false;
+                    }
+                }
+            }
+            _outline_infos.emplace(rq, std::move(info));
+        }
+
         _codegen->_scratch << "#define LUISA_RAY_QUERY_IMPL_COUNT "
-                           << _ray_query_statements.size() << "\n";
+                           << _ray_query_list.size() << "\n"
+                           << "#define LUISA_RAY_QUERY_PAYLOAD_COUNT "
+                           << _ray_query_payload_count << "u\n";
+        if (_requires_procedural_ray_query) {
+            _codegen->_scratch << "#define LUISA_ENABLE_OPTIX_RAY_QUERY_PROCEDURAL\n";
+        }
+        if (all_direct_payload) {
+            _codegen->_scratch << "#define LUISA_RAY_QUERY_ALL_DIRECT_PAYLOAD\n";
+        }
     }
 
     void outline(Function f) noexcept {
-        for (auto [rq, func] : _ray_query_statements) {
+        for (auto [rq, func] : _ray_query_list) {
             if (func == f) { _create_outline_definitions(func, rq); }
         }
     }
@@ -811,8 +1217,14 @@ public:
     void lower(const RayQueryStmt *stmt) noexcept {
         LUISA_ASSERT(_outline_infos.contains(stmt),
                      "Ray query statement not outlined.");
-        auto &&[rq_index, captured_resources, captured_elements, read_only_elements, track_committed_t_max, disable_anyhit] =
-            _outline_infos.at(stmt);
+        auto &&info = _outline_infos.at(stmt);
+        auto rq_index = info.index;
+        auto &&captured_resources = info.captured_resources;
+        auto &&captured_elements = info.captured_elements;
+        auto &&read_only_elements = info.read_only_elements;
+        auto track_committed_t_max = info.track_committed_t_max;
+        auto disable_anyhit = info.disable_anyhit;
+        auto direct_payload = info.direct_payload;
         auto has_ctx = !captured_elements.empty() ||
                        !captured_resources.empty() ||
                        track_committed_t_max;
@@ -821,35 +1233,6 @@ public:
         _codegen->_emit_indent();
         _codegen->_scratch << "{ // ray query #" << rq_index << "\n";
         _codegen->_indent++;
-        // copy captured variables if any
-        if (has_ctx) {
-            _codegen->_emit_indent();
-            _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
-            // copy captured variables
-            _codegen->_indent++;
-            if (track_committed_t_max) {
-                _codegen->_emit_indent();
-                stmt->query()->accept(*_codegen);
-                _codegen->_scratch << ".accel,\n";
-                _codegen->_emit_indent();
-                stmt->query()->accept(*_codegen);
-                _codegen->_scratch << ".ray.m3,\n";
-            }
-            for (auto &&v : captured_resources) {
-                _codegen->_emit_indent();
-                _codegen->_emit_variable_name(v);
-                _codegen->_scratch << ",\n";
-            }
-            for (auto &&v : captured_elements) {
-                _codegen->_emit_indent();
-                _emit_captured_element(
-                    v.base_variable, v.access_indices);
-                _codegen->_scratch << ",\n";
-            }
-            _codegen->_indent--;
-            _codegen->_emit_indent();
-            _codegen->_scratch << "};\n";
-        }
         if (disable_anyhit) {
             _codegen->_emit_indent();
             stmt->query()->accept(*_codegen);
@@ -859,26 +1242,97 @@ public:
             stmt->query()->accept(*_codegen);
             _codegen->_scratch << ".flags |= LC_RAY_FLAG_ENFORCE_ANYHIT;\n";
         }
-        // emit ray query call
-        _codegen->_emit_indent();
-        _codegen->_scratch << "lc_ray_query_trace(";
-        stmt->query()->accept(*_codegen);
-        if (!has_ctx) {
-            _codegen->_scratch << ", " << rq_index << ", nullptr);\n";
-        } else {
-            _codegen->_scratch << ", " << rq_index << ", &ctx);\n";
-        }
-        // copy back captured variables
-        for (auto v : captured_elements) {
-            if (!v.base_variable.is_resource() &&
-                !read_only_elements.contains(v.base_variable)) {
+        if (direct_payload) {
+            _codegen->_emit_indent();
+            _codegen->_scratch << "lc_uint _lc_rq_payload[32]{};\n";
+            if (_ray_query_list.size() > 1u) {
                 _codegen->_emit_indent();
-                _emit_captured_element(
-                    v.base_variable, v.access_indices);
-                _codegen->_scratch << " = ctx.";
-                _emit_outline_context_member_name(
-                    v.base_variable, v.access_indices);
-                _codegen->_scratch << ";\n";
+                _codegen->_scratch << "_lc_rq_payload[0u] = " << rq_index << "u << 24u;\n";
+            }
+            for (size_t idx = 0u; idx < captured_elements.size(); idx++) {
+                auto &&v = captured_elements[idx];
+                _codegen->_emit_indent();
+                _emit_pack_scalar_expr(
+                    v.element_type,
+                    [&]() noexcept {
+                        _emit_captured_element(v.base_variable, v.access_indices);
+                    },
+                    info.element_payload_words[idx]);
+                _codegen->_scratch << "\n";
+            }
+            _codegen->_emit_indent();
+            _codegen->_scratch << "lc_ray_query_trace_direct(";
+            stmt->query()->accept(*_codegen);
+            _codegen->_scratch << ", _lc_rq_payload);\n";
+            for (size_t idx = 0u; idx < captured_elements.size(); idx++) {
+                auto &&v = captured_elements[idx];
+                if (!v.base_variable.is_resource() &&
+                    info.written_variables.contains(v.base_variable) &&
+                    !read_only_elements.contains(v.base_variable)) {
+                    _codegen->_emit_indent();
+                    _emit_captured_element(v.base_variable, v.access_indices);
+                    _codegen->_scratch << " = ";
+                    _emit_unpack_scalar_expr(
+                        v.element_type,
+                        [&](uint32_t w) noexcept {
+                            _codegen->_scratch << "_lc_rq_payload[" << w << "u]";
+                        },
+                        info.element_payload_words[idx]);
+                    _codegen->_scratch << ";\n";
+                }
+            }
+        } else {
+            // copy captured variables if any
+            if (has_ctx) {
+                _codegen->_emit_indent();
+                _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
+                // copy captured variables
+                _codegen->_indent++;
+                if (track_committed_t_max) {
+                    _codegen->_emit_indent();
+                    stmt->query()->accept(*_codegen);
+                    _codegen->_scratch << ".accel,\n";
+                    _codegen->_emit_indent();
+                    stmt->query()->accept(*_codegen);
+                    _codegen->_scratch << ".ray.m3,\n";
+                }
+                for (auto &&v : captured_resources) {
+                    _codegen->_emit_indent();
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ",\n";
+                }
+                for (auto &&v : captured_elements) {
+                    _codegen->_emit_indent();
+                    _emit_captured_element(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << ",\n";
+                }
+                _codegen->_indent--;
+                _codegen->_emit_indent();
+                _codegen->_scratch << "};\n";
+            }
+            // emit ray query call
+            _codegen->_emit_indent();
+            _codegen->_scratch << "lc_ray_query_trace(";
+            stmt->query()->accept(*_codegen);
+            if (!has_ctx) {
+                _codegen->_scratch << ", " << rq_index << ", nullptr);\n";
+            } else {
+                _codegen->_scratch << ", " << rq_index << ", &ctx);\n";
+            }
+            // copy back captured variables
+            for (auto v : captured_elements) {
+                if (!v.base_variable.is_resource() &&
+                    info.written_variables.contains(v.base_variable) &&
+                    !read_only_elements.contains(v.base_variable)) {
+                    _codegen->_emit_indent();
+                    _emit_captured_element(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << " = ctx.";
+                    _emit_outline_context_member_name(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << ";\n";
+                }
             }
         }
         _codegen->_indent--;
@@ -2855,5 +3309,17 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect,
       _motion_srt_type{Type::of<MotionInstanceTransformSRT>()} {}
 
 CUDACodegenAST::~CUDACodegenAST() noexcept = default;
+
+bool CUDACodegenAST::requires_procedural_ray_query() const noexcept {
+    return _ray_query_lowering->requires_procedural_ray_query();
+}
+
+uint32_t CUDACodegenAST::ray_query_payload_count() const noexcept {
+    return _ray_query_lowering->ray_query_payload_count();
+}
+
+uint32_t CUDACodegenAST::ray_query_payload_rw_mask() const noexcept {
+    return _ray_query_lowering->ray_query_payload_rw_mask();
+}
 
 }// namespace luisa::compute::cuda

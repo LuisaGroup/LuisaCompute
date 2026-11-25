@@ -1269,7 +1269,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             any_procedural_handler = true;
         }
     }
+    _requires_procedural_ray_query = any_procedural_handler;
     for (auto procedural : {false, true}) {
+        if (procedural && !any_procedural_handler) { continue; }
         auto name = procedural ? "__intersection__ray_query" : "__anyhit__ray_query";
         auto function = llvm::Function::Create(llvm::FunctionType::get(llvm::Type::getVoidTy(_llvm_context), false),
                                                llvm::Function::ExternalLinkage, name, _llvm_module.get());

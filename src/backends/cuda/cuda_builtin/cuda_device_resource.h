@@ -1779,12 +1779,16 @@ enum LCHitKind : lc_uint {
     LC_HIT_KIND_TRIANGLE_BACK_FACE = 0xffu,
 };
 
+#ifndef LUISA_RAY_QUERY_PAYLOAD_COUNT
+#define LUISA_RAY_QUERY_PAYLOAD_COUNT 2u
+#endif
+
 template<lc_uint payload_type, lc_uint sbt_offset, lc_uint reg_count = 0u>
-void lc_ray_traverse(lc_uint flags, LCAccel accel,
-                     LCRay ray, lc_float time, lc_uint mask,
-                     lc_uint r0 = lc_undef(),
-                     lc_uint r1 = lc_undef()) noexcept {
-    static_assert(reg_count <= 2u, "Register count must be less than 2.");
+__device__ __forceinline__ void lc_ray_traverse_payload(
+    lc_uint flags, LCAccel accel,
+    LCRay ray, lc_float time, lc_uint mask,
+    lc_uint (&p)[32]) noexcept {
+    static_assert(reg_count <= 32u, "Register count must be less than or equal to 32.");
     auto ox = ray.m0[0];
     auto oy = ray.m0[1];
     auto oz = ray.m0[2];
@@ -1793,13 +1797,49 @@ void lc_ray_traverse(lc_uint flags, LCAccel accel,
     auto dz = ray.m2[2];
     auto t_min = ray.m1;
     auto t_max = ray.m3;
-    [[maybe_unused]] lc_uint
-        p0,
-        p1, p2, p3, p4, p5, p6, p7,
-        p8, p9, p10, p11, p12, p13, p14, p15,
-        p16, p17, p18, p19, p20, p21, p22, p23,
-        p24, p25, p26, p27, p28, p29, p30, p31;
     auto u = lc_undef();
+    lc_uint
+        i0, i1, i2, i3, i4, i5, i6, i7,
+        i8, i9, i10, i11, i12, i13, i14, i15,
+        i16, i17, i18, i19, i20, i21, i22, i23,
+        i24, i25, i26, i27, i28, i29, i30, i31;
+    if constexpr (reg_count > 0u) { i0 = p[0u]; } else { i0 = u; }
+    if constexpr (reg_count > 1u) { i1 = p[1u]; } else { i1 = u; }
+    if constexpr (reg_count > 2u) { i2 = p[2u]; } else { i2 = u; }
+    if constexpr (reg_count > 3u) { i3 = p[3u]; } else { i3 = u; }
+    if constexpr (reg_count > 4u) { i4 = p[4u]; } else { i4 = u; }
+    if constexpr (reg_count > 5u) { i5 = p[5u]; } else { i5 = u; }
+    if constexpr (reg_count > 6u) { i6 = p[6u]; } else { i6 = u; }
+    if constexpr (reg_count > 7u) { i7 = p[7u]; } else { i7 = u; }
+    if constexpr (reg_count > 8u) { i8 = p[8u]; } else { i8 = u; }
+    if constexpr (reg_count > 9u) { i9 = p[9u]; } else { i9 = u; }
+    if constexpr (reg_count > 10u) { i10 = p[10u]; } else { i10 = u; }
+    if constexpr (reg_count > 11u) { i11 = p[11u]; } else { i11 = u; }
+    if constexpr (reg_count > 12u) { i12 = p[12u]; } else { i12 = u; }
+    if constexpr (reg_count > 13u) { i13 = p[13u]; } else { i13 = u; }
+    if constexpr (reg_count > 14u) { i14 = p[14u]; } else { i14 = u; }
+    if constexpr (reg_count > 15u) { i15 = p[15u]; } else { i15 = u; }
+    if constexpr (reg_count > 16u) { i16 = p[16u]; } else { i16 = u; }
+    if constexpr (reg_count > 17u) { i17 = p[17u]; } else { i17 = u; }
+    if constexpr (reg_count > 18u) { i18 = p[18u]; } else { i18 = u; }
+    if constexpr (reg_count > 19u) { i19 = p[19u]; } else { i19 = u; }
+    if constexpr (reg_count > 20u) { i20 = p[20u]; } else { i20 = u; }
+    if constexpr (reg_count > 21u) { i21 = p[21u]; } else { i21 = u; }
+    if constexpr (reg_count > 22u) { i22 = p[22u]; } else { i22 = u; }
+    if constexpr (reg_count > 23u) { i23 = p[23u]; } else { i23 = u; }
+    if constexpr (reg_count > 24u) { i24 = p[24u]; } else { i24 = u; }
+    if constexpr (reg_count > 25u) { i25 = p[25u]; } else { i25 = u; }
+    if constexpr (reg_count > 26u) { i26 = p[26u]; } else { i26 = u; }
+    if constexpr (reg_count > 27u) { i27 = p[27u]; } else { i27 = u; }
+    if constexpr (reg_count > 28u) { i28 = p[28u]; } else { i28 = u; }
+    if constexpr (reg_count > 29u) { i29 = p[29u]; } else { i29 = u; }
+    if constexpr (reg_count > 30u) { i30 = p[30u]; } else { i30 = u; }
+    if constexpr (reg_count > 31u) { i31 = p[31u]; } else { i31 = u; }
+    [[maybe_unused]] lc_uint
+        o0, o1, o2, o3, o4, o5, o6, o7,
+        o8, o9, o10, o11, o12, o13, o14, o15,
+        o16, o17, o18, o19, o20, o21, o22, o23,
+        o24, o25, o26, o27, o28, o29, o30, o31;
     // traverse without calling the closest or any hit programs
     asm volatile(
         "call"
@@ -1809,16 +1849,62 @@ void lc_ray_traverse(lc_uint flags, LCAccel accel,
         "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,"
         "%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63,"
         "%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
-        : "=r"(p0), "=r"(p1), "=r"(p2), "=r"(p3), "=r"(p4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
-          "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
-          "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
-          "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
+        : "=r"(o0), "=r"(o1), "=r"(o2), "=r"(o3), "=r"(o4), "=r"(o5), "=r"(o6), "=r"(o7), "=r"(o8),
+          "=r"(o9), "=r"(o10), "=r"(o11), "=r"(o12), "=r"(o13), "=r"(o14), "=r"(o15), "=r"(o16),
+          "=r"(o17), "=r"(o18), "=r"(o19), "=r"(o20), "=r"(o21), "=r"(o22), "=r"(o23), "=r"(o24),
+          "=r"(o25), "=r"(o26), "=r"(o27), "=r"(o28), "=r"(o29), "=r"(o30), "=r"(o31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(time), "r"(mask & 0xffu), "r"(flags), "r"(sbt_offset), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
-          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
-          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
-          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u));
+          "r"(0u), "r"(reg_count),
+          "r"(i0), "r"(i1), "r"(i2), "r"(i3), "r"(i4), "r"(i5), "r"(i6), "r"(i7),
+          "r"(i8), "r"(i9), "r"(i10), "r"(i11), "r"(i12), "r"(i13), "r"(i14), "r"(i15),
+          "r"(i16), "r"(i17), "r"(i18), "r"(i19), "r"(i20), "r"(i21), "r"(i22), "r"(i23),
+          "r"(i24), "r"(i25), "r"(i26), "r"(i27), "r"(i28), "r"(i29), "r"(i30), "r"(i31));
+    if constexpr (reg_count > 0u) { p[0u] = o0; }
+    if constexpr (reg_count > 1u) { p[1u] = o1; }
+    if constexpr (reg_count > 2u) { p[2u] = o2; }
+    if constexpr (reg_count > 3u) { p[3u] = o3; }
+    if constexpr (reg_count > 4u) { p[4u] = o4; }
+    if constexpr (reg_count > 5u) { p[5u] = o5; }
+    if constexpr (reg_count > 6u) { p[6u] = o6; }
+    if constexpr (reg_count > 7u) { p[7u] = o7; }
+    if constexpr (reg_count > 8u) { p[8u] = o8; }
+    if constexpr (reg_count > 9u) { p[9u] = o9; }
+    if constexpr (reg_count > 10u) { p[10u] = o10; }
+    if constexpr (reg_count > 11u) { p[11u] = o11; }
+    if constexpr (reg_count > 12u) { p[12u] = o12; }
+    if constexpr (reg_count > 13u) { p[13u] = o13; }
+    if constexpr (reg_count > 14u) { p[14u] = o14; }
+    if constexpr (reg_count > 15u) { p[15u] = o15; }
+    if constexpr (reg_count > 16u) { p[16u] = o16; }
+    if constexpr (reg_count > 17u) { p[17u] = o17; }
+    if constexpr (reg_count > 18u) { p[18u] = o18; }
+    if constexpr (reg_count > 19u) { p[19u] = o19; }
+    if constexpr (reg_count > 20u) { p[20u] = o20; }
+    if constexpr (reg_count > 21u) { p[21u] = o21; }
+    if constexpr (reg_count > 22u) { p[22u] = o22; }
+    if constexpr (reg_count > 23u) { p[23u] = o23; }
+    if constexpr (reg_count > 24u) { p[24u] = o24; }
+    if constexpr (reg_count > 25u) { p[25u] = o25; }
+    if constexpr (reg_count > 26u) { p[26u] = o26; }
+    if constexpr (reg_count > 27u) { p[27u] = o27; }
+    if constexpr (reg_count > 28u) { p[28u] = o28; }
+    if constexpr (reg_count > 29u) { p[29u] = o29; }
+    if constexpr (reg_count > 30u) { p[30u] = o30; }
+    if constexpr (reg_count > 31u) { p[31u] = o31; }
+}
+
+template<lc_uint payload_type, lc_uint sbt_offset, lc_uint reg_count = 0u>
+void lc_ray_traverse(lc_uint flags, LCAccel accel,
+                     LCRay ray, lc_float time, lc_uint mask,
+                     lc_uint r0 = lc_undef(),
+                     lc_uint r1 = lc_undef()) noexcept {
+    static_assert(reg_count <= 2u, "Register count must be less than or equal to 2.");
+    lc_uint p[32]{};
+    if constexpr (reg_count > 0u) { p[0u] = r0; }
+    if constexpr (reg_count > 1u) { p[1u] = r1; }
+    lc_ray_traverse_payload<payload_type, sbt_offset, reg_count>(
+        flags, accel, ray, time, mask, p);
 }
 
 template<lc_uint flags>
@@ -1985,10 +2071,18 @@ using LCRayQueryAny = LCRayQuery;
 
 void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
-    auto r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
-    auto r1 = static_cast<lc_uint>(p_ctx);
+    lc_uint payload[32]{};
+    payload[0u] = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
+    payload[1u] = static_cast<lc_uint>(p_ctx);
     // traverse
-    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_QUERY, 5u, 2u>(q.flags, q.accel, q.ray, q.time, q.mask, r0, r1);
+    lc_ray_traverse_payload<LC_PAYLOAD_TYPE_RAY_QUERY, 5u, LUISA_RAY_QUERY_PAYLOAD_COUNT>(
+        q.flags, q.accel, q.ray, q.time, q.mask, payload);
+    q.hit = lc_ray_query_decode_hit();
+}
+
+void lc_ray_query_trace_direct(LCRayQuery &q, lc_uint (&payload)[32]) noexcept {
+    lc_ray_traverse_payload<LC_PAYLOAD_TYPE_RAY_QUERY, 5u, LUISA_RAY_QUERY_PAYLOAD_COUNT>(
+        q.flags, q.accel, q.ray, q.time, q.mask, payload);
     q.hit = lc_ray_query_decode_hit();
 }
 
@@ -2215,14 +2309,22 @@ LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(31);
 
 #ifdef LUISA_ENABLE_OPTIX_RAY_QUERY
 
+#ifdef LUISA_ENABLE_OPTIX_RAY_QUERY_PROCEDURAL
 extern "C" __global__ void __intersection__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
     lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
+#if LUISA_RAY_QUERY_IMPL_COUNT == 1 && defined(LUISA_RAY_QUERY_ALL_DIRECT_PAYLOAD)
+    auto r = lc_ray_query_procedural_intersection_0(nullptr);
+#else
     auto query_id_and_p_ctx_hi = lc_get_payload<0u>();
     auto query_id = static_cast<lc_uint>(query_id_and_p_ctx_hi >> 24u);
+#ifdef LUISA_RAY_QUERY_ALL_DIRECT_PAYLOAD
+    void *ctx = nullptr;
+#else
     auto p_ctx_hi = static_cast<lc_uint>(query_id_and_p_ctx_hi & 0xffffffu);
     auto p_ctx_lo = lc_get_payload<1u>();
     auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
+#endif
     LCIntersectionResult r{};
     switch (query_id) {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
@@ -2323,6 +2425,7 @@ extern "C" __global__ void __intersection__ray_query() {
 #endif
         default: lc_unreachable(__FILE__, __LINE__);
     }
+#endif
     if (r.committed) {
         lc_ray_query_report_intersection(
             r.terminated ?
@@ -2332,18 +2435,28 @@ extern "C" __global__ void __intersection__ray_query() {
     }
 #endif
 }
+#endif
 
 extern "C" __global__ void __anyhit__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
     lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
-    auto hit_kind = lc_get_hit_kind();
     auto should_terminate = false;
+#ifdef LUISA_ENABLE_OPTIX_RAY_QUERY_PROCEDURAL
+    auto hit_kind = lc_get_hit_kind();
     if (hit_kind > 127u) {// triangle
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT == 1 && defined(LUISA_RAY_QUERY_ALL_DIRECT_PAYLOAD)
+        auto r = lc_ray_query_triangle_intersection_0(nullptr);
+#else
         auto query_id_and_p_ctx_hi = lc_get_payload<0u>();
         auto query_id = static_cast<lc_uint>(query_id_and_p_ctx_hi >> 24u);
+#ifdef LUISA_RAY_QUERY_ALL_DIRECT_PAYLOAD
+        void *ctx = nullptr;
+#else
         auto p_ctx_hi = static_cast<lc_uint>(query_id_and_p_ctx_hi & 0xffffffu);
         auto p_ctx_lo = lc_get_payload<1u>();
         auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
+#endif
         LCIntersectionResult r{};
         switch (query_id) {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
@@ -2444,12 +2557,15 @@ extern "C" __global__ void __anyhit__ray_query() {
 #endif
             default: lc_unreachable(__FILE__, __LINE__);
         }
+#endif
         // ignore the intersection if not committed
         if (!r.committed) { lc_ray_query_ignore_intersection(); }
         should_terminate = r.terminated;
+#ifdef LUISA_ENABLE_OPTIX_RAY_QUERY_PROCEDURAL
     } else {// procedural
         should_terminate = hit_kind == LC_HIT_KIND_PROCEDURAL_TERMINATED;
     }
+#endif
     if (should_terminate) {
         lc_ray_query_terminate();
     }
