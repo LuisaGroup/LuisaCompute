@@ -1697,6 +1697,160 @@ void reg_xir2ast_ast_roundtrip() {
         expect(text.find("autodiff") == string::npos);
         expect(text.find("resource_write buffer_write") != string::npos);
     };
+
+    "xir_to_ast_materializes_resource_query_and_multi_use_arithmetic"_test = [] {
+        struct CallOpCounter final : ExprVisitor, StmtVisitor {
+            CallOp target;
+            uint count = 0u;
+            explicit CallOpCounter(CallOp op) noexcept : target{op} {}
+
+            void visit(const UnaryExpr *expr) override { expr->operand()->accept(*this); }
+            void visit(const BinaryExpr *expr) override {
+                expr->lhs()->accept(*this);
+                expr->rhs()->accept(*this);
+            }
+            void visit(const MemberExpr *expr) override { expr->self()->accept(*this); }
+            void visit(const AccessExpr *expr) override {
+                expr->range()->accept(*this);
+                expr->index()->accept(*this);
+            }
+            void visit(const LiteralExpr *) override {}
+            void visit(const RefExpr *) override {}
+            void visit(const ConstantExpr *) override {}
+            void visit(const CallExpr *expr) override {
+                if (expr->op() == target) { ++count; }
+                for (auto arg : expr->arguments()) { arg->accept(*this); }
+            }
+            void visit(const CastExpr *expr) override { expr->expression()->accept(*this); }
+            void visit(const TypeIDExpr *) override {}
+            void visit(const StringIDExpr *) override {}
+            void visit(const CpuCustomOpExpr *) override {}
+            void visit(const GpuCustomOpExpr *) override {}
+
+            void visit(const BreakStmt *) override {}
+            void visit(const ContinueStmt *) override {}
+            void visit(const ReturnStmt *stmt) override {
+                if (stmt->expression() != nullptr) { stmt->expression()->accept(*this); }
+            }
+            void visit(const ScopeStmt *stmt) override {
+                for (auto s : stmt->statements()) { s->accept(*this); }
+            }
+            void visit(const IfStmt *stmt) override {
+                stmt->condition()->accept(*this);
+                stmt->true_branch()->accept(*this);
+                stmt->false_branch()->accept(*this);
+            }
+            void visit(const LoopStmt *stmt) override { stmt->body()->accept(*this); }
+            void visit(const ExprStmt *stmt) override { stmt->expression()->accept(*this); }
+            void visit(const SwitchStmt *stmt) override {
+                stmt->expression()->accept(*this);
+                stmt->body()->accept(*this);
+            }
+            void visit(const SwitchCaseStmt *stmt) override {
+                stmt->expression()->accept(*this);
+                stmt->body()->accept(*this);
+            }
+            void visit(const SwitchDefaultStmt *stmt) override { stmt->body()->accept(*this); }
+            void visit(const AssignStmt *stmt) override {
+                stmt->lhs()->accept(*this);
+                stmt->rhs()->accept(*this);
+            }
+            void visit(const ForStmt *stmt) override {
+                stmt->variable()->accept(*this);
+                stmt->condition()->accept(*this);
+                stmt->step()->accept(*this);
+                stmt->body()->accept(*this);
+            }
+            void visit(const CommentStmt *) override {}
+            void visit(const RayQueryStmt *stmt) override {
+                stmt->query()->accept(*this);
+                stmt->on_triangle_candidate()->accept(*this);
+                stmt->on_procedural_candidate()->accept(*this);
+            }
+            void visit(const AutoDiffStmt *stmt) override { stmt->body()->accept(*this); }
+            void visit(const PrintStmt *stmt) override {
+                for (auto arg : stmt->arguments()) { arg->accept(*this); }
+            }
+            void visit(const DebugBreakStmt *) override {}
+            void visit(const SuspendStmt *) override {}
+        };
+
+        // 1. RAY_TRACING_TRACE_CLOSEST extracting all 4 fields must emit 1 trace call.
+        {
+            Kernel1D kernel = [](AccelVar accel, BindlessVar bindless, BufferFloat inputs, BufferFloat4 out) {
+                auto i = dispatch_x();
+                auto x = inputs->read(i);
+                auto s = sin(x);
+                auto ray = make_ray(make_float3(0.0f, 0.0f, s + s * 2.0f),
+                                    make_float3(0.0f, 0.0f, -1.0f),
+                                    0.0f, 100.0f);
+                auto hit = accel.intersect(ray, {});
+                auto tex = bindless.tex2d(0u).sample(make_float2(hit.bary.x, hit.bary.y));
+                auto sum = tex.x + tex.y + tex.z + tex.w;
+                out.write(i, make_float4(cast<float>(hit.inst),
+                                         cast<float>(hit.prim),
+                                         hit.committed_ray_t,
+                                         sum));
+            };
+            auto original = ast_to_xir_translate(kernel.function()->function(), {});
+            expect(original != nullptr);
+            xir_to_ast_normalize_module(original.get());
+            auto *def = first_kernel_definition(original.get());
+            expect(def != nullptr);
+            auto ast = xir_to_ast_translate(*def, {});
+            expect(ast != nullptr);
+            if (ast == nullptr) { return; }
+
+            auto count_op = [&](CallOp op) noexcept {
+                CallOpCounter counter{op};
+                ast->function().body()->accept(counter);
+                return counter.count;
+            };
+            expect(eq(count_op(CallOp::RAY_TRACING_TRACE_CLOSEST), 1u));
+            expect(eq(count_op(CallOp::BINDLESS_TEXTURE2D_SAMPLE), 1u));
+            expect(eq(count_op(CallOp::SIN), 1u));
+
+            auto rebuilt = ast_to_xir_translate(ast->function(), {});
+            expect(rebuilt != nullptr);
+            if (rebuilt != nullptr) {
+                expect(xir_verify_module(rebuilt.get()).succeeded());
+            }
+        }
+
+        // 2. RAY_TRACING_QUERY_ALL pipeline handle must remain directly bound (unwrapped).
+        {
+            Kernel1D rq_kernel = [](AccelVar accel, BufferUInt out) {
+                auto i = dispatch_x();
+                auto ray = make_ray(make_float3(0.0f), make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+                auto hit_prim = def(~0u);
+                auto committed = accel.traverse(ray, {})
+                                     .on_surface_candidate([&](SurfaceCandidate &c) noexcept {
+                                         auto h = c.hit();
+                                         hit_prim = h->prim;
+                                         c.commit();
+                                     })
+                                     .trace();
+                out.write(i, committed->inst ^ hit_prim);
+            };
+            auto original = ast_to_xir_translate(rq_kernel.function()->function(), {});
+            expect(original != nullptr);
+            xir_to_ast_normalize_module(original.get());
+            auto *def = first_kernel_definition(original.get());
+            expect(def != nullptr);
+            auto ast = xir_to_ast_translate(*def, {});
+            expect(ast != nullptr);
+            if (ast != nullptr) {
+                StatementCounter sc;
+                ast->function().body()->accept(sc);
+                expect(sc.ifs > 0u || sc.stores > 0u);
+                auto rebuilt = ast_to_xir_translate(ast->function(), {});
+                expect(rebuilt != nullptr);
+                if (rebuilt != nullptr) {
+                    expect(xir_verify_module(rebuilt.get()).succeeded());
+                }
+            }
+        }
+    };
 }
 
 int main(int argc, char *argv[]) {
