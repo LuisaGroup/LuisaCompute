@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <thread>
 #include <condition_variable>
@@ -10,6 +13,7 @@
 #include <luisa/core/spin_mutex.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/command_list.h>
+#include "../common/host_transfer_range.h"
 #include "cuda_callback_context.h"
 #include "cuda_host_buffer_pool.h"
 #include "cuda_pdl_launch.h"
@@ -72,6 +76,14 @@ private:
     luisa::vector<CUevent> _free_events;
     void _reclaim_staging(bool all) noexcept;
 
+    struct PendingHostDownload {
+        HostByteRange range;
+        uint64_t seq{0u};
+    };
+    spin_mutex _host_download_mutex;
+    luisa::vector<PendingHostDownload> _pending_host_downloads;
+    std::atomic_uint64_t _host_download_seq{0u};
+
 private:
     using LogCallback = DeviceInterface::StreamLogCallback;
     LogCallback _log_callback;
@@ -108,6 +120,8 @@ public:
     /// Return staging pool views to the pool once the stream has passed this
     /// submission, without a host callback (records one CUevent).
     void defer_recycle(luisa::vector<CUDACallbackContext *> &&contexts) noexcept;
+    void record_pending_host_download(const void *data, size_t size_bytes) noexcept;
+    [[nodiscard]] bool sync_if_overlapping_host_download(const void *data, size_t size_bytes) noexcept;
     void set_name(luisa::string &&name) noexcept;
     void set_log_callback(LogCallback callback) noexcept;
 };

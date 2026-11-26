@@ -14,6 +14,7 @@
 #include <luisa/vstl/stack_allocator.h>
 #include <luisa/vstl/functional.h>
 #include "../common/command_reorder_visitor.h"
+#include "../common/host_transfer_range.h"
 #include "bindless_array.h"
 #include "shader.h"
 #include "resource_barrier.h"
@@ -196,6 +197,7 @@ struct CommandBufferState {
     uint32_t tl_layer_count{0u};
     uint32_t tl_truncated_spans{0u};
     luisa::vector<TimelineLayerRecord> tl_layers;
+    uint64_t host_retire_fence{0u};
     CommandBufferState();
     ~CommandBufferState();
     // `pool_flags` lets a replay recording (plan P4) create its command pool
@@ -392,6 +394,11 @@ class Stream : public Resource {
     luisa::spin_mutex _pending_compaction_mtx;
     vstd::vector<Blas *> _pending_compaction_blases;
     vstd::vector<EventWaitEntry> _pending_waits;
+    struct PendingHostDownload {
+        HostByteRange range;
+        uint64_t fence;
+    };
+    luisa::vector<PendingHostDownload> _pending_host_downloads;
     std::atomic<uint32_t> _online_timing_refs{0u};
     std::atomic<uint64_t> _online_last_cb_gpu_ns{0u};
     std::atomic<uint64_t> _online_last_cb_gap_ns{0u};
@@ -540,6 +547,12 @@ private:
     // this function only decides whether the host has to block, and records the
     // decision under the submit profiler's three timeline counters.
     void _throttle_in_flight();
+    void _wait_host_retired_fence(uint64_t target) noexcept;
+    [[nodiscard]] uint64_t _dispatch_chunk(
+        vstd::span<const luisa::unique_ptr<Command>> cmds,
+        luisa::vector<luisa::move_only_function<void()>> &&callbacks,
+        vstd::span<const SwapchainPresent> presents,
+        bool inqueue_limit);
     [[nodiscard]] bool _execute_external_command_buffer(
         VkCommandBuffer command_buffer) noexcept;
     // How long the retirement thread keeps polling before it blocks, latched at
@@ -562,6 +575,7 @@ private:
     // `_thd`, because the thread starts running inside `_thd`'s constructor and
     // reads both. Declaring `_work_epoch` after `_thd` made the thread read a
     // not-yet-constructed atomic (member-initialization-order UB).
+    std::atomic_uint64_t _host_retired_fence{0u};
     std::atomic_uint64_t _work_epoch{0u};
     std::thread _thd;
     // Bumped under `_mtx` by every producer that enqueues into `_exec` (so the

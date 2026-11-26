@@ -23,6 +23,7 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/core/stl/memory.h>
 
+#include "../common/host_transfer_range.h"
 #include "remote_command_codec.h"
 #include "remote_transport.h"
 
@@ -128,6 +129,17 @@ private:
         luisa::vector<DownloadTarget> downloads;
         CommandList::CallbackContainer callbacks;
         uint64_t footprint{};
+        bool downloads_delivered{false};
+    };
+
+    struct PendingHostDownload {
+        HostByteRange range;
+        uint64_t submission_id{};
+    };
+
+    struct EventDownloadBarrier {
+        uint64_t value{};
+        uint64_t submission_id{};
     };
 
     struct WorkItem {
@@ -139,6 +151,44 @@ private:
     struct CompletionDownload {
         uint32_t index{};
         luisa::span<const std::byte> bytes;
+    };
+
+    struct CallbackTask {
+        uint64_t submission_id{};
+        CommandList::CallbackContainer callbacks;
+    };
+
+    struct StreamCallbackRunner {
+        Impl *owner{};
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::deque<CallbackTask> queue;
+        bool stop{false};
+        std::thread thread;
+
+        explicit StreamCallbackRunner(Impl *owner_in) noexcept
+            : owner{owner_in},
+              thread{[this]() noexcept { run(); }} {}
+
+        ~StreamCallbackRunner() noexcept {
+            {
+                std::scoped_lock lock{mutex};
+                stop = true;
+            }
+            cv.notify_all();
+            if (thread.joinable()) { thread.join(); }
+        }
+
+        void enqueue(CallbackTask &&task) noexcept {
+            {
+                std::scoped_lock lock{mutex};
+                if (stop) { return; }
+                queue.emplace_back(std::move(task));
+            }
+            cv.notify_one();
+        }
+
+        void run() noexcept;
     };
 
     ProtocolLimits _limits;
@@ -163,6 +213,9 @@ private:
     std::unordered_map<uint64_t, luisa::vector<Usage>> _shader_usages;
     std::unordered_map<uint64_t, DeviceInterface::StreamLogCallback> _log_callbacks;
     std::unordered_map<uint64_t, TextureDesc> _textures;
+    std::unordered_map<uint64_t, luisa::vector<PendingHostDownload>> _pending_downloads_by_stream;
+    std::unordered_map<uint64_t, uint64_t> _last_download_submission_by_stream;
+    std::unordered_map<uint64_t, luisa::vector<EventDownloadBarrier>> _event_download_barriers;
     uint64_t _pending_bytes{};
     bool _closed{false};
 
@@ -177,6 +230,9 @@ private:
     std::deque<WorkItem> _work;
     std::thread _worker;
     bool _worker_stop{false};
+
+    std::mutex _callback_runners_mutex;
+    std::unordered_map<uint64_t, luisa::unique_ptr<StreamCallbackRunner>> _stream_callbacks;
 
 private:
     [[nodiscard]] luisa::string _select_present_backend() const noexcept {
@@ -309,7 +365,7 @@ private:
             return;
         }
 
-        PendingSubmission pending;
+        luisa::vector<DownloadTarget> download_targets;
         {
             std::unique_lock lock{_state_mutex};
             auto iter = _pending.find(submission_id);
@@ -331,19 +387,61 @@ private:
                     return;
                 }
             }
-            pending = std::move(iter->second);
-            _pending_bytes -= pending.footprint;
-            _pending.erase(iter);
+            download_targets = std::move(iter->second.downloads);
+            iter->second.downloads.clear();
         }
-        _state_cv.notify_all();
         for (size_t i = 0u; i < downloads.size(); i++) {
             if (!downloads[i].bytes.empty()) {
-                std::memcpy(pending.downloads[i].data,
+                std::memcpy(download_targets[i].data,
                             downloads[i].bytes.data(),
                             downloads[i].bytes.size());
             }
         }
-        for (auto &callback : pending.callbacks) { callback(); }
+        uint64_t stream_handle{};
+        CommandList::CallbackContainer callbacks;
+        {
+            std::scoped_lock lock{_state_mutex};
+            if (auto iter = _pending.find(submission_id); iter != _pending.end()) {
+                iter->second.downloads_delivered = true;
+                stream_handle = iter->second.stream_handle;
+                callbacks = std::move(iter->second.callbacks);
+                iter->second.callbacks.clear();
+                if (callbacks.empty()) {
+                    _pending_bytes -= iter->second.footprint;
+                    _pending.erase(iter);
+                }
+            }
+        }
+        _state_cv.notify_all();
+        if (!callbacks.empty()) {
+            _enqueue_stream_callbacks(
+                stream_handle, submission_id, std::move(callbacks));
+        }
+    }
+
+    void _finish_submission(uint64_t submission_id) noexcept {
+        {
+            std::scoped_lock lock{_state_mutex};
+            if (auto iter = _pending.find(submission_id); iter != _pending.end()) {
+                _pending_bytes -= iter->second.footprint;
+                _pending.erase(iter);
+            }
+        }
+        _state_cv.notify_all();
+    }
+
+    void _enqueue_stream_callbacks(
+        uint64_t stream_handle,
+        uint64_t submission_id,
+        CommandList::CallbackContainer &&callbacks) noexcept {
+        std::scoped_lock lock{_callback_runners_mutex};
+        auto &runner = _stream_callbacks[stream_handle];
+        if (runner == nullptr) {
+            runner = luisa::make_unique<StreamCallbackRunner>(this);
+        }
+        runner->enqueue(CallbackTask{
+            .submission_id = submission_id,
+            .callbacks = std::move(callbacks)});
     }
 
     void _process_stream_log(const WorkItem &item) noexcept {
@@ -666,6 +764,19 @@ public:
         if (_worker.joinable()) { _worker.join(); }
         _connection.set_notification_handler({});
         _connection.set_close_handler({});
+        luisa::vector<luisa::unique_ptr<StreamCallbackRunner>> runners;
+        {
+            std::scoped_lock lock{_callback_runners_mutex};
+            runners.reserve(_stream_callbacks.size());
+            for (auto &[handle, runner] : _stream_callbacks) {
+                static_cast<void>(handle);
+                if (runner != nullptr) {
+                    runners.emplace_back(std::move(runner));
+                }
+            }
+            _stream_callbacks.clear();
+        }
+        runners.clear();
         std::scoped_lock lock{_state_mutex};
         if (!_pending.empty()) {
             LUISA_WARNING("Remote device closed with {} incomplete submissions.",
@@ -787,8 +898,20 @@ public:
                 "Remote stream {} disconnected while draining completions during destruction.",
                 handle);
         }
+        luisa::unique_ptr<StreamCallbackRunner> runner;
+        {
+            std::scoped_lock lock{_callback_runners_mutex};
+            if (auto iter = _stream_callbacks.find(handle);
+                iter != _stream_callbacks.end()) {
+                runner = std::move(iter->second);
+                _stream_callbacks.erase(iter);
+            }
+        }
+        runner.reset();
         std::scoped_lock lock{_state_mutex};
         _log_callbacks.erase(handle);
+        _pending_downloads_by_stream.erase(handle);
+        _last_download_submission_by_stream.erase(handle);
     }
 
     void synchronize_stream(uint64_t handle) noexcept {
@@ -804,7 +927,50 @@ public:
         }
     }
 
-    void dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
+    void _wait_overlapping_downloads(
+        uint64_t stream_handle,
+        luisa::span<const luisa::unique_ptr<Command>> commands) noexcept {
+        if (commands.empty()) { return; }
+        luisa::fixed_vector<HostByteRange, 8u> upload_ranges;
+        for (const auto &cmd : commands) {
+            if (auto range = command_host_upload_range(cmd.get()); !range.empty()) {
+                upload_ranges.push_back(range);
+            }
+        }
+        if (upload_ranges.empty()) { return; }
+        std::unique_lock lock{_state_mutex};
+        auto ready = _state_cv.wait_for(
+            lock, _request_timeout, [&]() noexcept {
+                auto iter = _pending_downloads_by_stream.find(stream_handle);
+                if (iter == _pending_downloads_by_stream.end()) { return true; }
+                erase_host_transfer_if(
+                    iter->second,
+                    [&](const PendingHostDownload &entry) noexcept {
+                        auto p = _pending.find(entry.submission_id);
+                        return p == _pending.end() || p->second.downloads_delivered;
+                    });
+                if (iter->second.empty()) {
+                    _pending_downloads_by_stream.erase(iter);
+                    return true;
+                }
+                if (_closed) { return true; }
+                for (const auto &entry : iter->second) {
+                    for (const auto &upload : upload_ranges) {
+                        if (entry.range.overlaps(upload)) { return false; }
+                    }
+                }
+                return true;
+            });
+        if (!ready || _closed) {
+            LUISA_ERROR("Timed out waiting for overlapping remote host download.");
+        }
+    }
+
+    void _dispatch_chunk(
+        uint64_t stream_handle,
+        luisa::span<const luisa::unique_ptr<Command>> commands,
+        CommandList::CallbackContainer &&callbacks) noexcept {
+        _wait_overlapping_downloads(stream_handle, commands);
         auto submission_id = _next_submission_id.fetch_add(
             1u, std::memory_order_relaxed);
         if (submission_id == 0u) {
@@ -817,7 +983,7 @@ public:
                 blob_limits.max_array_size,
                 _max_blobs_per_batch);
             blob_plan = plan_upload_blobs(
-                list.commands(), _blob_cache_min_size,
+                commands, _blob_cache_min_size,
                 _max_blob_entry_size, blob_limits);
             if (!blob_plan) {
                 LUISA_ERROR("Failed to plan remote upload blobs: {}",
@@ -825,7 +991,7 @@ public:
             }
         }
         auto encoded = encode_submission(
-            stream_handle, submission_id, list.commands(), _limits,
+            stream_handle, submission_id, commands, _limits,
             blob_plan.blobs.empty() ? nullptr : &blob_plan);
         if (!encoded) {
             LUISA_ERROR("Failed to encode remote submission: {}", encoded.error);
@@ -842,10 +1008,16 @@ public:
                 "Remote submission requires {} in-flight bytes, exceeding the configured limit {}.",
                 footprint, _max_in_flight_bytes);
         }
+        luisa::fixed_vector<HostByteRange, 8u> download_ranges;
+        for (const auto &cmd : commands) {
+            if (auto range = command_host_download_range(cmd.get()); !range.empty()) {
+                download_ranges.push_back(range);
+            }
+        }
         PendingSubmission pending{
             .stream_handle = stream_handle,
             .downloads = std::move(encoded.downloads),
-            .callbacks = list.steal_callbacks(),
+            .callbacks = std::move(callbacks),
             .footprint = footprint};
         {
             std::unique_lock lock{_state_mutex};
@@ -859,6 +1031,13 @@ public:
             }
             _pending_bytes += footprint;
             _pending.emplace(submission_id, std::move(pending));
+            if (!download_ranges.empty()) {
+                auto &stream_downloads = _pending_downloads_by_stream[stream_handle];
+                for (const auto &range : download_ranges) {
+                    stream_downloads.emplace_back(PendingHostDownload{range, submission_id});
+                }
+                _last_download_submission_by_stream[stream_handle] = submission_id;
+            }
         }
         _prepare_blobs(submission_id, blob_plan);
         auto response = _connection.request(
@@ -880,6 +1059,27 @@ public:
         Reader reader{response.body, _limits};
         if (reader.read_u64() != submission_id || !reader.finish()) {
             LUISA_ERROR("Remote dispatch acknowledgement is malformed.");
+        }
+    }
+
+    void dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
+        auto commands = list.steal_commands();
+        auto callbacks = list.steal_callbacks();
+        if (commands.empty()) {
+            _dispatch_chunk(stream_handle, {}, std::move(callbacks));
+            return;
+        }
+        size_t cursor = 0u;
+        while (cursor < commands.size()) {
+            auto next = find_next_host_transfer_split(
+                luisa::span{commands.data(), commands.size()}, cursor);
+            auto chunk = luisa::span{commands.data() + cursor, next - cursor};
+            bool is_last = (next == commands.size());
+            _dispatch_chunk(
+                stream_handle,
+                chunk,
+                is_last ? std::move(callbacks) : CommandList::CallbackContainer{});
+            cursor = next;
         }
     }
 
@@ -1102,16 +1302,46 @@ public:
     void destroy_event(uint64_t handle) noexcept {
         static_cast<void>(_destroy_handle(
             MessageKind::DESTROY_EVENT, handle));
+        std::scoped_lock lock{_state_mutex};
+        _event_download_barriers.erase(handle);
     }
 
     void event_stream_operation(
         MessageKind kind, uint64_t event, uint64_t stream,
         uint64_t value) noexcept {
+        if (kind == MessageKind::SIGNAL_EVENT) {
+            std::scoped_lock lock{_state_mutex};
+            if (auto iter = _last_download_submission_by_stream.find(stream);
+                iter != _last_download_submission_by_stream.end() && iter->second != 0u) {
+                _event_download_barriers[event].emplace_back(
+                    EventDownloadBarrier{value, iter->second});
+            }
+        }
         Writer writer;
         writer.write_u64(event);
         writer.write_u64(stream);
         writer.write_u64(value);
         static_cast<void>(_request(kind, writer.bytes()));
+    }
+
+    [[nodiscard]] bool _event_downloads_delivered_locked(
+        uint64_t event, uint64_t value) noexcept {
+        auto iter = _event_download_barriers.find(event);
+        if (iter == _event_download_barriers.end()) { return true; }
+        erase_host_transfer_if(
+            iter->second,
+            [&](const EventDownloadBarrier &barrier) noexcept {
+                auto p = _pending.find(barrier.submission_id);
+                return p == _pending.end() || p->second.downloads_delivered;
+            });
+        if (iter->second.empty()) {
+            _event_download_barriers.erase(iter);
+            return true;
+        }
+        for (const auto &barrier : iter->second) {
+            if (barrier.value <= value) { return false; }
+        }
+        return true;
     }
 
     [[nodiscard]] bool is_event_completed(
@@ -1127,7 +1357,9 @@ public:
             LUISA_ERROR("Remote event-query response is malformed: {}",
                         reader.error());
         }
-        return completed;
+        if (!completed) { return false; }
+        std::scoped_lock lock{_state_mutex};
+        return _event_downloads_delivered_locked(event, value);
     }
 
     void synchronize_event(uint64_t event, uint64_t value) noexcept {
@@ -1136,6 +1368,14 @@ public:
         writer.write_u64(value);
         static_cast<void>(_request(
             MessageKind::SYNCHRONIZE_EVENT, writer.bytes()));
+        std::unique_lock lock{_state_mutex};
+        auto ready = _state_cv.wait_for(
+            lock, _request_timeout, [&]() noexcept {
+                return _closed || _event_downloads_delivered_locked(event, value);
+            });
+        if (!ready || _closed) {
+            LUISA_ERROR("Timed out waiting for remote event download delivery.");
+        }
     }
 
     [[nodiscard]] uint64_t create_accel_resource(
@@ -1209,6 +1449,26 @@ public:
         static_cast<void>(_request(MessageKind::SET_NAME, writer.bytes()));
     }
 };
+
+inline void RemoteDevice::Impl::StreamCallbackRunner::run() noexcept {
+    while (true) {
+        CallbackTask task;
+        {
+            std::unique_lock lock{mutex};
+            cv.wait(lock, [&]() noexcept {
+                return stop || !queue.empty();
+            });
+            if (queue.empty()) {
+                if (stop) { return; }
+                continue;
+            }
+            task = std::move(queue.front());
+            queue.pop_front();
+        }
+        for (auto &callback : task.callbacks) { callback(); }
+        owner->_finish_submission(task.submission_id);
+    }
+}
 
 RemoteDevice::RemoteDevice(Context &&context,
                            const DeviceConfig *config) noexcept

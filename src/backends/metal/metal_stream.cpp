@@ -228,6 +228,15 @@ void MetalStream::synchronize() noexcept {
            callback_target) {
         std::this_thread::yield();
     }
+    {
+        auto completed = _completed_callback_lists.load(std::memory_order_acquire);
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(
+            _pending_host_downloads,
+            [completed](const PendingHostDownload &entry) noexcept {
+                return entry.callback_ticket <= completed;
+            });
+    }
     if (profile) {
         auto synchronize_done = std::chrono::steady_clock::now();
         auto &profiler = metal_command_buffer_profiler();
@@ -260,6 +269,61 @@ void MetalStream::_encode(MetalCommandEncoder &encoder,
     command->accept(encoder);
 }
 
+void MetalStream::_wait_if_overlapping_host_download(
+    luisa::span<const luisa::unique_ptr<Command>> cmds) noexcept {
+    if (cmds.empty()) { return; }
+    luisa::fixed_vector<HostByteRange, 8u> upload_ranges;
+    for (const auto &cmd : cmds) {
+        if (auto range = command_host_upload_range(cmd.get()); !range.empty()) {
+            upload_ranges.push_back(range);
+        }
+    }
+    if (upload_ranges.empty()) { return; }
+    uint64_t wait_ticket = 0u;
+    {
+        auto completed = _completed_callback_lists.load(std::memory_order_acquire);
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(
+            _pending_host_downloads,
+            [completed](const PendingHostDownload &entry) noexcept {
+                return entry.callback_ticket <= completed;
+            });
+        for (const auto &entry : _pending_host_downloads) {
+            for (const auto &upload : upload_ranges) {
+                if (entry.range.overlaps(upload)) {
+                    wait_ticket = std::max(wait_ticket, entry.callback_ticket);
+                    break;
+                }
+            }
+        }
+    }
+    while (_completed_callback_lists.load(std::memory_order_acquire) < wait_ticket) {
+        std::this_thread::yield();
+    }
+    if (wait_ticket != 0u) {
+        auto completed = _completed_callback_lists.load(std::memory_order_acquire);
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(
+            _pending_host_downloads,
+            [completed](const PendingHostDownload &entry) noexcept {
+                return entry.callback_ticket <= completed;
+            });
+    }
+}
+
+void MetalStream::_record_pending_host_downloads(
+    luisa::span<const luisa::unique_ptr<Command>> cmds,
+    uint64_t callback_ticket) noexcept {
+    if (cmds.empty() || callback_ticket == 0u) { return; }
+    std::scoped_lock lock{_host_download_mutex};
+    for (const auto &cmd : cmds) {
+        if (auto range = command_host_download_range(cmd.get()); !range.empty()) {
+            _pending_host_downloads.emplace_back(
+                PendingHostDownload{range, callback_ticket});
+        }
+    }
+}
+
 void MetalStream::_do_dispatch(MetalCommandEncoder &encoder,
                                CommandList &&list) noexcept {
     if (list.empty()) {
@@ -268,10 +332,35 @@ void MetalStream::_do_dispatch(MetalCommandEncoder &encoder,
     } else {
         auto commands = list.steal_commands();
         auto callbacks = list.steal_callbacks();
-        {
+        if (commands.empty()) {
             std::scoped_lock lock{_dispatch_mutex};
-            for (auto &command : commands) { _encode(encoder, command.get()); }
             encoder.submit(std::move(callbacks));
+            return;
+        }
+        size_t cursor = 0u;
+        while (cursor < commands.size()) {
+            auto next = find_next_host_transfer_split(
+                luisa::span{commands.data(), commands.size()}, cursor);
+            auto chunk = luisa::span{commands.data() + cursor, next - cursor};
+            bool is_last = (next == commands.size());
+            _wait_if_overlapping_host_download(chunk);
+            {
+                std::scoped_lock lock{_dispatch_mutex};
+                bool has_downloads = false;
+                for (const auto &command : chunk) {
+                    if (!command_host_download_range(command.get()).empty()) {
+                        has_downloads = true;
+                    }
+                    _encode(encoder, command.get());
+                }
+                auto command_buffer = encoder.submit(
+                    is_last ? std::move(callbacks) : CommandList::CallbackContainer{});
+                if (has_downloads && command_buffer != nullptr) {
+                    auto ticket = _submitted_callback_lists.load(std::memory_order_acquire);
+                    _record_pending_host_downloads(chunk, ticket);
+                }
+            }
+            cursor = next;
         }
     }
 }

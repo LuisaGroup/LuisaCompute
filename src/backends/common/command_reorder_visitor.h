@@ -237,6 +237,12 @@ public:
 
     public:
         RangeHandle() noexcept {}
+        void clear() noexcept {
+            max_view = {};
+            read_range = Range::empty();
+            write_range = Range::empty();
+            views.clear();
+        }
         [[nodiscard]] auto get_max_write_layer(Range const &range) const noexcept {
             if (!range.collide(write_range))
                 return int64_t{-1};
@@ -319,6 +325,7 @@ private:
     }
     vstd::DefaultMallocVisitor malloc_visitor;
     vstd::StackAllocator _arena;
+    RangeHandle _host_memory_handle;
     // Buffers and textures occupy distinct native handle namespaces. Equal
     // canonical bit patterns only alias within the same resource kind.
     vstd::ArenaHashMap<ArenaRef, uint64_t, RangeHandle *> _buffer_map;
@@ -1305,6 +1312,7 @@ public:
         _dispatch_write_handle.clear();
         _active_bindless_states.clear();
         _dispatch_bindless_accesses.clear();
+        _host_memory_handle.clear();
         destroy_map(_buffer_map);
         destroy_map(_texture_map);
         destroy_map(_no_range_resmap);
@@ -1333,11 +1341,40 @@ public:
     [[nodiscard]] bool enabled() const noexcept { return _enabled; }
 
     // Buffer : resource
+    [[nodiscard]] static Range host_byte_range(const void *ptr, size_t size) noexcept {
+        if (ptr == nullptr || size == 0u) {
+            return Range::empty();
+        }
+        const auto begin = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr));
+        const auto clamped = std::min<uint64_t>(size, std::numeric_limits<uint64_t>::max() - begin);
+        return Range::from_offset_size(begin, clamped);
+    }
     void visit(const BufferUploadCommand *command) noexcept override {
-        add_command(command, set_write(command->handle(), copy_buffer_range(command->offset(), command->size()), ResourceType::Buffer));
+        auto dev_range = copy_buffer_range(command->offset(), command->size());
+        auto dev_handle = static_cast<RangeHandle *>(get_handle(command->handle(), ResourceType::Buffer));
+        auto layer = get_last_layer_write(dev_handle, dev_range);
+        auto h_range = host_byte_range(command->data(), command->size());
+        if (h_range.min < h_range.max) {
+            layer = std::max<int64_t>(layer, _host_memory_handle.get_max_write_layer(h_range) + 1);
+            _host_memory_handle.emplace_read_layer(h_range, layer);
+        }
+        dev_handle->emplace_write_layer(dev_range, layer);
+        add_command(command, layer);
     }
     void visit(const BufferDownloadCommand *command) noexcept override {
-        add_command(command, set_read(command->handle(), copy_buffer_range(command->offset(), command->size()), ResourceType::Buffer));
+        auto dev_range = copy_buffer_range(command->offset(), command->size());
+        auto dev_handle = static_cast<RangeHandle *>(get_handle(command->handle(), ResourceType::Buffer));
+        auto layer = get_last_layer_read(dev_handle, dev_range);
+        auto h_range = host_byte_range(command->data(), command->size());
+        if (h_range.min < h_range.max) {
+            auto host_dep = std::max(
+                _host_memory_handle.get_max_read_layer(h_range),
+                _host_memory_handle.get_max_write_layer(h_range));
+            layer = std::max<int64_t>(layer, host_dep + 1);
+            _host_memory_handle.emplace_write_layer(h_range, layer);
+        }
+        dev_handle->emplace_read_layer(dev_range, layer);
+        add_command(command, layer);
     }
     void visit(const BufferCopyCommand *command) noexcept override {
         add_command(command, set_rw(command->src_handle(), copy_buffer_range(command->src_offset(), command->size()), ResourceType::Buffer, command->dst_handle(), copy_buffer_range(command->dst_offset(), command->size()), ResourceType::Buffer));
@@ -1406,10 +1443,35 @@ public:
 
     // Texture : resource
     void visit(const TextureUploadCommand *command) noexcept override {
-        add_command(command, set_write(command->handle(), copy_tex_range(command->level()), ResourceType::Texture));
+        auto dev_range = copy_tex_range(command->level());
+        auto dev_handle = static_cast<RangeHandle *>(get_handle(command->handle(), ResourceType::Texture));
+        auto layer = get_last_layer_write(dev_handle, dev_range);
+        auto h_range = host_byte_range(
+            command->data(),
+            pixel_storage_size(command->storage(), command->size()));
+        if (h_range.min < h_range.max) {
+            layer = std::max<int64_t>(layer, _host_memory_handle.get_max_write_layer(h_range) + 1);
+            _host_memory_handle.emplace_read_layer(h_range, layer);
+        }
+        dev_handle->emplace_write_layer(dev_range, layer);
+        add_command(command, layer);
     }
     void visit(const TextureDownloadCommand *command) noexcept override {
-        add_command(command, set_read(command->handle(), copy_tex_range(command->level()), ResourceType::Texture));
+        auto dev_range = copy_tex_range(command->level());
+        auto dev_handle = static_cast<RangeHandle *>(get_handle(command->handle(), ResourceType::Texture));
+        auto layer = get_last_layer_read(dev_handle, dev_range);
+        auto h_range = host_byte_range(
+            command->data(),
+            pixel_storage_size(command->storage(), command->size()));
+        if (h_range.min < h_range.max) {
+            auto host_dep = std::max(
+                _host_memory_handle.get_max_read_layer(h_range),
+                _host_memory_handle.get_max_write_layer(h_range));
+            layer = std::max<int64_t>(layer, host_dep + 1);
+            _host_memory_handle.emplace_write_layer(h_range, layer);
+        }
+        dev_handle->emplace_read_layer(dev_range, layer);
+        add_command(command, layer);
     }
     void visit(const TextureCopyCommand *command) noexcept override {
         add_command(command, set_rw(command->src_handle(), copy_tex_range(command->src_level()), ResourceType::Texture, command->dst_handle(), copy_tex_range(command->dst_level()), ResourceType::Texture));

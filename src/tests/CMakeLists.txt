@@ -1558,6 +1558,14 @@ else ()
             LUISA_TEST_HAS_PINNED_OPTIX_HEADERS=0)
 endif ()
 luisa_compute_add_test(test_buffer_io unit/runtime/test_buffer_io.cpp)
+luisa_compute_add_test(test_host_transfer_ordering unit/runtime/test_host_transfer_ordering.cpp)
+if (TARGET luisa-compute-backend-fallback)
+    add_dependencies(test_host_transfer_ordering luisa-compute-backend-fallback)
+    add_test(NAME fallback_test_host_transfer_ordering
+            COMMAND $<TARGET_FILE:test_host_transfer_ordering> fallback)
+    set_tests_properties(fallback_test_host_transfer_ordering PROPERTIES
+            LABELS "unit;unit_runtime;fallback" TIMEOUT 120)
+endif ()
 luisa_compute_add_test(test_buffer unit/runtime/test_buffer.cpp)
 luisa_compute_add_test(test_batch_readback unit/runtime/test_batch_readback.cpp)
 luisa_compute_add_test(test_resource_ref_count unit/runtime/test_resource_ref_count.cpp)
@@ -2242,6 +2250,7 @@ if (TARGET luisa-compute-backend-simd)
             test_buffer
             test_buffer_view
             test_buffer_io
+            test_host_transfer_ordering
             test_texture_io
             test_direct_texture_sampling
             test_accel_build_modes

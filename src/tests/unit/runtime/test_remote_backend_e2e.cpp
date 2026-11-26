@@ -1314,6 +1314,255 @@ void test_remote_service_survives_device_factory_failure(
     server_thread.join();
 }
 
+void test_remote_host_transfer_ordering(const char *program_path) {
+    Context native_context{program_path};
+    auto native_device = native_context.create_device("fallback", nullptr, false);
+    ServerOptions server_options;
+    server_options.port = 0u;
+    server_options.token = "host-transfer-ordering-token";
+    server_options.max_blob_cache_bytes = 8u * 1024u * 1024u;
+    server_options.max_blob_entry_size = 4u * 1024u * 1024u;
+    server_options.blob_cache_min_size = 64u;
+    Server server{native_device.impl_shared(), std::move(server_options)};
+    std::thread server_thread{[&] { server.run(); }};
+
+    {
+        Context context{program_path};
+        DeviceConfig config;
+        config.extension = make_unique<RemoteDeviceConfigExt>(
+            "127.0.0.1", server.port(), "host-transfer-ordering-token",
+            2'000u, 15'000u, 16u * 1024u * 1024u,
+            true, 64u);
+        auto device = context.create_device("remote", &config, false);
+        expect(device.query("remote.connected") == "true");
+        expect(device.query("remote.native_backend") == "fallback");
+
+        auto stream = device.create_stream();
+        auto write_pattern = device.compile<1>([](BufferFloat buf, UInt round) noexcept {
+            auto i = dispatch_id().x;
+            buf.write(i, cast<float>(i) * 1001.0f + cast<float>(round) * 17.0f);
+        });
+        auto heavy_compute = device.compile<1>([](BufferFloat buf, UInt iter) noexcept {
+            auto i = dispatch_id().x;
+            auto v = cast<float>(i) + cast<float>(iter) * 3.0f;
+            for (uint k = 0u; k < 16u; ++k) {
+                v = v * 1.0001f + 0.5f;
+                v = v - 0.5f;
+            }
+            buf.write(i, cast<float>(i) * 2.0f + cast<float>(iter) + v * 0.0f);
+        });
+        auto write_tex = device.compile<2>([](ImageFloat img, UInt round) noexcept {
+            auto p = dispatch_id().xy();
+            img.write(p, make_float4(
+                             cast<float>(p.x) + cast<float>(round),
+                             cast<float>(p.y) + cast<float>(round) * 2.0f,
+                             cast<float>(p.x + p.y),
+                             1.0f));
+        });
+        auto approx = [](float a, float b) noexcept {
+            return std::abs(a - b) <= 1.0e-4f;
+        };
+        auto approx4 = [&](float4 a, float4 b) noexcept {
+            return approx(a.x, b.x) && approx(a.y, b.y) &&
+                   approx(a.z, b.z) && approx(a.w, b.w);
+        };
+
+        auto check_case_a = [&](Stream &s) {
+            constexpr uint32_t N = 1024u;
+            auto z = device.create_buffer<float>(N);
+            auto x = device.create_buffer<float>(N);
+            vector<float> z_data(N);
+            vector<float> x_data(N);
+
+            // Case A1: same CommandList D2H -> H2D
+            for (uint32_t round = 0u; round < 4u; ++round) {
+                std::fill(z_data.begin(), z_data.end(), 123.0f);
+                std::fill(x_data.begin(), x_data.end(), -1.0f);
+                CommandList list;
+                list << z.copy_from(z_data.data())
+                     << write_pattern(z, round).dispatch(N)
+                     << z.copy_to(z_data.data())
+                     << z.copy_from(z_data.data())
+                     << x.copy_from(z)
+                     << x.copy_to(x_data.data());
+                s << list.commit() << synchronize();
+                bool ok = true;
+                for (uint32_t i = 0u; i < N; ++i) {
+                    float exp = static_cast<float>(i) * 1001.0f + static_cast<float>(round) * 17.0f;
+                    if (!approx(z_data[i], exp) || !approx(x_data[i], exp)) {
+                        ok = false;
+                        break;
+                    }
+                }
+                expect(ok) << "remote Case A1 same CommandList round=" << round;
+            }
+
+            // Case A2: separate submissions D2H -> H2D with blob cache enabled
+            for (uint32_t round = 0u; round < 4u; ++round) {
+                std::fill(z_data.begin(), z_data.end(), 123.0f);
+                std::fill(x_data.begin(), x_data.end(), -1.0f);
+                s << z.copy_from(z_data.data())
+                  << write_pattern(z, round).dispatch(N)
+                  << z.copy_to(z_data.data())
+                  << commit();
+                s << z.copy_from(z_data.data())
+                  << x.copy_from(z)
+                  << x.copy_to(x_data.data())
+                  << synchronize();
+                bool ok = true;
+                for (uint32_t i = 0u; i < N; ++i) {
+                    float exp = static_cast<float>(i) * 1001.0f + static_cast<float>(round) * 17.0f;
+                    if (!approx(z_data[i], exp) || !approx(x_data[i], exp)) {
+                        ok = false;
+                        break;
+                    }
+                }
+                expect(ok) << "remote Case A2 separate submissions round=" << round;
+            }
+
+            // Case A5: 2D texture D2H -> H2D via overlapping host memory
+            constexpr uint2 tsz = make_uint2(32u, 16u);
+            constexpr uint32_t texels = tsz.x * tsz.y;
+            auto t1 = device.create_image<float>(PixelStorage::FLOAT4, tsz);
+            auto t2 = device.create_image<float>(PixelStorage::FLOAT4, tsz);
+            vector<float4> h_tex(texels, make_float4(-7.0f));
+            vector<float4> h_out(texels, make_float4(-9.0f));
+            CommandList tlist;
+            tlist << write_tex(t1, 3u).dispatch(tsz)
+                  << t1.copy_to(h_tex.data())
+                  << t2.copy_from(h_tex.data())
+                  << t2.copy_to(h_out.data());
+            s << tlist.commit() << synchronize();
+            bool tex_ok = approx4(h_out[0], make_float4(3.0f, 6.0f, 0.0f, 1.0f)) &&
+                          approx4(h_out[texels - 1u], make_float4(31.0f + 3.0f, 15.0f + 6.0f, 46.0f, 1.0f));
+            expect(tex_ok) << "remote Case A5 texture D2H->H2D";
+        };
+
+        auto check_case_b = [&](Stream &s) {
+            constexpr uint32_t big_n = 16384u;
+            constexpr uint2 img_size = make_uint2(64u, 64u);
+            auto buf = device.create_buffer<float>(big_n);
+            auto tex = device.create_image<float>(PixelStorage::FLOAT4, img_size);
+            vector<float> host_buf(big_n, -999.0f);
+            vector<float4> host_img(img_size.x * img_size.y, make_float4(-999.0f));
+            auto ev = device.create_timeline_event();
+            uint64_t fence = 1u;
+
+            for (uint32_t iter = 0u; iter < 6u; ++iter) {
+                std::fill(host_buf.begin(), host_buf.end(), -999.0f);
+                std::fill(host_img.begin(), host_img.end(), make_float4(-999.0f));
+                s << heavy_compute(buf, iter).dispatch(big_n)
+                  << buf.copy_to(host_buf.data())
+                  << write_tex(tex, iter).dispatch(img_size)
+                  << tex.copy_to(host_img.data())
+                  << ev.signal(fence);
+                if ((iter & 1u) == 0u) {
+                    ev.synchronize(fence);
+                } else {
+                    while (!ev.is_completed(fence)) {
+                        std::this_thread::yield();
+                    }
+                }
+                bool buf_ok = true;
+                for (uint32_t i = 0u; i < big_n; ++i) {
+                    if (!approx(host_buf[i], static_cast<float>(i) * 2.0f + static_cast<float>(iter))) {
+                        buf_ok = false;
+                        break;
+                    }
+                }
+                bool tex_ok = approx4(host_img[0], make_float4(static_cast<float>(iter), static_cast<float>(iter) * 2.0f, 0.0f, 1.0f)) &&
+                              approx4(host_img.back(), make_float4(63.0f + static_cast<float>(iter), 63.0f + static_cast<float>(iter) * 2.0f, 126.0f, 1.0f));
+                expect(buf_ok) << "remote Case B event-only buffer iter=" << iter;
+                expect(tex_ok) << "remote Case B event-only texture iter=" << iter;
+                ++fence;
+            }
+
+            // Stream-sync control
+            std::fill(host_buf.begin(), host_buf.end(), -999.0f);
+            std::fill(host_img.begin(), host_img.end(), make_float4(-999.0f));
+            s << heavy_compute(buf, 42u).dispatch(big_n)
+              << buf.copy_to(host_buf.data())
+              << write_tex(tex, 42u).dispatch(img_size)
+              << tex.copy_to(host_img.data())
+              << synchronize();
+            expect(approx(host_buf[0], 42.0f) &&
+                   approx(host_buf.back(), static_cast<float>(big_n - 1u) * 2.0f + 42.0f));
+            expect(approx4(host_img[0], make_float4(42.0f, 84.0f, 0.0f, 1.0f)));
+        };
+
+        check_case_a(stream);
+        check_case_b(stream);
+
+        // Isolation check: blocked callback on another stream must not block this stream.
+        auto stream_other = device.create_stream();
+        std::atomic_bool cb_started{false};
+        std::atomic_bool cb_release{false};
+        CommandList blocker;
+        blocker.add_callback([&]() noexcept {
+            cb_started.store(true, std::memory_order_release);
+            while (!cb_release.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+        });
+        stream_other << blocker.commit();
+        while (!cb_started.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        check_case_a(stream);
+        check_case_b(stream);
+        cb_release.store(true, std::memory_order_release);
+        stream_other << synchronize();
+        stream << synchronize();
+
+        // Same-stream isolation: an earlier blocked callback on stream must not
+        // stall subsequent callback-free D2H->H2D or event-only completion on stream.
+        std::atomic_bool same_cb_started{false};
+        std::atomic_bool same_cb_release{false};
+        CommandList same_blocker;
+        same_blocker.add_callback([&]() noexcept {
+            same_cb_started.store(true, std::memory_order_release);
+            while (!same_cb_release.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+        });
+        stream << same_blocker.commit();
+        while (!same_cb_started.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        {
+            constexpr uint32_t N = 1024u;
+            auto z = device.create_buffer<float>(N);
+            auto x = device.create_buffer<float>(N);
+            vector<float> z_data(N, 123.0f);
+            vector<float> x_data(N, -1.0f);
+            auto same_ev = device.create_timeline_event();
+            CommandList list;
+            list << z.copy_from(z_data.data())
+                 << write_pattern(z, 9u).dispatch(N)
+                 << z.copy_to(z_data.data())
+                 << z.copy_from(z_data.data())
+                 << x.copy_from(z)
+                 << x.copy_to(x_data.data());
+            stream << list.commit() << same_ev.signal(1u);
+            same_ev.synchronize(1u);
+            bool ok = true;
+            for (uint32_t i = 0u; i < N; ++i) {
+                float exp = static_cast<float>(i) * 1001.0f + 9.0f * 17.0f;
+                if (!approx(z_data[i], exp) || !approx(x_data[i], exp)) {
+                    ok = false;
+                    break;
+                }
+            }
+            expect(ok) << "remote same-stream blocked callback isolation";
+        }
+        same_cb_release.store(true, std::memory_order_release);
+        stream << synchronize();
+    }
+
+    server.stop();
+    server_thread.join();
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1321,6 +1570,9 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     "remote_backend_e2e"_test = [&] {
         test_remote_backend_e2e(argv[0]);
+    };
+    "remote_host_transfer_ordering"_test = [&] {
+        test_remote_host_transfer_ordering(argv[0]);
     };
     "remote_backend_inline_fallback"_test = [&] {
         test_remote_backend_inline_fallback(argv[0]);

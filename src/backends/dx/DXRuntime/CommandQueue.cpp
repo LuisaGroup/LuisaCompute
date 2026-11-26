@@ -73,6 +73,13 @@ void CommandQueue::_execute_thread() {
         };
         auto ExecuteAllocator = [&](AllocatorPtr &b) {
             b->complete(this, _cmd_fence.Get(), fence);
+            uint64_t prev_alloc = _completed_allocator_frame.load(std::memory_order_relaxed);
+            while (prev_alloc < fence &&
+                   !_completed_allocator_frame.compare_exchange_weak(
+                       prev_alloc, fence,
+                       std::memory_order_release,
+                       std::memory_order_relaxed)) {
+            }
             b->reset(this);
             _allocator_pool.enqueue(std::move(b));
             Weakup();
@@ -126,6 +133,15 @@ void CommandQueue::force_sync(
     auto curFrame = ++_last_frame;
     alloc->execute(this, _cmd_fence.Get(), curFrame, {}, false);
     alloc->complete(this, _cmd_fence.Get(), curFrame);
+    {
+        uint64_t prev_alloc = _completed_allocator_frame.load(std::memory_order_relaxed);
+        while (prev_alloc < curFrame &&
+               !_completed_allocator_frame.compare_exchange_weak(
+                   prev_alloc, curFrame,
+                   std::memory_order_release,
+                   std::memory_order_relaxed)) {
+        }
+    }
     alloc->reset(this);
     _executed_frame = curFrame;
 
@@ -138,6 +154,11 @@ CommandQueue::~CommandQueue() {
     }
     _thd.join();
 }
+void CommandQueue::wait_allocator_frame(uint64_t fence) const noexcept {
+    while (_completed_allocator_frame.load(std::memory_order_acquire) < fence) {
+        std::this_thread::yield();
+    }
+}
 void CommandQueue::wait_frame(uint64_t lastFrame) {
     if (lastFrame > 0)
         _queue->Wait(_cmd_fence.Get(), lastFrame);
@@ -149,7 +170,7 @@ void CommandQueue::signal() {
     _executed_allocators.enqueue(WaitFence{}, curFrame, true);
     _mtx.unlock();
 }
-void CommandQueue::execute(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks, luisa::span<std::pair<IDXGISwapChain *, bool>> swapChains, bool cmdlist_is_empty) {
+uint64_t CommandQueue::execute(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks, luisa::span<std::pair<IDXGISwapChain *, bool>> swapChains, bool cmdlist_is_empty) {
     auto curFrame = ++_last_frame;
     alloc->execute(this, _cmd_fence.Get(), curFrame, swapChains, cmdlist_is_empty);
     if (cmdlist_is_empty) {
@@ -164,6 +185,7 @@ void CommandQueue::execute(AllocatorPtr &&alloc, vstd::vector<vstd::function<voi
         if (!callbacks.empty())
             _executed_allocators.enqueue(std::move(callbacks), curFrame, true);
     }
+    return curFrame;
 }
 
 void CommandQueue::complete(uint64_t fence) {

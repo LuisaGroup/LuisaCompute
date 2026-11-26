@@ -54,6 +54,11 @@ public:
         size_t size{0u};
     };
 
+    struct PendingHostDownloadRange {
+        uint64_t begin{0u};
+        uint64_t end{0u};
+    };
+
 private:
     HIPDevice *_device;
     hipStream_t _stream{};
@@ -88,6 +93,7 @@ private:
     luisa::vector<PendingProfileEvent> _pending_profile_events;
     luisa::unordered_map<luisa::string, ProfileAggregate> _shader_profile_totals;
     luisa::vector<DeferredDownloadCopy> _deferred_downloads;
+    luisa::vector<PendingHostDownloadRange> _pending_host_downloads;
 
 private:
     void _create_callback_semaphore() noexcept;
@@ -115,6 +121,13 @@ public:
     [[nodiscard]] static HIPCallbackContext *create_download_copy_context(
         luisa::vector<DeferredDownloadCopy> &&copies) noexcept;
     void flush_deferred_downloads() noexcept;
+    void flush_deferred_downloads_inline_locked(
+        luisa::vector<DeferredDownloadCopy> &&copies) noexcept;
+    void record_pending_host_download_locked(const void *data, size_t size) noexcept;
+    void sync_if_overlapping_host_download_locked(
+        const void *data, size_t size,
+        luisa::vector<DeferredDownloadCopy> &encoder_deferred) noexcept;
+    void signal(class HIPEvent *event, uint64_t value) noexcept;
     // Temporary acceleration-structure builders on one stream are totally
     // ordered, so they share one allocation whose lifetime is the stream.
     [[nodiscard]] hipDeviceptr_t rt_scratch_buffer(size_t required_size) noexcept;

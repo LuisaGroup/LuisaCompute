@@ -207,6 +207,7 @@ CUDAStream::~CUDAStream() noexcept {
 
 void CUDAStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
+    auto dl_seq = _host_download_seq.load(std::memory_order_acquire);
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
     // A drained stream holds no predecessor at all: whatever the next launch
     // enters is not the kernel that just retired.
@@ -216,6 +217,12 @@ void CUDAStream::synchronize() noexcept {
     // and this call, and forcing it would hand its block back to the pool while the
     // copies that use it are still queued.
     _reclaim_staging(false);
+    {
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(_pending_host_downloads, [dl_seq](const PendingHostDownload &entry) noexcept {
+            return entry.seq <= dl_seq;
+        });
+    }
     auto wait_iterations = 0u;
     constexpr auto max_wait_iterations_before_yield = 1024u;
     for (;;) {// TODO: is spinning good enough?
@@ -299,6 +306,42 @@ void CUDAStream::_reclaim_staging(bool all) noexcept {
         }
     }
     _pending_staging.resize(keep);
+}
+
+void CUDAStream::record_pending_host_download(
+    const void *data, size_t size_bytes) noexcept {
+    auto range = make_host_byte_range(data, size_bytes);
+    if (range.empty()) { return; }
+    auto seq = _host_download_seq.fetch_add(1u, std::memory_order_acq_rel) + 1u;
+    std::scoped_lock lock{_host_download_mutex};
+    _pending_host_downloads.emplace_back(PendingHostDownload{range, seq});
+}
+
+bool CUDAStream::sync_if_overlapping_host_download(
+    const void *data, size_t size_bytes) noexcept {
+    auto range = make_host_byte_range(data, size_bytes);
+    if (range.empty()) { return false; }
+    uint64_t target_seq = 0u;
+    {
+        std::scoped_lock lock{_host_download_mutex};
+        for (const auto &entry : _pending_host_downloads) {
+            if (entry.range.overlaps(range)) {
+                target_seq = std::max(target_seq, entry.seq);
+            }
+        }
+    }
+    if (target_seq == 0u) { return false; }
+    // Synchronize only the GPU stream so we do not block on unrelated streams or _callback_thread.
+    LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
+    clear_pdl_predecessor();
+    _reclaim_staging(false);
+    {
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(_pending_host_downloads, [target_seq](const PendingHostDownload &entry) noexcept {
+            return entry.seq <= target_seq;
+        });
+    }
+    return true;
 }
 
 void CUDAStream::signal(CUDAEvent *event, uint64_t value) noexcept {

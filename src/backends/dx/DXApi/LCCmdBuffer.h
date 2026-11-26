@@ -9,6 +9,7 @@
 #include <DXRuntime/EnhancedBarrierTrackerImpl.h>
 #include <DXRuntime/EnhancedBarrierTrackerBackup.h>
 #include "../../common/command_reorder_visitor.h"
+#include "../../common/host_transfer_range.h"
 #include <Resource/BindlessArray.h>
 #include <Shader/ComputeShader.h>
 #include <Resource/BottomAccel.h>
@@ -158,6 +159,18 @@ protected:
     vstd::vector<uint8_t> argBuffer;
     vstd::vector<BottomAccelData> bottomAccelDatas;
     vstd::fixed_vector<std::pair<size_t, size_t>, 4> accelOffset;
+
+    struct PendingHostDownload {
+        HostByteRange range;
+        uint64_t fence;
+    };
+    luisa::spin_mutex _host_download_mtx;
+    luisa::vector<PendingHostDownload> _pending_host_downloads;
+    void _execute_chunk(
+        vstd::span<const luisa::unique_ptr<Command>> commands,
+        luisa::vector<luisa::move_only_function<void()>> &&funcs,
+        vstd::span<const SwapchainPresent> presents,
+        size_t maxAlloc);
 
 public:
     CommandQueue queue;

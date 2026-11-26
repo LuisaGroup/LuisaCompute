@@ -626,6 +626,68 @@ void MetalStream::_encode(MetalCommandEncoder &encoder,
     command->accept(encoder);
 }
 
+void MetalStream::_wait_if_overlapping_host_download(
+    luisa::span<const luisa::unique_ptr<Command>> cmds) noexcept {
+    if (cmds.empty()) { return; }
+    luisa::fixed_vector<HostByteRange, 8u> upload_ranges;
+    for (const auto &cmd : cmds) {
+        if (auto range = command_host_upload_range(cmd.get()); !range.empty()) {
+            upload_ranges.push_back(range);
+        }
+    }
+    if (upload_ranges.empty()) { return; }
+    luisa::fixed_vector<SubmissionHandle, 8u> wait_submissions;
+    {
+        auto retired = _retired_ticket.load(std::memory_order_acquire);
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(
+            _pending_host_downloads,
+            [retired](const PendingHostDownload &entry) noexcept {
+                if (!entry.submission) { return true; }
+                if (entry.submission->completed.load(std::memory_order_acquire)) { return true; }
+                return entry.submission->ticket != 0u && entry.submission->ticket <= retired;
+            });
+        for (const auto &entry : _pending_host_downloads) {
+            for (const auto &upload : upload_ranges) {
+                if (entry.range.overlaps(upload)) {
+                    if (std::find(wait_submissions.begin(), wait_submissions.end(), entry.submission) ==
+                        wait_submissions.end()) {
+                        wait_submissions.push_back(entry.submission);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    for (const auto &submission : wait_submissions) {
+        wait_submission(submission);
+    }
+    if (!wait_submissions.empty()) {
+        auto retired = _retired_ticket.load(std::memory_order_acquire);
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(
+            _pending_host_downloads,
+            [retired](const PendingHostDownload &entry) noexcept {
+                if (!entry.submission) { return true; }
+                if (entry.submission->completed.load(std::memory_order_acquire)) { return true; }
+                return entry.submission->ticket != 0u && entry.submission->ticket <= retired;
+            });
+    }
+}
+
+void MetalStream::_record_pending_host_downloads(
+    luisa::span<const luisa::unique_ptr<Command>> cmds,
+    const SubmissionHandle &submission) noexcept {
+    if (cmds.empty() || !submission) { return; }
+    std::scoped_lock lock{_host_download_mutex};
+    for (const auto &cmd : cmds) {
+        if (auto range = command_host_download_range(cmd.get()); !range.empty()) {
+            _pending_host_downloads.emplace_back(
+                PendingHostDownload{range, submission});
+        }
+    }
+}
+
 void MetalStream::_do_dispatch(MetalCommandEncoder &encoder,
                                CommandList &&list) noexcept {
     if (list.empty()) {
@@ -634,20 +696,42 @@ void MetalStream::_do_dispatch(MetalCommandEncoder &encoder,
     } else {
         auto commands = list.steal_commands();
         auto callbacks = list.steal_callbacks();
-        auto first_tail_download = commands.size();
-        while (first_tail_download > 0u &&
-               commands[first_tail_download - 1u]->tag() ==
-                   Command::Tag::EBufferDownloadCommand) {
-            --first_tail_download;
-        }
-        {
+        if (commands.empty()) {
             std::scoped_lock lock{_dispatch_mutex};
-            for (size_t i = 0u; i < commands.size(); ++i) {
-                encoder.set_in_tail_downloads(i >= first_tail_download);
-                _encode(encoder, commands[i].get());
-            }
-            encoder.set_in_tail_downloads(false);
             static_cast<void>(encoder.submit(std::move(callbacks)));
+            return;
+        }
+        size_t cursor = 0u;
+        while (cursor < commands.size()) {
+            auto next = find_next_host_transfer_split(
+                luisa::span{commands.data(), commands.size()}, cursor);
+            auto chunk = luisa::span{commands.data() + cursor, next - cursor};
+            bool is_last = (next == commands.size());
+            _wait_if_overlapping_host_download(chunk);
+            auto first_tail_download = chunk.size();
+            while (first_tail_download > 0u &&
+                   chunk[first_tail_download - 1u]->tag() ==
+                       Command::Tag::EBufferDownloadCommand) {
+                --first_tail_download;
+            }
+            {
+                std::scoped_lock lock{_dispatch_mutex};
+                bool has_downloads = false;
+                for (size_t i = 0u; i < chunk.size(); ++i) {
+                    if (!command_host_download_range(chunk[i].get()).empty()) {
+                        has_downloads = true;
+                    }
+                    encoder.set_in_tail_downloads(i >= first_tail_download);
+                    _encode(encoder, chunk[i].get());
+                }
+                encoder.set_in_tail_downloads(false);
+                auto submission = encoder.submit(
+                    is_last ? std::move(callbacks) : CommandList::CallbackContainer{});
+                if (has_downloads && submission) {
+                    _record_pending_host_downloads(chunk, submission);
+                }
+            }
+            cursor = next;
         }
     }
 }
@@ -717,6 +801,7 @@ MetalStream::SubmissionHandle MetalStream::submit(
                                 "Metal4 command-buffer execution failed: {}.",
                                 error_message);
                         }
+                        _wait_for_completion_ticket(ticket);
                         _retire_submissions_up_to(ticket, true);
                         _active_feedback_handlers.fetch_sub(
                             1u, std::memory_order_release);

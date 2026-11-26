@@ -33,6 +33,7 @@ private:
     };
     std::atomic_bool _enabled = true;
     std::atomic_uint64_t _executed_frame = 0;
+    std::atomic_uint64_t _completed_allocator_frame = 0;
     std::atomic_uint64_t _last_frame = 0;
     Device *_device;
     GpuAllocator *_resource_allocator;
@@ -47,6 +48,10 @@ private:
 public:
     void wait_frame(uint64 lastFrame);
     uint64 last_frame() const { return _last_frame; }
+    [[nodiscard]] uint64_t completed_allocator_frame() const noexcept {
+        return _completed_allocator_frame.load(std::memory_order_acquire);
+    }
+    void wait_allocator_frame(uint64_t fence) const noexcept;
     ID3D12CommandQueue *queue() const { return _queue; }
     CommandQueue(
         Device *device,
@@ -56,7 +61,7 @@ public:
     AllocatorPtr create_allocator(size_t maxAllocCount);
     void add_event(LCEvent const *evt, uint64_t fenceIdx);
     void signal();
-    void execute(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks, luisa::span<std::pair<IDXGISwapChain *, bool>> swapChains, bool cmdlist_is_empty);
+    uint64_t execute(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks, luisa::span<std::pair<IDXGISwapChain *, bool>> swapChains, bool cmdlist_is_empty);
     [[nodiscard]] D3D12_COMMAND_LIST_TYPE Type() const noexcept { return _type; }
     void complete(uint64 fence);
     void complete();

@@ -130,6 +130,8 @@ void HIPEvent::signal(hipStream_t stream, uint64_t value) noexcept {
     auto result = hipLaunchHostFunc(stream, luisa_hip_event_signal_callback, update);
     if (result != hipSuccess) { update->recycle(); }
     LUISA_CHECK_HIP(result);
+    // Flush WDDM/PAL submission so event-only waiters observe completion without stream.synchronize().
+    static_cast<void>(hipStreamQuery(stream));
 }
 
 void HIPEvent::wait(hipStream_t stream, uint64_t value) noexcept {

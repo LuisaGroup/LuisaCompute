@@ -234,6 +234,11 @@ void MetalCommandEncoder::prepare_compute_dispatch_barriers(
 
 MTL::CommandBuffer *MetalCommandEncoder::submit(CommandList::CallbackContainer &&user_callbacks) noexcept {
     close_encoders();
+    _written_buffers.clear();
+    _written_textures.clear();
+    _written_buffers_overflow = false;
+    _written_textures_overflow = false;
+    _wrote_bindless = false;
     if (!user_callbacks.empty()) {
         add_callback(UserCallbackContext::create(
             std::move(user_callbacks)));

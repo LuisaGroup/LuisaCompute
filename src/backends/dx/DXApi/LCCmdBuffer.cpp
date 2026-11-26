@@ -1648,11 +1648,51 @@ LCCmdBuffer::LCCmdBuffer(
           resourceAllocator,
           type) {
 }
-void LCCmdBuffer::Execute(
+void LCCmdBuffer::_execute_chunk(
     vstd::span<const luisa::unique_ptr<Command>> commands,
     luisa::vector<luisa::move_only_function<void()>> &&funcs,
     vstd::span<const SwapchainPresent> presents,
     size_t max_alloc) {
+    if (!commands.empty()) {
+        luisa::fixed_vector<HostByteRange, 8u> upload_ranges;
+        for (auto &&command : commands) {
+            if (const auto ul = command_host_upload_range(command.get()); !ul.empty()) {
+                upload_ranges.push_back(ul);
+            }
+        }
+        if (!upload_ranges.empty()) {
+            uint64_t max_wait_fence = 0u;
+            {
+                std::lock_guard dl_lck{_host_download_mtx};
+                if (!_pending_host_downloads.empty()) {
+                    const auto completed = queue.completed_allocator_frame();
+                    luisa::compute::erase_host_transfer_if(
+                        _pending_host_downloads,
+                        [completed](const PendingHostDownload &entry) noexcept {
+                            return entry.fence <= completed;
+                        });
+                    for (const auto &entry : _pending_host_downloads) {
+                        for (const auto &ul : upload_ranges) {
+                            if (entry.range.overlaps(ul)) {
+                                max_wait_fence = std::max(max_wait_fence, entry.fence);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (max_wait_fence > 0u) {
+                queue.wait_allocator_frame(max_wait_fence);
+                const auto completed = queue.completed_allocator_frame();
+                std::lock_guard dl_lck{_host_download_mtx};
+                luisa::compute::erase_host_transfer_if(
+                    _pending_host_downloads,
+                    [completed](const PendingHostDownload &entry) noexcept {
+                        return entry.fence <= completed;
+                    });
+            }
+        }
+    }
     auto allocator = queue.create_allocator(max_alloc);
     auto alloc_type = allocator->type();
     bool cmd_list_is_empty = commands.empty();
@@ -2005,10 +2045,44 @@ void LCCmdBuffer::Execute(
         }
         tracker->RestoreState(&barrier_callback);
     }
-    queue.execute(std::move(allocator), std::move(funcs), luisa::span{present_swapchains}, cmd_list_is_empty);
+    const auto submitted_fence = queue.execute(
+        std::move(allocator), std::move(funcs),
+        luisa::span{present_swapchains}, cmd_list_is_empty);
+    if (!cmd_list_is_empty) {
+        std::lock_guard dl_lck{_host_download_mtx};
+        for (auto &&command : commands) {
+            if (const auto dl = command_host_download_range(command.get()); !dl.empty()) {
+                _pending_host_downloads.push_back(PendingHostDownload{dl, submitted_fence});
+            }
+        }
+    }
+}
+void LCCmdBuffer::Execute(
+    vstd::span<const luisa::unique_ptr<Command>> commands,
+    luisa::vector<luisa::move_only_function<void()>> &&funcs,
+    vstd::span<const SwapchainPresent> presents,
+    size_t max_alloc) {
+    if (commands.empty()) {
+        _execute_chunk(commands, std::move(funcs), presents, max_alloc);
+        return;
+    }
+    size_t cursor = 0u;
+    while (cursor < commands.size()) {
+        const auto next = find_next_host_transfer_split(
+            luisa::span{commands.data(), commands.size()}, cursor);
+        const bool is_last = (next == commands.size());
+        _execute_chunk(
+            commands.subspan(cursor, next - cursor),
+            is_last ? std::move(funcs) : luisa::vector<luisa::move_only_function<void()>>{},
+            is_last ? presents : vstd::span<const SwapchainPresent>{},
+            max_alloc);
+        cursor = next;
+    }
 }
 void LCCmdBuffer::Sync() {
     queue.complete();
+    std::lock_guard dl_lck{_host_download_mtx};
+    _pending_host_downloads.clear();
 }
 void LCCmdBuffer::Present(
     LCSwapChain *swapchain,

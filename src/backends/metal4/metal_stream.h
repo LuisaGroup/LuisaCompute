@@ -10,6 +10,7 @@
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/command_list.h>
+#include "../common/host_transfer_range.h"
 #include "metal_api.h"
 #include "metal_stage_buffer_pool.h"
 #include "metal_timing.h"
@@ -91,8 +92,16 @@ private:
     std::atomic_bool _timing_enabled{false};
     spin_mutex _timing_mutex;
     luisa::shared_ptr<MetalTimingSession> _timing_session;
+    struct PendingHostDownload {
+        HostByteRange range;
+        SubmissionHandle submission;
+    };
+    spin_mutex _host_download_mutex;
+    luisa::vector<PendingHostDownload> _pending_host_downloads;
 
 protected:
+    void _wait_if_overlapping_host_download(luisa::span<const luisa::unique_ptr<Command>> cmds) noexcept;
+    void _record_pending_host_downloads(luisa::span<const luisa::unique_ptr<Command>> cmds, const SubmissionHandle &submission) noexcept;
     void _do_dispatch(MetalCommandEncoder &encoder, CommandList &&list) noexcept;
     virtual void _encode(MetalCommandEncoder &encoder, Command *command) noexcept;
     void _emit_shader_log(NS::String *subsystem,

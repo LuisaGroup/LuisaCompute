@@ -1710,8 +1710,7 @@ void HIPDevice::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t f
     auto event = reinterpret_cast<HIPEvent *>(handle);
     auto stream = reinterpret_cast<HIPStream *>(stream_handle);
     with_device([&] {
-        stream->flush_deferred_downloads();
-        event->signal(stream->handle(), fence_value);
+        stream->signal(event, fence_value);
     });
 }
 

@@ -18,9 +18,11 @@
 
 #include "hip_check.h"
 #include "hip_device.h"
+#include "hip_event.h"
 #include "hip_shader.h"
 #include "hip_command_encoder.h"
 #include "hip_stream.h"
+#include "../common/host_transfer_range.h"
 
 namespace luisa::compute::hip {
 
@@ -124,7 +126,18 @@ public:
         }
         _object_pool().destroy(this);
     }
+
+    void discard_without_copy() noexcept {
+        for (const auto &copy : _copies) {
+            copy.staging->recycle();
+        }
+        _object_pool().destroy(this);
+    }
 };
+
+void luisa_hip_inline_download_callback(void *data) noexcept {
+    static_cast<HIPDownloadCopyContext *>(data)->recycle();
+}
 
 }// namespace
 
@@ -148,6 +161,19 @@ HIPCallbackContext *HIPStream::create_download_copy_context(
     return HIPDownloadCopyContext::create(std::move(copies));
 }
 
+void HIPStream::flush_deferred_downloads_inline_locked(
+    luisa::vector<DeferredDownloadCopy> &&copies) noexcept {
+    if (copies.empty()) {
+        return;
+    }
+    auto *ctx = HIPDownloadCopyContext::create(std::move(copies));
+    auto result = hipLaunchHostFunc(_stream, luisa_hip_inline_download_callback, ctx);
+    if (result != hipSuccess) {
+        ctx->discard_without_copy();
+    }
+    LUISA_CHECK_HIP(result);
+}
+
 void HIPStream::flush_deferred_downloads() noexcept {
     luisa::vector<DeferredDownloadCopy> pending;
     {
@@ -156,16 +182,76 @@ void HIPStream::flush_deferred_downloads() noexcept {
             return;
         }
         pending = take_deferred_downloads_locked();
+        flush_deferred_downloads_inline_locked(std::move(pending));
     }
-    CallbackContainer cbs;
-    cbs.emplace_back(create_download_copy_context(std::move(pending)));
-    callback(std::move(cbs));
+    static_cast<void>(hipStreamQuery(_stream));
+}
+
+void HIPStream::record_pending_host_download_locked(
+    const void *data, size_t size) noexcept {
+    const auto range = make_host_byte_range(data, size);
+    if (range.empty()) {
+        return;
+    }
+    if (_pending_host_downloads.size() >= 64u &&
+        _deferred_downloads.empty() &&
+        hipStreamQuery(_stream) == hipSuccess) {
+        _pending_host_downloads.clear();
+    }
+    _pending_host_downloads.push_back(PendingHostDownloadRange{
+        .begin = static_cast<uint64_t>(range.begin),
+        .end = static_cast<uint64_t>(range.end)});
+}
+
+void HIPStream::sync_if_overlapping_host_download_locked(
+    const void *data, size_t size,
+    luisa::vector<DeferredDownloadCopy> &encoder_deferred) noexcept {
+    const auto range = make_host_byte_range(data, size);
+    if (range.empty() || _pending_host_downloads.empty()) {
+        return;
+    }
+    bool overlaps = false;
+    for (const auto &prev : _pending_host_downloads) {
+        const HostByteRange prev_range{
+            static_cast<uintptr_t>(prev.begin),
+            static_cast<uintptr_t>(prev.end)};
+        if (prev_range.overlaps(range)) {
+            overlaps = true;
+            break;
+        }
+    }
+    if (!overlaps) {
+        return;
+    }
+    auto pending = take_deferred_downloads_locked();
+    if (!encoder_deferred.empty()) {
+        pending.insert(pending.end(),
+                       encoder_deferred.begin(),
+                       encoder_deferred.end());
+        encoder_deferred.clear();
+    }
+    LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
+    _notify_hiprt_build_completed_after_synchronize();
+    for (const auto &copy : pending) {
+        std::memcpy(copy.dst, copy.staging->address(), copy.size);
+        copy.staging->recycle();
+    }
+    _pending_host_downloads.clear();
+}
+
+void HIPStream::signal(HIPEvent *event, uint64_t value) noexcept {
+    std::scoped_lock lock{_dispatch_mutex};
+    if (!_deferred_downloads.empty()) {
+        flush_deferred_downloads_inline_locked(take_deferred_downloads_locked());
+    }
+    event->signal(_stream, value);
 }
 
 void HIPStream::_drain_deferred_downloads_after_sync() noexcept {
     luisa::vector<DeferredDownloadCopy> pending;
     {
         std::scoped_lock lock{_dispatch_mutex};
+        _pending_host_downloads.clear();
         if (_deferred_downloads.empty()) {
             return;
         }

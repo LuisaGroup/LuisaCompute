@@ -17,6 +17,7 @@
 #include "ut/ut.hpp"
 #include "command_reorder_visitor.h"
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
@@ -82,17 +83,21 @@ using Range = Reorder::Range;
 struct AccessList {
     static constexpr uint64_t buffer = 7u;
     static constexpr size_t range_size = 16u;
-    std::array<std::byte, range_size> data{};
+    size_t next_host_slot{0u};
     luisa::vector<luisa::unique_ptr<Command>> storage;
     luisa::vector<Command const *> order;
+    [[nodiscard]] void *next_host_ptr() noexcept {
+        return reinterpret_cast<void *>(
+            uintptr_t{0x10000000u} + (next_host_slot++ * range_size));
+    }
     void write(Reorder &reorder, size_t offset) {
-        auto cmd = luisa::make_unique<BufferUploadCommand>(buffer, offset, range_size, data.data());
+        auto cmd = luisa::make_unique<BufferUploadCommand>(buffer, offset, range_size, next_host_ptr());
         order.emplace_back(cmd.get());
         reorder.visit(cmd.get());
         storage.emplace_back(std::move(cmd));
     }
     void read(Reorder &reorder, size_t offset) {
-        auto cmd = luisa::make_unique<BufferDownloadCommand>(buffer, offset, range_size, data.data());
+        auto cmd = luisa::make_unique<BufferDownloadCommand>(buffer, offset, range_size, next_host_ptr());
         order.emplace_back(cmd.get());
         reorder.visit(cmd.get());
         storage.emplace_back(std::move(cmd));
@@ -713,6 +718,72 @@ void test_whole_range_write_merges_sub_ranges() {
         }
     }
 
+    void test_host_memory_range_ordering() {
+        constexpr uint64_t buf_a = 201u;
+        constexpr uint64_t buf_b = 203u;
+        constexpr uint64_t tex_a = 205u;
+        constexpr uint64_t tex_b = 207u;
+        std::array<std::byte, 64u> host_buf_a{};
+        std::array<std::byte, 64u> host_buf_b{};
+        std::array<std::byte, 64u> host_tex{};
+        luisa::vector<luisa::unique_ptr<Command>> storage;
+
+        // Disjoint host pointers across distinct buffers keep one layer.
+        {
+            Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+            auto d = luisa::make_unique<BufferDownloadCommand>(buf_a, 0u, 16u, host_buf_a.data());
+            auto u = luisa::make_unique<BufferUploadCommand>(buf_b, 0u, 16u, host_buf_b.data());
+            reorder.visit(d.get());
+            reorder.visit(u.get());
+            storage.emplace_back(std::move(d));
+            storage.emplace_back(std::move(u));
+            expect(eq(reorder.command_lists().size(), 1u));
+        }
+
+        // Overlapping D2H -> H2D across distinct buffers must serialize.
+        {
+            Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+            auto d = luisa::make_unique<BufferDownloadCommand>(buf_a, 0u, 32u, host_buf_a.data());
+            auto u = luisa::make_unique<BufferUploadCommand>(buf_b, 0u, 32u, host_buf_a.data() + 16u);
+            reorder.visit(d.get());
+            reorder.visit(u.get());
+            storage.emplace_back(std::move(d));
+            storage.emplace_back(std::move(u));
+            expect(eq(reorder.command_lists().size(), 2u));
+        }
+
+        // Overlapping WAW D2H -> D2H to same host pointer across distinct buffers must serialize.
+        {
+            Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+            auto d1 = luisa::make_unique<BufferDownloadCommand>(buf_a, 0u, 16u, host_buf_a.data());
+            auto d2 = luisa::make_unique<BufferDownloadCommand>(buf_b, 0u, 16u, host_buf_a.data());
+            reorder.visit(d1.get());
+            reorder.visit(d2.get());
+            storage.emplace_back(std::move(d1));
+            storage.emplace_back(std::move(d2));
+            expect(eq(reorder.command_lists().size(), 2u));
+        }
+
+        // Texture D2H -> Buffer H2D on overlapping host memory must serialize.
+        {
+            Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+            auto td = luisa::make_unique<TextureDownloadCommand>(
+                tex_a, PixelStorage::BYTE4, 0u, uint3{2u, 2u, 1u}, host_tex.data());
+            auto bu = luisa::make_unique<BufferUploadCommand>(
+                buf_a, 0u, 16u, host_tex.data());
+            auto tu = luisa::make_unique<TextureUploadCommand>(
+                tex_b, PixelStorage::BYTE4, 0u, uint3{2u, 2u, 1u}, host_tex.data());
+            reorder.visit(td.get());
+            reorder.visit(bu.get());
+            reorder.visit(tu.get());
+            storage.emplace_back(std::move(td));
+            storage.emplace_back(std::move(bu));
+            storage.emplace_back(std::move(tu));
+            // Both reads happen after td (layer 0), so layer count is 2.
+            expect(eq(reorder.command_lists().size(), 2u));
+        }
+    }
+
 }// namespace
 
 int main() {
@@ -732,4 +803,5 @@ int main() {
     "empty range semantics"_test = [] { test_empty_range_semantics(); };
     "whole range write merges sub ranges"_test = [] { test_whole_range_write_merges_sub_ranges(); };
     "cluster build is an ordering point"_test = [] { test_cluster_build_is_an_ordering_point(); };
+    "host memory range ordering"_test = [] { test_host_memory_range_ordering(); };
 }

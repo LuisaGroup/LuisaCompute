@@ -73,6 +73,9 @@ void CUDACommandEncoder::visit(BufferUploadCommand *command) noexcept {
     auto address = buffer->device_address() + command->offset();
     auto data = command->data();
     auto size = command->size();
+    if (_stream->sync_if_overlapping_host_download(data, size)) {
+        note_pdl_non_kernel_command();
+    }
     with_upload_buffer(size, [&](auto upload_buffer) noexcept {
         std::memcpy(upload_buffer->address(), data, size);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
@@ -100,6 +103,7 @@ void CUDACommandEncoder::visit(BufferDownloadCommand *command) noexcept {
                 data, address, size, _stream->handle()));
         }
     });
+    _stream->record_pending_host_download(data, size);
 }
 
 void CUDACommandEncoder::visit(BufferCopyCommand *command) noexcept {
@@ -181,6 +185,9 @@ void CUDACommandEncoder::visit(TextureUploadCommand *command) noexcept {
     auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
     auto size_bytes = pixel_storage_size(command->storage(), command->size());
     auto data = command->data();
+    if (_stream->sync_if_overlapping_host_download(data, size_bytes)) {
+        note_pdl_non_kernel_command();
+    }
     with_upload_buffer(size_bytes, [&](auto upload_buffer) noexcept {
         std::memcpy(upload_buffer->address(), data, size_bytes);
         copy.srcMemoryType = CU_MEMORYTYPE_HOST;
@@ -224,6 +231,7 @@ void CUDACommandEncoder::visit(TextureDownloadCommand *command) noexcept {
             LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
         }
     });
+    _stream->record_pending_host_download(command->data(), size_bytes);
 }
 
 void CUDACommandEncoder::visit(TextureCopyCommand *command) noexcept {

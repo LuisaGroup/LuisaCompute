@@ -9,6 +9,7 @@
 
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/command_list.h>
+#include "../common/host_transfer_range.h"
 #include "metal_api.h"
 #include "metal_stage_buffer_pool.h"
 
@@ -34,9 +35,15 @@ private:
     spin_mutex _download_pool_creation_mutex;
     spin_mutex _callback_mutex;
     spin_mutex _dispatch_mutex;
+    spin_mutex _host_download_mutex;
     std::mutex _callback_execution_mutex;
     std::atomic_uint64_t _submitted_callback_lists{0u};
     std::atomic_uint64_t _completed_callback_lists{0u};
+    struct PendingHostDownload {
+        HostByteRange range;
+        uint64_t callback_ticket{0u};
+    };
+    luisa::vector<PendingHostDownload> _pending_host_downloads;
     luisa::unique_ptr<MetalStageBufferPool> _upload_pool{nullptr};
     luisa::unique_ptr<MetalStageBufferPool> _download_pool{nullptr};
     luisa::queue<CallbackContainer> _callback_lists{};
@@ -44,6 +51,8 @@ private:
     bool _fence_pending{false};
 
 protected:
+    void _wait_if_overlapping_host_download(luisa::span<const luisa::unique_ptr<Command>> cmds) noexcept;
+    void _record_pending_host_downloads(luisa::span<const luisa::unique_ptr<Command>> cmds, uint64_t callback_ticket) noexcept;
     void _do_dispatch(MetalCommandEncoder &encoder, CommandList &&list) noexcept;
     virtual void _encode(MetalCommandEncoder &encoder, Command *command) noexcept;
 

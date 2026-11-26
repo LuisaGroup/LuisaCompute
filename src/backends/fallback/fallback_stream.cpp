@@ -15,7 +15,53 @@
 
 namespace luisa::compute::fallback {
 
+void FallbackStream::_wait_if_overlapping_host_download(HostByteRange range) noexcept {
+    if (range.empty()) { return; }
+    std::unique_lock lock{_download_mutex};
+    for (;;) {
+        erase_host_transfer_if(
+            _pending_downloads,
+            [](const PendingHostDownload &entry) noexcept {
+                return entry.done->load(std::memory_order_acquire);
+            });
+        bool blocking = false;
+        for (const auto &entry : _pending_downloads) {
+            if (entry.range.overlaps(range)) {
+                blocking = true;
+                break;
+            }
+        }
+        if (!blocking) { break; }
+        _download_cv.wait(lock);
+    }
+}
+
+luisa::shared_ptr<std::atomic_bool> FallbackStream::_record_host_download(HostByteRange range) noexcept {
+    if (range.empty()) { return {}; }
+    auto done = luisa::make_shared<std::atomic_bool>(false);
+    {
+        std::lock_guard lock{_download_mutex};
+        erase_host_transfer_if(
+            _pending_downloads,
+            [](const PendingHostDownload &entry) noexcept {
+                return entry.done->load(std::memory_order_acquire);
+            });
+        _pending_downloads.emplace_back(PendingHostDownload{range, done});
+    }
+    return done;
+}
+
+void FallbackStream::_complete_host_download(const luisa::shared_ptr<std::atomic_bool> &done) noexcept {
+    if (!done) { return; }
+    {
+        std::lock_guard lock{_download_mutex};
+        done->store(true, std::memory_order_release);
+    }
+    _download_cv.notify_all();
+}
+
 void FallbackStream::_enqueue(luisa::unique_ptr<BufferUploadCommand> cmd) noexcept {
+    _wait_if_overlapping_host_download(make_host_byte_range(cmd->data(), cmd->size()));
     auto temp_buffer = luisa::allocate_with_allocator<std::byte>(cmd->size());
     std::memcpy(temp_buffer, cmd->data(), cmd->size());
     auto dst = reinterpret_cast<FallbackBuffer *>(cmd->handle())->view(cmd->offset(), cmd->size());
@@ -27,7 +73,11 @@ void FallbackStream::_enqueue(luisa::unique_ptr<BufferUploadCommand> cmd) noexce
 
 void FallbackStream::_enqueue(luisa::unique_ptr<BufferDownloadCommand> cmd) noexcept {
     auto src = reinterpret_cast<FallbackBuffer *>(cmd->handle())->view(cmd->offset(), cmd->size());
-    queue()->enqueue([dst = cmd->data(), src] { std::memcpy(dst, src.ptr, src.size); });
+    auto done = _record_host_download(make_host_byte_range(cmd->data(), cmd->size()));
+    queue()->enqueue([this, dst = cmd->data(), src, done = std::move(done)] {
+        std::memcpy(dst, src.ptr, src.size);
+        _complete_host_download(done);
+    });
 }
 
 void FallbackStream::_enqueue(luisa::unique_ptr<BufferCopyCommand> cmd) noexcept {
@@ -52,6 +102,7 @@ void FallbackStream::_enqueue(luisa::unique_ptr<ShaderDispatchCommand> cmd) noex
 void FallbackStream::_enqueue(luisa::unique_ptr<TextureUploadCommand> cmd) noexcept {
     auto tex = reinterpret_cast<FallbackTexture *>(cmd->handle())->view(cmd->level());
     auto byte_size = pixel_storage_size(tex.storage(), tex.size3d());
+    _wait_if_overlapping_host_download(make_host_byte_range(cmd->data(), byte_size));
     auto temp_buffer = luisa::allocate_with_allocator<std::byte>(byte_size);
     std::memcpy(temp_buffer, cmd->data(), byte_size);
     queue()->enqueue([tex, temp_buffer] {
@@ -63,7 +114,12 @@ void FallbackStream::_enqueue(luisa::unique_ptr<TextureUploadCommand> cmd) noexc
 
 void FallbackStream::_enqueue(luisa::unique_ptr<TextureDownloadCommand> cmd) noexcept {
     auto tex = reinterpret_cast<FallbackTexture *>(cmd->handle())->view(cmd->level());
-    queue()->enqueue([=, dst = cmd->data()] { tex.copy_to(dst); });
+    auto byte_size = pixel_storage_size(tex.storage(), tex.size3d());
+    auto done = _record_host_download(make_host_byte_range(cmd->data(), byte_size));
+    queue()->enqueue([this, tex, dst = cmd->data(), done = std::move(done)] {
+        tex.copy_to(dst);
+        _complete_host_download(done);
+    });
 }
 
 void FallbackStream::_enqueue(luisa::unique_ptr<TextureCopyCommand> cmd) noexcept {

@@ -2424,7 +2424,19 @@ Stream::Stream(Device *device, StreamTag tag)
                               if (this->device()->gpu_timeline() != nullptr) {
                                   t.states()->tl_cpu_fence_complete_ns = last_sync_complete_ns;
                               }
+                              auto const retired = t.states()->host_retire_fence;
+                              t.states()->host_retire_fence = 0u;
                               t.retire_host_visible();
+                              if (retired != 0u) {
+                                  auto prev = _host_retired_fence.load(std::memory_order_relaxed);
+                                  while (prev < retired &&
+                                         !_host_retired_fence.compare_exchange_weak(
+                                             prev, retired,
+                                             std::memory_order_release,
+                                             std::memory_order_relaxed)) {
+                                  }
+                                  _host_retired_fence.notify_all();
+                              }
                               pending_recycle.emplace_back(std::move(t));
                           }
                       });
@@ -2590,6 +2602,7 @@ uint64_t Stream::execute_immediate(
         _exec.enqueue(SyncExt{
             .evt = &_evt,
             .value = fence});
+        cmdbuffer.states()->host_retire_fence = fence;
         _exec.enqueue(std::move(cmdbuffer));
         _exec.enqueue(NotifyEvt{
             .evt = &_evt,
@@ -2810,6 +2823,7 @@ void Stream::present(
         _exec.enqueue(SyncExt{
             .evt = &_evt,
             .value = fence});
+        cmdbuffer.states()->host_retire_fence = fence;
         _exec.enqueue(std::move(cmdbuffer));
         _exec.enqueue(NotifyEvt{
             .evt = &_evt,
@@ -2823,12 +2837,94 @@ void Stream::present(
         _notify_retirement_thread();
     }
 }
+void Stream::_wait_host_retired_fence(uint64_t target) noexcept {
+    for (;;) {
+        auto cur = _host_retired_fence.load(std::memory_order_acquire);
+        if (cur >= target) { break; }
+        _host_retired_fence.wait(cur, std::memory_order_acquire);
+    }
+}
+
 void Stream::dispatch(
     vstd::span<const luisa::unique_ptr<Command>> cmds,
     luisa::vector<luisa::move_only_function<void()>> &&callbacks,
     vstd::span<const SwapchainPresent> presents,
     bool inqueue_limit) {
     std::lock_guard lck{_dispatch_mtx};
+    auto wait_if_upload_overlaps = [&](vstd::span<const luisa::unique_ptr<Command>> sub_cmds) {
+        auto const retired = _host_retired_fence.load(std::memory_order_acquire);
+        luisa::compute::erase_host_transfer_if(
+            _pending_host_downloads,
+            [retired](const PendingHostDownload &entry) noexcept {
+                return entry.fence <= retired;
+            });
+        if (_pending_host_downloads.empty() || sub_cmds.empty()) {
+            return;
+        }
+        luisa::fixed_vector<HostByteRange, 8u> upload_ranges;
+        for (auto const &c : sub_cmds) {
+            if (auto const ul = command_host_upload_range(c.get()); !ul.empty()) {
+                upload_ranges.push_back(ul);
+            }
+        }
+        if (upload_ranges.empty()) {
+            return;
+        }
+        uint64_t max_wait = 0u;
+        for (auto const &entry : _pending_host_downloads) {
+            for (auto const &ul : upload_ranges) {
+                if (entry.range.overlaps(ul)) {
+                    max_wait = std::max(max_wait, entry.fence);
+                    break;
+                }
+            }
+        }
+        if (max_wait > 0u) {
+            _wait_host_retired_fence(max_wait);
+            auto const updated = _host_retired_fence.load(std::memory_order_acquire);
+            luisa::compute::erase_host_transfer_if(
+                _pending_host_downloads,
+                [updated](const PendingHostDownload &entry) noexcept {
+                    return entry.fence <= updated;
+                });
+        }
+    };
+    auto record_downloads = [&](vstd::span<const luisa::unique_ptr<Command>> sub_cmds, uint64_t submitted_fence) {
+        if (submitted_fence == 0u || sub_cmds.empty()) {
+            return;
+        }
+        for (auto const &c : sub_cmds) {
+            if (auto const dl = command_host_download_range(c.get()); !dl.empty()) {
+                _pending_host_downloads.emplace_back(PendingHostDownload{dl, submitted_fence});
+            }
+        }
+    };
+    if (cmds.empty()) {
+        static_cast<void>(_dispatch_chunk(cmds, std::move(callbacks), presents, inqueue_limit));
+        return;
+    }
+    size_t cursor = 0u;
+    while (cursor < cmds.size()) {
+        auto const next = find_next_host_transfer_split(
+            luisa::span{cmds.data(), cmds.size()}, cursor);
+        auto chunk = cmds.subspan(cursor, next - cursor);
+        bool const is_last = (next == cmds.size());
+        wait_if_upload_overlaps(chunk);
+        auto submitted = _dispatch_chunk(
+            chunk,
+            is_last ? std::move(callbacks) : Callbacks{},
+            is_last ? presents : vstd::span<const SwapchainPresent>{},
+            inqueue_limit);
+        record_downloads(chunk, submitted);
+        cursor = next;
+    }
+}
+
+uint64_t Stream::_dispatch_chunk(
+    vstd::span<const luisa::unique_ptr<Command>> cmds,
+    luisa::vector<luisa::move_only_function<void()>> &&callbacks,
+    vstd::span<const SwapchainPresent> presents,
+    bool inqueue_limit) {
     PresentCommand present_cmd;
     luisa::fixed_vector<VkSwapchainKHR, 1> vk_swapchains;
     _temp_desc.clear();
@@ -2851,7 +2947,7 @@ void Stream::dispatch(
         has_gpu_cmds = true;
     }
     if (!has_gpu_cmds && extra_signals.empty() && callbacks.empty() && presents.empty()) {
-        return;
+        return 0u;
     }
     if (inqueue_limit) {
         // Same in-flight bound as the dispatch path (plan P1.5); the engine, the
@@ -3058,6 +3154,7 @@ void Stream::dispatch(
                 _exec.enqueue(SyncExt{
                     .evt = &_evt,
                     .value = fence});
+                cmdbuffer.states()->host_retire_fence = fence;
                 _exec.enqueue(std::move(cmdbuffer));
             } else {
                 // No successful swapchains - if there are commands, submit them without present
@@ -3073,6 +3170,7 @@ void Stream::dispatch(
                     _exec.enqueue(SyncExt{
                         .evt = &_evt,
                         .value = fence});
+                    cmdbuffer.states()->host_retire_fence = fence;
                     _exec.enqueue(std::move(cmdbuffer));
                 } else {
                     // No commands and no successful presents - cleanup without submitting
@@ -3101,7 +3199,7 @@ void Stream::dispatch(
                 _bump_work_epoch_locked();
                 _mtx.unlock();
                 _notify_retirement_thread();
-                return;
+                return has_gpu_cmds ? fence : 0u;
             }
 
             for (auto const &s : extra_signals) {
@@ -3125,7 +3223,7 @@ void Stream::dispatch(
             _bump_work_epoch_locked();
             _mtx.unlock();
             _notify_retirement_thread();
-            return;
+            return fence;
         }
         // Command buffer already submitted in present path, don't submit again
         if (!presents.empty()) {
@@ -3183,6 +3281,7 @@ void Stream::dispatch(
         _exec.enqueue(SyncExt{
             .evt = &_evt,
             .value = fence});
+        cmdbuffer.states()->host_retire_fence = fence;
         _exec.enqueue(std::move(cmdbuffer));
         for (auto const &s : extra_signals) {
             if (s.evt != nullptr) {
@@ -3235,6 +3334,7 @@ void Stream::dispatch(
     _bump_work_epoch_locked();
     _mtx.unlock();
     _notify_retirement_thread();
+    return (has_gpu_cmds || !presents.empty()) ? fence : 0u;
 }
 CommandBuffer Stream::_begin_batch_record(
     detail::CommandBufferOwnership ownership,
