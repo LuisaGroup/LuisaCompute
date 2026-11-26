@@ -2001,6 +2001,134 @@ void test_hip_ray_query_short_stack_backtracking(Device &device) {
     }
 }
 
+void test_hip_ray_query_mixed_box_leaf_short_stack(Device &device) {
+    if (device.backend_name() != "hip") {
+        LUISA_INFO(
+            "Skipping HIP-specific mixed box-leaf short-stack test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+    auto amdgpu_arch = device.query("amdgpu_arch");
+    if (amdgpu_arch != "gfx1200" && amdgpu_arch != "gfx1201") {
+        LUISA_INFO(
+            "Skipping gfx12 mixed box-leaf short-stack test on AMDGPU architecture '{}'.",
+            amdgpu_arch);
+        return;
+    }
+
+    // Mix one separated near leaf at z=0.5 with a deep cluster of 512
+    // triangles around z=-0.5 so internal BVH8 boxes mix leaf and box children
+    // across stack overflows. Both ray directions must observe every candidate
+    // once and commit late/closest/any hits accurately.
+    constexpr auto cluster_count = 512u;
+    constexpr auto total_prim_count = 1u + cluster_count;
+    std::vector<float3> vertices;
+    std::vector<Triangle> triangles;
+    vertices.reserve(total_prim_count * 3u);
+    triangles.reserve(total_prim_count);
+    auto push_tri = [&](float z) noexcept {
+        const auto base = static_cast<uint>(vertices.size());
+        vertices.push_back(make_float3(-1.0f, -1.0f, z));
+        vertices.push_back(make_float3(1.0f, -1.0f, z));
+        vertices.push_back(make_float3(0.0f, 1.0f, z));
+        triangles.emplace_back(base, base + 1u, base + 2u);
+    };
+    push_tri(0.5f);
+    for (auto i = 0u; i < cluster_count; i++) {
+        push_tri(-0.5f - 0.0005f * static_cast<float>(i));
+    }
+
+    auto stream = device.create_stream();
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto visits_fwd = device.create_buffer<uint>(total_prim_count);
+    auto visits_rev = device.create_buffer<uint>(total_prim_count);
+    auto summary = device.create_buffer<uint4>(4u);
+    std::vector<uint> zeros(total_prim_count, 0u);
+
+    Kernel1D kernel = [](AccelVar accel,
+                         BufferUInt visits_fwd, BufferUInt visits_rev,
+                         BufferUInt4 summary) noexcept {
+        auto run_dir = [&](BufferUInt &visits, Float3 origin, Float3 dir,
+                           UInt late_target, UInt idx_all,
+                           UInt idx_trace) noexcept {
+            auto ray = make_ray(origin, dir, 0.0f, 4.0f);
+            UInt count = 0u;
+            UInt late_prim = ~0u;
+            auto q_all = accel.traverse(ray, {})
+                             .on_surface_candidate(
+                                 [&](SurfaceCandidate &candidate) noexcept {
+                                     const auto hit = candidate.hit();
+                                     visits.write(hit->prim,
+                                                  visits.read(hit->prim) + 1u);
+                                     count += 1u;
+                                     $if (hit->prim == late_target) {
+                                         candidate.commit();
+                                     };
+                                 })
+                             .on_procedural_candidate(
+                                 [](ProceduralCandidate &) noexcept {})
+                             .trace();
+            late_prim = q_all->prim;
+            auto closest = accel.intersect(ray, {});
+            auto any = accel.intersect_any(ray, {});
+            summary.write(idx_all,
+                          make_uint4(q_all->hit_type, late_prim, count, 0u));
+            summary.write(idx_trace,
+                          make_uint4(cast<uint>(closest->is_triangle()),
+                                     closest->prim, cast<uint>(any), 0u));
+        };
+        run_dir(visits_fwd,
+                make_float3(0.0f, 0.0f, 1.5f),
+                make_float3(0.0f, 0.0f, -1.0f), 512u, 0u, 1u);
+        run_dir(visits_rev,
+                make_float3(0.0f, 0.0f, -1.5f),
+                make_float3(0.0f, 0.0f, 1.0f), 0u, 2u, 3u);
+    };
+    auto shader = device.compile(kernel);
+    std::array<uint4, 4u> host_summary{};
+    std::vector<uint> host_fwd(total_prim_count);
+    std::vector<uint> host_rev(total_prim_count);
+    stream << visits_fwd.copy_from(luisa::span{zeros})
+           << visits_rev.copy_from(luisa::span{zeros})
+           << shader(accel, visits_fwd, visits_rev, summary).dispatch(1u)
+           << summary.copy_to(luisa::span{host_summary})
+           << visits_fwd.copy_to(luisa::span{host_fwd})
+           << visits_rev.copy_to(luisa::span{host_rev})
+           << synchronize();
+
+    constexpr auto surface = static_cast<uint>(HitType::Surface);
+    expect(host_summary[0].x == surface);
+    expect(host_summary[0].y == cluster_count);
+    expect(host_summary[0].z == total_prim_count);
+    expect(host_summary[1].x == 1u);
+    expect(host_summary[1].y == 0u);
+    expect(host_summary[1].z == 1u);
+
+    expect(host_summary[2].x == surface);
+    expect(host_summary[2].y == 0u);
+    expect(host_summary[2].z == total_prim_count);
+    expect(host_summary[3].x == 1u);
+    expect(host_summary[3].y == cluster_count);
+    expect(host_summary[3].z == 1u);
+
+    for (auto i = 0u; i < total_prim_count; i++) {
+        expect(host_fwd[i] == 1u)
+            << luisa::format("fwd prim {} visited {} times", i, host_fwd[i]);
+        expect(host_rev[i] == 1u)
+            << luisa::format("rev prim {} visited {} times", i, host_rev[i]);
+    }
+}
+
 void test_hip_ray_query_large_mixed_dispatch(Device &device) {
     if (device.backend_name() != "hip") {
         LUISA_INFO(
@@ -2159,6 +2287,9 @@ int main(int argc, char *argv[]) {
     };
     "HIP ray-query short-stack backtracking is exact"_test = [&] {
         test_hip_ray_query_short_stack_backtracking(dc->device);
+    };
+    "HIP ray-query mixed box-leaf short-stack is exact"_test = [&] {
+        test_hip_ray_query_mixed_box_leaf_short_stack(dc->device);
     };
     "HIP ray-query large mixed dispatch is exact"_test = [&] {
         test_hip_ray_query_large_mixed_dispatch(dc->device);

@@ -827,14 +827,17 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         if (_uses_hardware_rt_stack && has_hardware_stack_calls) {
             // A generic HIPRT stack owns disjoint TLAS/BLAS regions. A
             // resumable query needs nine entries per region; an ordinary
-            // one-shot trace needs eight. The synchronous instance protocol
-            // owns one 16-entry region and uses a separate intrinsic symbol.
+            // one-shot trace needs eight. The synchronous pipeline protocol
+            // owns one 24-entry region and uses a separate intrinsic symbol.
             constexpr auto hardware_stack_lane_count = 32u;
             constexpr auto generic_hardware_stack_region_count = 2u;
             constexpr auto pipeline_hardware_stack_region_count = 1u;
             const auto generic_hardware_stack_max_entries =
                 _uses_resumable_hardware_ray_query_pipeline ? 9u : 8u;
-            constexpr auto pipeline_hardware_stack_max_entries = 16u;
+            constexpr auto pipeline_hardware_stack_max_entries = 24u;
+            static_assert(
+                pipeline_hardware_stack_max_entries <= 31u,
+                "GFX12 ds_bvh_stack_push8_pop1_rtn encodes MaxStackEntries in offset[4:0].");
             const auto generic_dwords_per_wave32 =
                 has_generic_hardware_stack_calls ?
                     generic_hardware_stack_max_entries *

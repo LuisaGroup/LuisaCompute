@@ -1030,18 +1030,18 @@ int main(int argc, char *argv[]) {
                    "codegen";
             if (uses_gfx12_hardware_stack) {
                 // Both native closest and pure terminal routes on gfx12 use
-                // LuisaHwBvhStack (two regions x 8 entries x 32 lanes = 512
-                // dwords/wave, 16 KiB LDS for a 256-thread block).
+                // LuisaPipelineHwBvhStack (one region x 24 entries x 32 lanes =
+                // 768 dwords/wave, 24 KiB LDS for a 256-thread block).
                 expect(module.find(
                            "@luisa_hiprt_shared_stack_cache = internal "
-                           "addrspace(3) global [4096 x i32]") !=
+                           "addrspace(3) global [6144 x i32]") !=
                        std::string::npos)
-                    << "gfx12 hardware-stack query did not reserve the 16 KiB "
+                    << "gfx12 hardware-stack query did not reserve the 24 KiB "
                        "hardware-frontier LDS footprint";
-                expect(module.find(", i32 8)") !=
+                expect(module.find(", i32 24)") !=
                        std::string::npos)
                     << "gfx12 BVH-stack intrinsic did not receive the "
-                       "native 8-entry two-region capacity";
+                       "native 24-entry one-region capacity";
             }
 
             // The two large-environment kernels differ only in whether the
@@ -1256,11 +1256,11 @@ int main(int argc, char *argv[]) {
                        "ABI-consistent state representation per function";
                 expect(mixed_before_module.find(
                            "@luisa_hiprt_shared_stack_cache = internal "
-                           "addrspace(3) global [4608 x i32]") !=
+                           "addrspace(3) global [6144 x i32]") !=
                        std::string::npos)
                     << "mixed gfx12 RayQuery did not overlay one-region "
-                       "16-entry and two-region 9-entry frontiers at the "
-                       "common 576-dword stride for eight waves";
+                       "24-entry and two-region 9-entry frontiers at the "
+                       "common 768-dword stride for eight waves";
             }
         };
 
