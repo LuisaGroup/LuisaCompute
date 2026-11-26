@@ -18,6 +18,7 @@ HIPCodegenLLVMResult hip_codegen_llvm(const xir::Module &xir_module,
         luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
         bool requires_global_rt_stack;
         bool uses_static_global_rt_stack;
+        bool is_relocatable_object;
         luisa::vector<const xir::Function *>
             retry_with_resumable_ray_query_state_functions;
     };
@@ -27,6 +28,7 @@ HIPCodegenLLVMResult hip_codegen_llvm(const xir::Module &xir_module,
         auto requires_global_rt_stack = impl.requires_global_rt_stack();
         auto uses_static_global_rt_stack =
             impl.uses_static_global_rt_stack();
+        auto is_relocatable_object = impl.generated_relocatable_object();
         auto retry_with_resumable_ray_query_state_functions =
             impl.retry_with_resumable_ray_query_state_functions();
         auto format_types = std::move(impl).take_print_formats();
@@ -36,6 +38,7 @@ HIPCodegenLLVMResult hip_codegen_llvm(const xir::Module &xir_module,
             .requires_global_rt_stack = requires_global_rt_stack,
             .uses_static_global_rt_stack =
                 uses_static_global_rt_stack,
+            .is_relocatable_object = is_relocatable_object,
             .retry_with_resumable_ray_query_state_functions =
                 std::move(
                     retry_with_resumable_ray_query_state_functions)};
@@ -65,7 +68,8 @@ HIPCodegenLLVMResult hip_codegen_llvm(const xir::Module &xir_module,
         .format_types = std::move(attempt.format_types),
         .requires_global_rt_stack = attempt.requires_global_rt_stack,
         .uses_static_global_rt_stack =
-            attempt.uses_static_global_rt_stack};
+            attempt.uses_static_global_rt_stack,
+        .is_relocatable_object = attempt.is_relocatable_object};
 }
 
 }// namespace luisa::compute::hip

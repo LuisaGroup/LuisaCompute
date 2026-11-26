@@ -77,6 +77,22 @@ endforeach()
 # ---------------------------------------------------------------------------
 # Generate a compatibility overlay rather than mutating the HIPRT submodule.
 # New hipcc supplies device placement new even when emitting LLVM bitcode.
+function(_hiprt_write_overlay_if_changed _dst _content)
+    set(_needs_write TRUE)
+    if(EXISTS "${_dst}")
+        file(SHA256 "${_dst}" _old_hash)
+        string(SHA256 _new_hash "${_content}")
+        if(_old_hash STREQUAL _new_hash)
+            set(_needs_write FALSE)
+        endif()
+    endif()
+    if(_needs_write)
+        get_filename_component(_dst_dir "${_dst}" DIRECTORY)
+        file(MAKE_DIRECTORY "${_dst_dir}")
+        file(WRITE "${_dst}" "${_content}")
+    endif()
+endfunction()
+
 file(READ "${HIPRT_SOURCE_DIR}/hiprt/impl/hiprt_device_impl.h" _hiprt_device_impl)
 string(REPLACE
     "#if defined( __HIPCC_RTC__ ) || ( defined( HIPRT_BITCODE_LINKING ) && defined( __KERNELCC__ ) )"
@@ -86,6 +102,249 @@ file(MAKE_DIRECTORY "${_hiprt_generated_dir}/hiprt/impl")
 file(CONFIGURE
     OUTPUT "${_hiprt_generated_dir}/hiprt/impl/hiprt_device_impl.h"
     CONTENT "${_hiprt_device_impl}" @ONLY)
+
+# Fix BatchBuilder::getStorageBufferSize for RTIP >= 3.1 TrianglePacketNode:
+# upstream allocates for primCount instead of getMaxPrimNodeCount(...).
+file(READ "${HIPRT_SOURCE_DIR}/hiprt/impl/BatchBuilder.cpp" _hiprt_batch_builder_cpp)
+string(REPLACE "\r\n" "\n" _hiprt_batch_builder_cpp "${_hiprt_batch_builder_cpp}")
+set(_hiprt_batch_builder_cpp_orig "${_hiprt_batch_builder_cpp}")
+string(REPLACE
+"size_t BatchBuilder::getStorageBufferSize(
+\tContext& context, const hiprtGeometryBuildInput& buildInput, [[maybe_unused]] const hiprtBuildOptions buildOptions )
+{
+\tconst size_t primCount\t  = getPrimCount( buildInput );
+\tconst size_t boxNodeCount = getMaxBoxNodeCount( buildInput, context.getRtip(), primCount );
+\treturn getGeometryStorageBufferSize(
+\t\tprimCount, boxNodeCount, getPrimNodeSize( buildInput, context.getTriangleNodeSize() ), context.getBoxNodeSize() );
+}"
+"size_t BatchBuilder::getStorageBufferSize(
+\tContext& context, const hiprtGeometryBuildInput& buildInput, [[maybe_unused]] const hiprtBuildOptions buildOptions )
+{
+\tconst size_t primCount\t   = getPrimCount( buildInput );
+\tconst size_t primNodeCount = getMaxPrimNodeCount( buildInput, context.getRtip(), primCount );
+\tconst size_t boxNodeCount  = getMaxBoxNodeCount( buildInput, context.getRtip(), primCount );
+\treturn getGeometryStorageBufferSize(
+\t\tprimNodeCount, boxNodeCount, getPrimNodeSize( buildInput, context.getTriangleNodeSize() ), context.getBoxNodeSize() );
+}"
+    _hiprt_batch_builder_cpp "${_hiprt_batch_builder_cpp}")
+if(_hiprt_batch_builder_cpp STREQUAL _hiprt_batch_builder_cpp_orig)
+    message(FATAL_ERROR "[HIPRT from source] Failed to patch BatchBuilder.cpp overlay.")
+endif()
+_hiprt_write_overlay_if_changed("${_hiprt_generated_dir}/hiprt/impl/BatchBuilder.cpp" "${_hiprt_batch_builder_cpp}")
+
+# Replace 2N synchronous oroMemcpyDtoH stalls in Context::compactGeometries with
+# one batched pinned DtoHAsync + stream sync, then reuse headers for DtoD/HtoDAsync.
+file(READ "${HIPRT_SOURCE_DIR}/hiprt/impl/Context.cpp" _hiprt_context_cpp)
+string(REPLACE "\r\n" "\n" _hiprt_context_cpp "${_hiprt_context_cpp}")
+set(_hiprt_context_cpp_orig "${_hiprt_context_cpp}")
+string(REPLACE
+"std::vector<hiprtGeometry> Context::compactGeometries( const std::vector<hiprtGeometry>& geometriesIn, oroStream stream )
+{
+\tcheckOro( oroCtxSetCurrent( m_ctxt ) );
+
+\tsize_t\t\t\t\tsize = 0;
+\tstd::vector<size_t> sizes( geometriesIn.size() );
+\tfor ( size_t i = 0; i < geometriesIn.size(); ++i )
+\t{
+\t\tGeomHeader header;
+\t\tcheckOro( oroMemcpyDtoH( &header, reinterpret_cast<oroDeviceptr>( geometriesIn[i] ), sizeof( GeomHeader ) ) );
+\t\tconst size_t primNodeSize = header.m_geomType & 1 ? getTriangleNodeSize() : sizeof( CustomNode );
+\t\tsizes[i] =
+\t\t\tgetGeometryStorageBufferSize( header.m_primNodeCount, header.m_boxNodeCount, primNodeSize, getBoxNodeSize() );
+\t\tsize += sizes[i];
+\t}
+
+\toroDeviceptr buffer;
+\tcheckOro( oroMalloc( &buffer, size ) );
+
+\tstd::vector<hiprtGeometry> geometriesOut( geometriesIn.size() );
+\tfor ( size_t i = 0; i < geometriesIn.size(); ++i )
+\t{
+\t\tGeomHeader header;
+\t\tcheckOro( oroMemcpyDtoH( &header, reinterpret_cast<oroDeviceptr>( geometriesIn[i] ), sizeof( GeomHeader ) ) );
+\t\tconst size_t primNodeSize = header.m_geomType & 1 ? getTriangleNodeSize() : sizeof( CustomNode );
+\t\tconst size_t boxNodeSize  = getBoxNodeSize();
+
+\t\tgeometriesOut[i] = reinterpret_cast<hiprtGeometry>( buffer );
+\t\tMemoryArena storageMemoryArena( geometriesOut[i], sizes[i], DefaultAlignment );
+\t\tstorageMemoryArena.allocate<GeomHeader>();
+\t\tvoid* boxNodes\t= storageMemoryArena.allocate<uint8_t>( boxNodeSize * header.m_boxNodeCount );
+\t\tvoid* primNodes = storageMemoryArena.allocate<uint8_t>( primNodeSize * header.m_primNodeCount );
+
+\t\tcheckOro( oroMemcpyDtoDAsync(
+\t\t\treinterpret_cast<oroDeviceptr>( boxNodes ),
+\t\t\treinterpret_cast<oroDeviceptr>( header.m_boxNodes ),
+\t\t\tboxNodeSize * header.m_boxNodeCount,
+\t\t\tstream ) );
+
+\t\tcheckOro( oroMemcpyDtoDAsync(
+\t\t\treinterpret_cast<oroDeviceptr>( primNodes ),
+\t\t\treinterpret_cast<oroDeviceptr>( header.m_primNodes ),
+\t\t\tprimNodeSize * header.m_primNodeCount,
+\t\t\tstream ) );
+
+\t\theader.m_boxNodes  = boxNodes;
+\t\theader.m_primNodes = primNodes;
+\t\theader.m_size\t   = sizes[i];
+\t\tcheckOro(
+\t\t\toroMemcpyHtoDAsync( reinterpret_cast<oroDeviceptr>( geometriesOut[i] ), &header, sizeof( GeomHeader ), stream ) );
+
+\t\tbuffer = static_cast<uint8_t*>( buffer ) + sizes[i];
+\t}
+
+\t{
+\t\tstd::lock_guard<std::mutex> lockMutex( m_poolMutex );
+\t\tm_poolHeads[{ reinterpret_cast<oroDeviceptr>( geometriesOut.front() ), size }] =
+\t\t\tstatic_cast<uint32_t>( geometriesOut.size() );
+\t}
+
+\tcheckOro( oroStreamSynchronize( stream ) );
+\tdestroyGeometries( geometriesIn );
+
+\treturn geometriesOut;
+}"
+"std::vector<hiprtGeometry> Context::compactGeometries( const std::vector<hiprtGeometry>& geometriesIn, oroStream stream )
+{
+\tif ( geometriesIn.empty() ) return {};
+
+\tcheckOro( oroCtxSetCurrent( m_ctxt ) );
+
+\tstruct PinnedHeadersGuard
+\t{
+\t\tvoid* pinned = nullptr;
+\t\t~PinnedHeadersGuard()
+\t\t{
+\t\t\tif ( pinned != nullptr ) oroHostFree( pinned );
+\t\t}
+\t} pinnedGuard;
+
+\tGeomHeader smallHeaders[4];
+\tstd::vector<GeomHeader> fallbackHeaders;
+\tGeomHeader* headers = nullptr;
+\tif ( geometriesIn.size() < 4 )
+\t{
+\t\theaders = smallHeaders;
+\t}
+\telse if ( oroHostMalloc( &pinnedGuard.pinned, geometriesIn.size() * sizeof( GeomHeader ), 0 ) == oroSuccess &&
+\t\t pinnedGuard.pinned != nullptr )
+\t{
+\t\theaders = reinterpret_cast<GeomHeader*>( pinnedGuard.pinned );
+\t}
+\telse
+\t{
+\t\tpinnedGuard.pinned = nullptr;
+\t\tfallbackHeaders.resize( geometriesIn.size() );
+\t\theaders = fallbackHeaders.data();
+\t}
+
+\tfor ( size_t i = 0; i < geometriesIn.size(); ++i )
+\t{
+\t\tcheckOro( oroMemcpyDtoHAsync(
+\t\t\t&headers[i], reinterpret_cast<oroDeviceptr>( geometriesIn[i] ), sizeof( GeomHeader ), stream ) );
+\t}
+\tcheckOro( oroStreamSynchronize( stream ) );
+
+\tsize_t size = 0;
+\tstd::vector<size_t> sizes( geometriesIn.size() );
+\tconst size_t triangleNodeSize = getTriangleNodeSize();
+\tconst size_t boxNodeSize      = getBoxNodeSize();
+\tfor ( size_t i = 0; i < geometriesIn.size(); ++i )
+\t{
+\t\tconst size_t primNodeSize = headers[i].m_geomType & 1 ? triangleNodeSize : sizeof( CustomNode );
+\t\tsizes[i] =
+\t\t\tgetGeometryStorageBufferSize( headers[i].m_primNodeCount, headers[i].m_boxNodeCount, primNodeSize, boxNodeSize );
+\t\tsize += sizes[i];
+\t}
+
+\toroDeviceptr buffer{};
+\tcheckOro( oroMalloc( &buffer, size ) );
+
+\tstd::vector<hiprtGeometry> geometriesOut( geometriesIn.size() );
+\tfor ( size_t i = 0; i < geometriesIn.size(); ++i )
+\t{
+\t\tconst size_t primNodeSize = headers[i].m_geomType & 1 ? triangleNodeSize : sizeof( CustomNode );
+
+\t\tgeometriesOut[i] = reinterpret_cast<hiprtGeometry>( buffer );
+\t\tMemoryArena storageMemoryArena( geometriesOut[i], sizes[i], DefaultAlignment );
+\t\tstorageMemoryArena.allocate<GeomHeader>();
+\t\tvoid* boxNodes  = storageMemoryArena.allocate<uint8_t>( boxNodeSize * headers[i].m_boxNodeCount );
+\t\tvoid* primNodes = storageMemoryArena.allocate<uint8_t>( primNodeSize * headers[i].m_primNodeCount );
+
+\t\tcheckOro( oroMemcpyDtoDAsync(
+\t\t\treinterpret_cast<oroDeviceptr>( boxNodes ),
+\t\t\treinterpret_cast<oroDeviceptr>( headers[i].m_boxNodes ),
+\t\t\tboxNodeSize * headers[i].m_boxNodeCount,
+\t\t\tstream ) );
+
+\t\tcheckOro( oroMemcpyDtoDAsync(
+\t\t\treinterpret_cast<oroDeviceptr>( primNodes ),
+\t\t\treinterpret_cast<oroDeviceptr>( headers[i].m_primNodes ),
+\t\t\tprimNodeSize * headers[i].m_primNodeCount,
+\t\t\tstream ) );
+
+\t\theaders[i].m_boxNodes  = boxNodes;
+\t\theaders[i].m_primNodes = primNodes;
+\t\theaders[i].m_size      = sizes[i];
+\t\tcheckOro(
+\t\t\toroMemcpyHtoDAsync( reinterpret_cast<oroDeviceptr>( geometriesOut[i] ), &headers[i], sizeof( GeomHeader ), stream ) );
+
+\t\tbuffer = static_cast<uint8_t*>( buffer ) + sizes[i];
+\t}
+
+\t{
+\t\tstd::lock_guard<std::mutex> lockMutex( m_poolMutex );
+\t\tm_poolHeads[{ reinterpret_cast<oroDeviceptr>( geometriesOut.front() ), size }] =
+\t\t\tstatic_cast<uint32_t>( geometriesOut.size() );
+\t}
+
+\tcheckOro( oroStreamSynchronize( stream ) );
+\tdestroyGeometries( geometriesIn );
+
+\treturn geometriesOut;
+}"
+    _hiprt_context_cpp "${_hiprt_context_cpp}")
+if(_hiprt_context_cpp STREQUAL _hiprt_context_cpp_orig)
+    message(FATAL_ERROR "[HIPRT from source] Failed to patch Context.cpp overlay.")
+endif()
+_hiprt_write_overlay_if_changed("${_hiprt_generated_dir}/hiprt/impl/Context.cpp" "${_hiprt_context_cpp}")
+
+# Fix BatchBuilderKernels.h bugs:
+# 1. taskQueue is uint3*, so taskQueue + 1 * blockDim.x advances 3 * blockDim.x uint32s
+#    and overflows __shared__ BatchBuildCacheSize when blockDim.x == 512.
+# 2. Collapse() contains __syncthreads(); round up the loop limit so all block threads
+#    participate uniformly across every barrier iteration.
+file(READ "${HIPRT_SOURCE_DIR}/hiprt/impl/BatchBuilderKernels.h" _hiprt_batch_builder_kernels_h)
+string(REPLACE "\r\n" "\n" _hiprt_batch_builder_kernels_h "${_hiprt_batch_builder_kernels_h}")
+set(_hiprt_batch_builder_kernels_h_before_sort "${_hiprt_batch_builder_kernels_h}")
+string(REPLACE
+"\tuint32_t* mortonCodeKeys   = reinterpret_cast<uint32_t*>( taskQueue + 0 * blockDim.x );
+\tuint32_t* mortonCodeValues = reinterpret_cast<uint32_t*>( taskQueue + 1 * blockDim.x );"
+"\tuint32_t* mortonCodeKeys   = reinterpret_cast<uint32_t*>( taskQueue );
+\tuint32_t* mortonCodeValues = mortonCodeKeys + blockDim.x;"
+    _hiprt_batch_builder_kernels_h "${_hiprt_batch_builder_kernels_h}")
+if(_hiprt_batch_builder_kernels_h STREQUAL _hiprt_batch_builder_kernels_h_before_sort)
+    message(FATAL_ERROR "[HIPRT from source] Failed to patch BatchBuilderKernels.h mortonCodeValues offset.")
+endif()
+set(_hiprt_batch_builder_kernels_h_before_collapse "${_hiprt_batch_builder_kernels_h}")
+string(REPLACE
+"\tfor ( uint32_t i = index; i < BranchingFactor * maxBoxNodeCount; i += blockDim.x )
+\t{
+\t\tCollapse<PrimitiveNode>(
+\t\t\ti, maxBoxNodeCount, primCount, header, scratchNodes, references, boxNodes, taskQueue, referenceIndices );
+\t\t__syncthreads();
+\t}"
+"\tconst uint32_t collapseLimit = RoundUp( BranchingFactor * maxBoxNodeCount, static_cast<uint32_t>( blockDim.x ) );
+\tfor ( uint32_t i = index; i < collapseLimit; i += blockDim.x )
+\t{
+\t\tCollapse<PrimitiveNode>(
+\t\t\ti, maxBoxNodeCount, primCount, header, scratchNodes, references, boxNodes, taskQueue, referenceIndices );
+\t\t__syncthreads();
+\t}"
+    _hiprt_batch_builder_kernels_h "${_hiprt_batch_builder_kernels_h}")
+if(_hiprt_batch_builder_kernels_h STREQUAL _hiprt_batch_builder_kernels_h_before_collapse)
+    message(FATAL_ERROR "[HIPRT from source] Failed to patch BatchBuilderKernels.h Collapse barrier loop.")
+endif()
+_hiprt_write_overlay_if_changed("${_hiprt_generated_dir}/hiprt/impl/BatchBuilderKernels.h" "${_hiprt_batch_builder_kernels_h}")
 
 # 4. Determine GPU architectures for bitcode compilation
 # ---------------------------------------------------------------------------
@@ -199,6 +458,7 @@ add_custom_command(
         -DHIPRT_BITCODE_LINKING ${_hiprt_os_define}
         -o "${_hiprt_hipfb_file}"
     DEPENDS ${_hiprt_kernel_dependencies}
+            "${_hiprt_generated_dir}/hiprt/impl/BatchBuilderKernels.h"
     WORKING_DIRECTORY "${HIPRT_SOURCE_DIR}"
     COMMENT "[HIPRT] Compiling fat binary: ${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd.hipfb"
     VERBATIM)
@@ -232,8 +492,12 @@ file(GLOB_RECURSE _hiprt_sources
     "${HIPRT_SOURCE_DIR}/hiprt/*.cpp"
     "${HIPRT_SOURCE_DIR}/hiprt/*.inl")
 list(FILTER _hiprt_sources EXCLUDE REGEX "hiprt/bitcodes/.*")
+list(FILTER _hiprt_sources EXCLUDE REGEX "hiprt/impl/(BatchBuilder|Context)\\.cpp$")
 # Exclude .h.in templates
 list(FILTER _hiprt_sources EXCLUDE REGEX "\\.h\\.in$")
+list(APPEND _hiprt_sources
+    "${_hiprt_generated_dir}/hiprt/impl/BatchBuilder.cpp"
+    "${_hiprt_generated_dir}/hiprt/impl/Context.cpp")
 
 file(GLOB_RECURSE _orochi_sources
     "${HIPRT_SOURCE_DIR}/contrib/Orochi/Orochi/*.h"

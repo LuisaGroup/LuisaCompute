@@ -11,6 +11,7 @@
 #include <hiprt/hiprt.h>
 
 #include <luisa/core/spin_mutex.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/runtime/rtx/mesh.h>
 
 #include "hip_geometry.h"
@@ -73,9 +74,12 @@ private:
     void _destroy_geometry_no_lock(hiprtContext ctx) noexcept;
 
 public:
-    explicit HIPMesh(hiprtContext ctx, const AccelOption &option) noexcept;
+    HIPMesh(hiprtContext ctx, const AccelOption &option) noexcept;
     ~HIPMesh() noexcept;
     void build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexcept;
+    static void build_batch(
+        HIPCommandEncoder &encoder,
+        luisa::span<MeshBuildCommand *const> commands) noexcept;
     void replace_geometry_from_archive(
         hiprtContext ctx,
         hipStream_t stream,

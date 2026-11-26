@@ -66,7 +66,7 @@ static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP lowering or final-compilation contract changes in
 // a way that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 93u;
+static constexpr auto hip_shader_cache_codegen_revision = 94u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -1482,8 +1482,8 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
         luisa::string packaged_code;
         if (uses_shader_cache) {
             auto code_object = with_device([&] {
-                return hip_link_llvm_bitcode(
-                    codegen_result.code, kernel_entry.c_str());
+                return hip_link_compiled_code(
+                    codegen_result.code, kernel_entry.c_str(), _amdgpu_arch);
             });
             packaged_code.assign(
                 reinterpret_cast<const char *>(

@@ -17,6 +17,9 @@ private:
     HIPStream *_stream;
     luisa::vector<HIPCallbackContext *> _callbacks;
     luisa::vector<HIPStream::DeferredDownloadCopy> _deferred_downloads;
+    luisa::vector<MeshBuildCommand *> _pending_mesh_builds;
+
+    void _flush_pending_mesh_builds() noexcept;
 
 public:
     explicit HIPCommandEncoder(HIPStream *stream) noexcept

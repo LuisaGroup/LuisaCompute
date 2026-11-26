@@ -16,11 +16,13 @@
 #include "../../common/llvm_target_options.h"
 #include <llvm/IR/PassInstrumentation.h>
 #include <llvm/IR/Dominators.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Linker/Linker.h>
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/raw_ostream.h>
@@ -163,9 +165,6 @@ HIPCodegenLLVMImpl::HIPCodegenLLVMImpl(HIPCodegenLLVMConfig config) noexcept
                  "HIP kernel entry point must not be empty.");
     LUISA_ASSERT(_config.block_size[0] > 0u && _config.block_size[1] > 0u && _config.block_size[2] > 0u,
                  "Block size must be constant and greater than zero for now.");
-    Clock clk;
-    _initialize();
-    LUISA_VERBOSE_WITH_LOCATION("HIP LLVM codegen initialized in {} ms.", clk.toc());
 }
 
 void HIPCodegenLLVMImpl::_collect_print_info(
@@ -327,6 +326,48 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
         LLVMInitializeAMDGPUTargetMC();
         LLVMInitializeAMDGPUAsmPrinter();
         LLVMInitializeAMDGPUAsmParser();
+
+        auto &cl_opts = llvm::cl::getRegisteredOptions();
+        auto apply_cl_option = [&](const char *name, const char *value) noexcept {
+            auto it = cl_opts.find(name);
+            if (it == cl_opts.end()) {
+                LUISA_WARNING("HIP LLVM backend option '{}' not found.", name);
+                return false;
+            }
+            const auto failed = it->second->addOccurrence(
+                1u, llvm::StringRef{name}, llvm::StringRef{value});
+            LUISA_ASSERT(!failed,
+                         "Failed to apply HIP LLVM option '{}={}'.",
+                         name, value);
+            return true;
+        };
+        auto resolve_override = [](const char *env_name,
+                                   const char *default_value) noexcept -> const char * {
+            if (auto env = std::getenv(env_name); env != nullptr && *env != '\0') {
+                using namespace std::string_view_literals;
+                auto sv = std::string_view{env};
+                if (sv == "0"sv || sv == "default"sv) {
+                    return nullptr;
+                }
+                return env;
+            }
+            return default_value;
+        };
+        if (auto v = resolve_override("LUISA_HIP_COALESCE_SIZE_THRESHOLD", "20")) {
+            if (apply_cl_option("large-interval-size-threshold", v)) {
+                LUISA_INFO("HIP LLVM applied cl option: -large-interval-size-threshold={}", v);
+            }
+        }
+        if (auto v = resolve_override("LUISA_HIP_COALESCE_FREQ_THRESHOLD", "10")) {
+            if (apply_cl_option("large-interval-freq-threshold", v)) {
+                LUISA_INFO("HIP LLVM applied cl option: -large-interval-freq-threshold={}", v);
+            }
+        }
+        if (auto v = resolve_override("LUISA_HIP_INLINE_MAX_BB", nullptr)) {
+            if (apply_cl_option("amdgpu-inline-max-bb", v)) {
+                LUISA_INFO("HIP LLVM applied cl option: -amdgpu-inline-max-bb={}", v);
+            }
+        }
     });
 
     static auto target = [] {
@@ -425,37 +466,21 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
     auto features = _config.wave_size == 64 ?
                         llvm::StringRef{"+wavefrontsize64"} :
                         llvm::StringRef{"+wavefrontsize32"};
-    _target_machine = target->createTargetMachine(
+    _target_machine.reset(target->createTargetMachine(
         llvm::Triple{amdgpu_target_triple}, cpu_name, features,
-        options, llvm::Reloc::Static, llvm::CodeModel::Small, opt_level);
+        options, llvm::Reloc::PIC_, llvm::CodeModel::Small, opt_level));
+    LUISA_ASSERT(_target_machine != nullptr,
+                 "Failed to create AMDGPU TargetMachine for '{}'.",
+                 _config.amdgpu_arch);
 
     _data_layout = std::make_unique<llvm::DataLayout>(_target_machine->createDataLayout());
 
-    // parse OCML bitcode as the starting module (like CUDA's libdevice)
-    _llvm_module = [&] {
-        llvm::SMDiagnostic error;
-        llvm::StringRef bc{reinterpret_cast<const char *>(luisa_compute_hip_ocml),
-                           luisa_compute_hip_ocml_size};
-        if (auto m = llvm::parseIR({bc, "ocml.bc"}, error, _llvm_context)) {
-            llvm::StripDebugInfo(*m);
-            return m;
-        }
-        LUISA_ERROR_WITH_LOCATION("Failed to parse OCML bitcode: {}", error.getMessage());
-    }();
-
-    // set target triple and data layout
+    // Start from an empty module; OCML/OCKL device libraries are linked lazily
+    // only when referenced by generated code.
+    _llvm_module = std::make_unique<llvm::Module>("luisa_hip_module", _llvm_context);
     _llvm_module->setTargetTriple(llvm::Triple{amdgpu_target_triple});
     _llvm_module->setDataLayout(*_data_layout);
-
-    // internalize all OCML functions
-    for (auto &&f : *_llvm_module) {
-        if (f.getName().starts_with("__ocml_")) {
-            f.setLinkage(llvm::Function::PrivateLinkage);
-            f.removeFnAttr(llvm::Attribute::StackProtect);
-        }
-    }
-
-    _specialize_oclc_options();
+    _llvm_module->setPICLevel(llvm::PICLevel::BigPIC);
 
     _llvm_buffer_type = _get_llvm_buffer_type();
     _llvm_texture_type = _get_llvm_texture_type();
@@ -681,6 +706,53 @@ void HIPCodegenLLVMImpl::_link_native_include() noexcept {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to link HIP native include into the generated LLVM module.");
     }
+}
+
+void HIPCodegenLLVMImpl::_link_ocml_if_needed() noexcept {
+    auto needs_ocml = false;
+    for (auto &f : *_llvm_module) {
+        if (f.isDeclaration() && !f.use_empty() &&
+            f.getName().starts_with("__ocml_")) {
+            needs_ocml = true;
+            break;
+        }
+    }
+    if (!needs_ocml) { return; }
+
+    Clock clk;
+    llvm::StringRef bc{
+        reinterpret_cast<const char *>(luisa_compute_hip_ocml),
+        static_cast<size_t>(luisa_compute_hip_ocml_size)};
+    auto mem_buf = llvm::MemoryBuffer::getMemBuffer(bc, "ocml.bc", false);
+    auto ocml_module = llvm::getOwningLazyBitcodeModule(
+        std::move(mem_buf), _llvm_context, /*ShouldLazyLoadMetadata=*/true);
+    if (!ocml_module) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to lazily parse AMD OCML bitcode: {}.",
+            llvm::toString(ocml_module.takeError()));
+    }
+    (*ocml_module)->setTargetTriple(llvm::Triple{amdgpu_target_triple});
+    (*ocml_module)->setDataLayout(*_data_layout);
+    if (llvm::Linker::linkModules(
+            *_llvm_module, std::move(*ocml_module),
+            llvm::Linker::Flags::LinkOnlyNeeded)) {
+        LUISA_ERROR_WITH_LOCATION("Failed to link AMD OCML bitcode.");
+    }
+    if (!_config.enable_debug_info) {
+        llvm::StripDebugInfo(*_llvm_module);
+    }
+    for (auto &f : *_llvm_module) {
+        if (f.getName().starts_with("__ocml_")) {
+            LUISA_ASSERT(!f.isDeclaration() || f.use_empty(),
+                         "Unresolved AMD OCML function '{}'.", f.getName().str());
+            if (!f.isDeclaration()) {
+                f.setLinkage(llvm::Function::PrivateLinkage);
+                f.removeFnAttr(llvm::Attribute::StackProtect);
+            }
+        }
+    }
+    _specialize_oclc_options();
+    LUISA_VERBOSE("Lazily linked AMD OCML bitcode in {} ms.", clk.toc());
 }
 
 void HIPCodegenLLVMImpl::_link_ockl_if_needed() noexcept {
@@ -1187,7 +1259,7 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     configure_hip_cgscc_canonicalization_inlining(PTO);
     llvm::PassInstrumentationCallbacks instrumentation;
     auto PB = luisa::compute::detail::make_llvm_pass_builder(
-        _llvm_module->getContext(), _target_machine, PTO, luisa::nullopt,
+        _llvm_module->getContext(), _target_machine.get(), PTO, luisa::nullopt,
         &instrumentation);
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
@@ -1297,46 +1369,94 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     }
 }
 
-luisa::string HIPCodegenLLVMImpl::_generate_code() const noexcept {
-    std::string code;
-    llvm::raw_string_ostream os{code};
-    llvm::WriteBitcodeToFile(*_llvm_module, os);
-    os.flush();
-    // Keep an exact copy of the binary module consumed by HIPRTC available
-    // for offline ISA experiments. The existing LUISA_DUMP_LLVM_IR files are
-    // diagnostic text and are not guaranteed to round-trip through llvm-as.
-    if (auto dump_dir = std::getenv("LUISA_DUMP_LLVM_BITCODE");
-        dump_dir != nullptr && *dump_dir != '\0') {
-        static std::atomic<uint32_t> dump_counter{0u};
-        auto dump_idx = dump_counter.fetch_add(1u);
-        auto path = fmt::format(
-            "{}/hip_kernel_{}.bc", dump_dir, dump_idx);
-        std::error_code ec;
-        llvm::raw_fd_ostream out{path, ec, llvm::sys::fs::OF_None};
-        if (ec) {
-            LUISA_WARNING_WITH_LOCATION(
-                "Failed to open binary LLVM bitcode dump '{}': {}.",
-                path, ec.message());
-        } else {
-            out.write(code.data(), code.size());
-            out.flush();
-            if (out.has_error()) {
+luisa::string HIPCodegenLLVMImpl::_generate_code() noexcept {
+    static auto use_hiprtc_codegen = [] {
+        using namespace std::string_view_literals;
+        auto env = std::getenv("LUISA_HIP_USE_HIPRTC_CODEGEN");
+        return env != nullptr && env == "1"sv;
+    }();
+    auto dump_dir = std::getenv("LUISA_DUMP_LLVM_BITCODE");
+    auto should_dump_bitcode = dump_dir != nullptr && *dump_dir != '\0';
+    if (use_hiprtc_codegen || should_dump_bitcode) {
+        std::string code;
+        llvm::raw_string_ostream os{code};
+        llvm::WriteBitcodeToFile(*_llvm_module, os);
+        os.flush();
+        // Keep an exact copy of the binary module consumed by HIPRTC available
+        // for offline ISA experiments. The existing LUISA_DUMP_LLVM_IR files are
+        // diagnostic text and are not guaranteed to round-trip through llvm-as.
+        if (should_dump_bitcode) {
+            static std::atomic<uint32_t> dump_counter{0u};
+            auto dump_idx = dump_counter.fetch_add(1u);
+            auto path = fmt::format(
+                "{}/hip_kernel_{}.bc", dump_dir, dump_idx);
+            std::error_code ec;
+            llvm::raw_fd_ostream out{path, ec, llvm::sys::fs::OF_None};
+            if (ec) {
                 LUISA_WARNING_WITH_LOCATION(
-                    "Failed to write binary LLVM bitcode dump '{}': {}.",
-                    path, out.error().message());
-                out.clear_error();
+                    "Failed to open binary LLVM bitcode dump '{}': {}.",
+                    path, ec.message());
             } else {
-                LUISA_INFO(
-                    "Dumped binary LLVM bitcode ({} bytes) to: {}",
-                    code.size(), path);
+                out.write(code.data(), code.size());
+                out.flush();
+                if (out.has_error()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Failed to write binary LLVM bitcode dump '{}': {}.",
+                        path, out.error().message());
+                    out.clear_error();
+                } else {
+                    LUISA_INFO(
+                        "Dumped binary LLVM bitcode ({} bytes) to: {}",
+                        code.size(), path);
+                }
             }
         }
+        if (use_hiprtc_codegen) {
+            _generated_relocatable_object = false;
+            return luisa::string{code};
+        }
     }
-    return luisa::string{code};
+
+    // Internalize all non-kernel defined symbols (matching comgr's
+    // -amdgpu-internalize-symbols) before direct AMDGPU object codegen.
+    for (auto &gv : _llvm_module->globals()) {
+        if (!gv.isDeclaration() &&
+            !gv.hasAppendingLinkage() &&
+            !gv.hasLocalLinkage() &&
+            gv.getName() != "llvm.used" &&
+            gv.getName() != "llvm.compiler.used") {
+            gv.setLinkage(llvm::GlobalValue::InternalLinkage);
+        }
+    }
+    for (auto &f : *_llvm_module) {
+        if (!f.isDeclaration() &&
+            !f.hasLocalLinkage() &&
+            f.getCallingConv() != llvm::CallingConv::AMDGPU_KERNEL) {
+            f.setLinkage(llvm::GlobalValue::InternalLinkage);
+        }
+    }
+
+    Clock emit_clk;
+    llvm::SmallVector<char, 0> obj_buffer;
+    llvm::raw_svector_ostream obj_stream{obj_buffer};
+    llvm::legacy::PassManager codegen_pm;
+    llvm::TargetLibraryInfoImpl tlii{llvm::Triple{amdgpu_target_triple}};
+    codegen_pm.add(new llvm::TargetLibraryInfoWrapperPass(tlii));
+    auto failed = _target_machine->addPassesToEmitFile(
+        codegen_pm, obj_stream, nullptr, llvm::CodeGenFileType::ObjectFile);
+    LUISA_ASSERT(!failed, "AMDGPU TargetMachine does not support object file emission.");
+    codegen_pm.run(*_llvm_module);
+    LUISA_ASSERT(!obj_buffer.empty(), "AMDGPU object emission produced an empty ELF.");
+    LUISA_INFO_WITH_LOCATION(
+        "Emitted AMDGPU relocatable object ({} bytes) in {} ms.",
+        obj_buffer.size(), emit_clk.toc());
+    _generated_relocatable_object = true;
+    return luisa::string{obj_buffer.data(), obj_buffer.size()};
 }
 
 luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
     Clock clk;
+    _generated_relocatable_object = false;
     _rt_analysis = {};
     _uses_iterative_synchronous_ray_query_pipeline = false;
     _uses_resumable_hardware_ray_query_pipeline = false;
@@ -1454,6 +1574,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     }
     _link_ockl_if_needed();
     _postprocess_rt_kernel();
+    _link_ocml_if_needed();
 
     if (llvm::verifyModule(*_llvm_module, &llvm::errs())) {
         _dump_module("debug_bad_module.ll");
@@ -1481,7 +1602,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     // only self-references whose complete constant-offset access relation has
     // no overlapping read, then expose the non-escaping aggregate to SROA.
     const auto private_memory_stats =
-        optimize_hip_private_memory(*_llvm_module, _target_machine);
+        optimize_hip_private_memory(*_llvm_module, _target_machine.get());
     if (private_memory_stats.eliminated_self_reference_stores != 0u) {
         LUISA_VERBOSE(
             "Eliminated {} dead HIP private self-reference store(s) across "

@@ -1,12 +1,28 @@
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/core/clock.h>
+#include <luisa/core/stl/filesystem.h>
 #include <hip/hiprtc.h>
 #include <hiprt/hiprt.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <limits>
 #include <mutex>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+#ifdef LUISA_COMPUTE_HIP_ENABLE_LLD
+#pragma push_macro("NO_ERROR")
+#undef NO_ERROR
+#include <lld/Common/Driver.h>
+#include <llvm/Support/raw_ostream.h>
+#pragma pop_macro("NO_ERROR")
+LLD_HAS_DRIVER(elf)
+#endif
 #include "hip_device.h"
 #include "hip_buffer.h"
 #include "hip_texture.h"
@@ -92,6 +108,19 @@ public:
             hiprtcGetErrorString(result));
     }
 
+    void add_relocatable_object(
+        luisa::string_view object_bytes,
+        const char *entry) noexcept {
+        auto result = hiprtcLinkAddData(
+            _state, hipJitInputObject,
+            const_cast<char *>(object_bytes.data()),
+            object_bytes.size(), entry, 0, nullptr, nullptr);
+        LUISA_ASSERT(
+            result == hiprtcResult::HIPRTC_SUCCESS,
+            "Failed to add relocatable object to hiprtc linker: {}.",
+            hiprtcGetErrorString(result));
+    }
+
     [[nodiscard]] luisa::vector<std::byte>
     complete() noexcept {
         void *linked_binary = nullptr;
@@ -128,6 +157,128 @@ luisa::vector<std::byte> hip_link_llvm_bitcode(
         "({} bytes) in {} ms.",
         code_object.size(), clock.toc());
     return code_object;
+}
+
+luisa::vector<std::byte> hip_link_relocatable_object(
+    luisa::string_view object_bytes, const char *entry,
+    luisa::string_view amdgpu_arch) noexcept {
+    LUISA_ASSERT(!object_bytes.empty(), "Cannot link an empty relocatable object.");
+#ifdef LUISA_COMPUTE_HIP_ENABLE_LLD
+    static auto disable_lld = [] {
+        using namespace std::string_view_literals;
+        auto env = std::getenv("LUISA_HIP_DISABLE_LLD");
+        return env != nullptr && env == "1"sv;
+    }();
+    if (!disable_lld) {
+        static std::mutex lld_mutex;
+        static bool lld_usable = true;
+        static std::atomic<uint64_t> temp_counter{0u};
+        std::scoped_lock lock{lld_mutex};
+        if (lld_usable) {
+            Clock clock;
+            std::error_code ec;
+            auto tmp_dir = luisa::filesystem::temp_directory_path(ec);
+            if (!ec && !tmp_dir.empty()) {
+#ifdef _WIN32
+                auto pid = static_cast<uint64_t>(_getpid());
+#else
+                auto pid = static_cast<uint64_t>(getpid());
+#endif
+                auto seq = temp_counter.fetch_add(1u, std::memory_order_relaxed);
+                auto obj_path = tmp_dir / fmt::format("luisa_hip_{}_{}.o", pid, seq);
+                auto co_path = tmp_dir / fmt::format("luisa_hip_{}_{}.co", pid, seq);
+                struct TempFileCleanup {
+                    const luisa::filesystem::path &a;
+                    const luisa::filesystem::path &b;
+                    ~TempFileCleanup() noexcept {
+                        std::error_code rm_ec;
+                        luisa::filesystem::remove(a, rm_ec);
+                        luisa::filesystem::remove(b, rm_ec);
+                    }
+                } cleanup{obj_path, co_path};
+                auto obj_path_str = obj_path.string();
+                auto co_path_str = co_path.string();
+                auto obj_written = false;
+                {
+                    std::ofstream ofs{obj_path, std::ios::binary | std::ios::trunc};
+                    if (ofs.good()) {
+                        ofs.write(object_bytes.data(), static_cast<std::streamsize>(object_bytes.size()));
+                        ofs.flush();
+                        obj_written = ofs.good();
+                    }
+                }
+                if (obj_written) {
+                    auto plugin_opt = fmt::format("-plugin-opt=mcpu={}", amdgpu_arch);
+                    std::string out_str;
+                    std::string err_str;
+                    llvm::raw_string_ostream out_os{out_str};
+                    llvm::raw_string_ostream err_os{err_str};
+                    const char *args[] = {
+                        "ld.lld",
+                        "--no-undefined",
+                        "-shared",
+                        plugin_opt.c_str(),
+                        obj_path_str.c_str(),
+                        "-o",
+                        co_path_str.c_str()};
+                    auto result = lld::lldMain(
+                        args, out_os, err_os, {{lld::Gnu, &lld::elf::link}});
+                    out_os.flush();
+                    err_os.flush();
+                    lld_usable = result.canRunAgain;
+                    if (result.retCode == 0) {
+                        std::ifstream ifs{co_path, std::ios::binary | std::ios::ate};
+                        auto file_size = ifs.tellg();
+                        if (ifs.good() && file_size > 0) {
+                            luisa::vector<std::byte> code_object(static_cast<size_t>(file_size));
+                            ifs.seekg(0, std::ios::beg);
+                            ifs.read(reinterpret_cast<char *>(code_object.data()), file_size);
+                            if (ifs.good()) {
+                                LUISA_INFO(
+                                    "Linked HIP relocatable object via LLD to AMDGPU code object "
+                                    "({} bytes) in {} ms.",
+                                    code_object.size(), clock.toc());
+                                return code_object;
+                            }
+                        }
+                    }
+                    LUISA_WARNING(
+                        "Direct LLD link of HIP relocatable object failed (rc={}, canRunAgain={}): {}. "
+                        "Falling back to HIPRTC object linking.",
+                        result.retCode, result.canRunAgain, err_str);
+                }
+            }
+        }
+    }
+#endif
+    static std::mutex obj_linker_mutex;
+    std::scoped_lock lock{obj_linker_mutex};
+    Clock clock;
+    HIPRTCLinkState linker;
+    linker.add_relocatable_object(object_bytes, entry);
+    auto code_object = linker.complete();
+    LUISA_INFO(
+        "Linked HIP relocatable object via HIPRTC to AMDGPU code object "
+        "({} bytes) in {} ms.",
+        code_object.size(), clock.toc());
+    return code_object;
+}
+
+luisa::vector<std::byte> hip_link_compiled_code(
+    luisa::string_view code, const char *entry,
+    luisa::string_view amdgpu_arch) noexcept {
+    if (code.size() >= 18u &&
+        std::memcmp(code.data(), "\x7f" "ELF", 4u) == 0) {
+        const auto e_type =
+            static_cast<uint16_t>(static_cast<uint8_t>(code[16])) |
+            (static_cast<uint16_t>(static_cast<uint8_t>(code[17])) << 8u);
+        if (e_type == 3u) {// ET_DYN: already linked HSACO code object
+            auto bytes = reinterpret_cast<const std::byte *>(code.data());
+            return luisa::vector<std::byte>{bytes, bytes + code.size()};
+        }
+        return hip_link_relocatable_object(code, entry, amdgpu_arch);
+    }
+    return hip_link_llvm_bitcode(code, entry);
 }
 
 void HIPShaderNative::_load_code_object(
@@ -185,7 +336,7 @@ HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
       _requires_global_rt_stack{false},
       _uses_static_global_rt_stack{false} {
     auto code_object =
-        hip_link_llvm_bitcode(code, entry);
+        hip_link_compiled_code(code, entry, _device->amdgpu_arch());
     _load_code_object(
         code_object, metadata, false);
 }
@@ -208,7 +359,7 @@ HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
 
     LUISA_ASSERT(hiprt_ctx != nullptr, "HIPRT context is null for ray-tracing shader.");
     auto code_object =
-        hip_link_llvm_bitcode(code, entry);
+        hip_link_compiled_code(code, entry, _device->amdgpu_arch());
     _load_code_object(
         code_object, metadata, true);
 }

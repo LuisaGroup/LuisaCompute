@@ -17,9 +17,10 @@ llvm::Value *emit_hip_floating_remainder(
                  "HIP floating remainder requires matching f16/f32/f64 operands.");
     auto name = scalar_type->isHalfTy() ? "__ocml_fmod_f16" :
                 scalar_type->isFloatTy() ? "__ocml_fmod_f32" : "__ocml_fmod_f64";
-    auto function = module.getFunction(name);
     auto signature = llvm::FunctionType::get(
         scalar_type, {scalar_type, scalar_type}, false);
+    auto callee = module.getOrInsertFunction(name, signature);
+    auto *function = llvm::dyn_cast<llvm::Function>(callee.getCallee());
     LUISA_ASSERT(function != nullptr && function->getFunctionType() == signature,
                  "HIP native remainder '{}' is absent or has an incompatible ABI.", name);
 

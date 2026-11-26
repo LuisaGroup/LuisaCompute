@@ -666,9 +666,13 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
             // entry points are f32/f64 only, as noted above).
             auto suffix = scalar_type->isDoubleTy() ? "_f64" : "_f32";
             auto ocml_name = fmt::format("__ocml_ldexp{}", suffix);
-            auto callee = _llvm_module->getFunction(ocml_name);
-            LUISA_ASSERT(callee != nullptr,
-                         "OCML function {} not found.", ocml_name);
+            auto fp_arg_type = scalar_type->isDoubleTy() ? b.getDoubleTy() : b.getFloatTy();
+            auto ocml_signature = llvm::FunctionType::get(
+                fp_arg_type, {fp_arg_type, i32_type}, false);
+            auto *callee = llvm::dyn_cast<llvm::Function>(
+                _llvm_module->getOrInsertFunction(ocml_name, ocml_signature).getCallee());
+            LUISA_ASSERT(callee != nullptr && callee->getFunctionType() == ocml_signature,
+                         "OCML function {} has an incompatible ABI.", ocml_name);
             auto should_cast_to_float =
                 !scalar_type->isFloatTy() && !scalar_type->isDoubleTy();
             auto call_scalar = [&](llvm::Value *x, llvm::Value *n) noexcept {
@@ -1222,14 +1226,23 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_extract(IB &b, FunctionContext &func
 namespace detail {
 
 [[nodiscard]] llvm::Function *find_ocml_function(llvm::Module &m, llvm::StringRef op_name,
-                                                  llvm::Type *t, bool enable_fast_math) noexcept {
+                                                  llvm::Type *ret_type,
+                                                  llvm::ArrayRef<llvm::Type *> arg_types,
+                                                  bool enable_fast_math) noexcept {
     // Callers widen every non-f32/non-f64 operand to float before invoking
     // the returned function. Choose the signature after that conversion,
     // rather than passing an f32 argument to an _f16 declaration.
-    auto suffix = t->isDoubleTy() ? "_f64" : "_f32";
+    static_cast<void>(enable_fast_math);
+    auto suffix = ret_type->isDoubleTy() ? "_f64" : "_f32";
+    auto canonical_fp = ret_type->isDoubleTy() ?
+                            llvm::Type::getDoubleTy(m.getContext()) :
+                            llvm::Type::getFloatTy(m.getContext());
     auto ocml_name = fmt::format("__ocml_{}{}", luisa::string_view{op_name}, suffix);
-    auto op = m.getFunction(ocml_name);
-    LUISA_ASSERT(op != nullptr, "OCML function {} not found.", ocml_name);
+    auto fn_type = llvm::FunctionType::get(canonical_fp, arg_types, false);
+    auto *op = llvm::dyn_cast<llvm::Function>(
+        m.getOrInsertFunction(ocml_name, fn_type).getCallee());
+    LUISA_ASSERT(op != nullptr && op->getFunctionType() == fn_type,
+                 "OCML function {} has an incompatible ABI.", ocml_name);
     return op;
 }
 
@@ -1484,7 +1497,10 @@ namespace detail {
 
 llvm::Value *HIPCodegenLLVMImpl::_call_ocml_unary_op(IB &b, llvm::StringRef op_name, llvm::Value *llvm_value) const noexcept {
     auto llvm_scalar_t = llvm_value->getType()->getScalarType();
-    auto op = detail::find_ocml_function(*_llvm_module, op_name, llvm_scalar_t, _config.enable_fast_math);
+    auto fp_type = llvm_scalar_t->isDoubleTy() ?
+                       llvm::Type::getDoubleTy(b.getContext()) :
+                       llvm::Type::getFloatTy(b.getContext());
+    auto op = detail::find_ocml_function(*_llvm_module, op_name, llvm_scalar_t, {fp_type}, _config.enable_fast_math);
     auto should_cast_to_float = !llvm_scalar_t->isFloatTy() && !llvm_scalar_t->isDoubleTy();
     auto call_scalar = [&](llvm::Value *llvm_elem) noexcept {
         if (should_cast_to_float) { llvm_elem = _safe_fp_cast(b, llvm_elem, llvm::Type::getFloatTy(b.getContext())); }
@@ -1507,7 +1523,15 @@ llvm::Value *HIPCodegenLLVMImpl::_call_ocml_unary_op(IB &b, llvm::StringRef op_n
 llvm::Value *HIPCodegenLLVMImpl::_call_ocml_binary_op(IB &b, llvm::StringRef op_name, llvm::Value *llvm_lhs, llvm::Value *llvm_rhs) noexcept {
     auto llvm_lhs_scalar_t = llvm_lhs->getType()->getScalarType();
     auto llvm_rhs_scalar_t = llvm_rhs->getType()->getScalarType();
-    auto op = detail::find_ocml_function(*_llvm_module, op_name, llvm_lhs_scalar_t, _config.enable_fast_math);
+    auto lhs_fp_type = llvm_lhs_scalar_t->isDoubleTy() ?
+                           llvm::Type::getDoubleTy(b.getContext()) :
+                           llvm::Type::getFloatTy(b.getContext());
+    auto rhs_fp_type = llvm_rhs_scalar_t->isFloatingPointTy() ?
+                           (llvm_rhs_scalar_t->isDoubleTy() ?
+                                llvm::Type::getDoubleTy(b.getContext()) :
+                                llvm::Type::getFloatTy(b.getContext())) :
+                           llvm_rhs_scalar_t;
+    auto op = detail::find_ocml_function(*_llvm_module, op_name, llvm_lhs_scalar_t, {lhs_fp_type, rhs_fp_type}, _config.enable_fast_math);
     auto lhs_should_cast_to_float = llvm_lhs_scalar_t->isFloatingPointTy() && !llvm_lhs_scalar_t->isFloatTy() && !llvm_lhs_scalar_t->isDoubleTy();
     auto rhs_should_cast_to_float = llvm_rhs_scalar_t->isFloatingPointTy() && !llvm_rhs_scalar_t->isFloatTy() && !llvm_rhs_scalar_t->isDoubleTy();
     auto call_scalar = [&](llvm::Value *llvm_lhs_elem, llvm::Value *llvm_rhs_elem) noexcept {

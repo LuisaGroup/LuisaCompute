@@ -109,6 +109,9 @@ public:
     ~HIPStream() noexcept;
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _stream; }
+    [[nodiscard]] bool profiling_enabled() const noexcept {
+        return _profiling_enabled || _summary_profiling_enabled;
+    }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
     [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
     [[nodiscard]] size_t deferred_download_count_locked() const noexcept {

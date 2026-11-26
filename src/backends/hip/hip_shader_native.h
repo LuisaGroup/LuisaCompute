@@ -54,4 +54,12 @@ public:
 [[nodiscard]] luisa::vector<std::byte> hip_link_llvm_bitcode(
     luisa::string_view bitcode, const char *entry) noexcept;
 
+[[nodiscard]] luisa::vector<std::byte> hip_link_relocatable_object(
+    luisa::string_view object_bytes, const char *entry,
+    luisa::string_view amdgpu_arch) noexcept;
+
+[[nodiscard]] luisa::vector<std::byte> hip_link_compiled_code(
+    luisa::string_view code, const char *entry,
+    luisa::string_view amdgpu_arch) noexcept;
+
 }// namespace luisa::compute::hip

@@ -312,10 +312,11 @@ public:
 
 private:
     HIPCodegenLLVMConfig _config;
-    llvm::TargetMachine *_target_machine{nullptr};
+    std::unique_ptr<llvm::TargetMachine> _target_machine;
     std::unique_ptr<llvm::DataLayout> _data_layout;
     llvm::LLVMContext _llvm_context;
     std::unique_ptr<llvm::Module> _llvm_module;
+    bool _generated_relocatable_object{false};
     bool _supports_hardware_rt_stack{false};
     bool _uses_hardware_rt_stack{false};
     bool _uses_synchronous_ray_query_pipeline{false};
@@ -413,13 +414,14 @@ private:
         const xir::Function *function) const noexcept;
     void _link_native_include() noexcept;
     void _specialize_oclc_options() noexcept;
+    void _link_ocml_if_needed() noexcept;
     void _link_ockl_if_needed() noexcept;
     void _postprocess_rt_kernel() noexcept;
     [[nodiscard]] RayQueryPipelineProjectionInfo
     _finalize_ray_query_pipeline_contexts() noexcept;
     void _run_optimization_passes() noexcept;
     void _dump_module(const luisa::filesystem::path &path) const noexcept;
-    [[nodiscard]] luisa::string _generate_code() const noexcept;
+    [[nodiscard]] luisa::string _generate_code() noexcept;
 
     [[nodiscard]] static size_t _get_type_alignment(const Type *type) noexcept;
     void _collect_print_info(const xir::Module &xir_module) noexcept;
@@ -598,6 +600,9 @@ public:
     }
     [[nodiscard]] bool uses_static_global_rt_stack() const noexcept {
         return _uses_static_global_rt_stack;
+    }
+    [[nodiscard]] bool generated_relocatable_object() const noexcept {
+        return _generated_relocatable_object;
     }
     [[nodiscard]] const luisa::vector<const xir::Function *> &
     retry_with_resumable_ray_query_state_functions() const noexcept {

@@ -2,6 +2,7 @@
 // Created by mike on 1/9/26.
 //
 
+#include <cstdlib>
 #include <luisa/core/pool.h>
 
 #include "hip_check.h"
@@ -19,6 +20,19 @@
 #include "luisa/core/logging.h"
 
 namespace luisa::compute::hip {
+
+namespace {
+
+[[nodiscard]] bool hip_mesh_batch_disabled() noexcept {
+    static const bool disabled = [] {
+        using namespace std::string_view_literals;
+        auto env = std::getenv("LUISA_HIP_DISABLE_MESH_BATCH");
+        return env != nullptr && std::string_view{env} == "1"sv;
+    }();
+    return disabled;
+}
+
+}// namespace
 
 class UserCallbackContext : public HIPCallbackContext {
 
@@ -47,7 +61,22 @@ public:
     }
 };
 
+void HIPCommandEncoder::_flush_pending_mesh_builds() noexcept {
+    if (_pending_mesh_builds.empty()) {
+        return;
+    }
+    auto batch = std::move(_pending_mesh_builds);
+    _pending_mesh_builds.clear();
+    if (batch.size() == 1u) {
+        reinterpret_cast<HIPMesh *>(batch[0]->handle())->build(*this, batch[0]);
+    } else {
+        HIPMesh::build_batch(*this, batch);
+    }
+    _stream->mark_hiprt_build_submitted();
+}
+
 void HIPCommandEncoder::commit(CommandList::CallbackContainer &&user_callbacks) noexcept {
+    _flush_pending_mesh_builds();
     constexpr size_t max_deferred_download_batch = 32u;
     auto flushed_inline = false;
     if (!user_callbacks.empty() ||
@@ -78,6 +107,7 @@ void HIPCommandEncoder::commit(CommandList::CallbackContainer &&user_callbacks) 
 }
 
 void HIPCommandEncoder::visit(BufferUploadCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_DEBUG_ASSERT(command->handle() != invalid_resource_handle);
     auto buffer = reinterpret_cast<const HIPBuffer *>(command->handle());
     auto binding = buffer->binding(command->offset(), command->size());
@@ -94,6 +124,7 @@ void HIPCommandEncoder::visit(BufferUploadCommand *command) noexcept {
 }
 
 void HIPCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_DEBUG_ASSERT(command->handle() != invalid_resource_handle);
     auto buffer = reinterpret_cast<const HIPBuffer *>(command->handle());
     auto binding = buffer->binding(command->offset(), command->size());
@@ -115,6 +146,7 @@ void HIPCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
 }
 
 void HIPCommandEncoder::visit(BufferCopyCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_DEBUG_ASSERT(command->src_handle() != invalid_resource_handle);
     LUISA_DEBUG_ASSERT(command->dst_handle() != invalid_resource_handle);
     auto src_buffer = reinterpret_cast<const HIPBuffer *>(command->src_handle());
@@ -148,6 +180,7 @@ void memcpy_buffer_to_texture(HIPBuffer::Binding buffer,
 }// namespace
 
 void HIPCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_ASSERT(command->texture() != invalid_resource_handle);
     LUISA_ASSERT(command->buffer() != invalid_resource_handle);
     auto texture = reinterpret_cast<HIPTexture *>(command->texture());
@@ -160,10 +193,12 @@ void HIPCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
 }
 
 void HIPCommandEncoder::visit(ShaderDispatchCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     reinterpret_cast<HIPShader *>(command->handle())->launch(*this, command);
 }
 
 void HIPCommandEncoder::visit(TextureUploadCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_ASSERT(command->handle() != invalid_resource_handle);
     auto texture = reinterpret_cast<HIPTexture *>(command->handle());
     auto array = texture->level(command->level());
@@ -190,6 +225,7 @@ void HIPCommandEncoder::visit(TextureUploadCommand *command) noexcept {
 }
 
 void HIPCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_ASSERT(command->handle() != invalid_resource_handle);
     auto texture = reinterpret_cast<HIPTexture *>(command->handle());
     auto array = texture->level(command->level());
@@ -220,6 +256,7 @@ void HIPCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
 }
 
 void HIPCommandEncoder::visit(TextureCopyCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_ASSERT(command->src_handle() != invalid_resource_handle);
     LUISA_ASSERT(command->dst_handle() != invalid_resource_handle);
     auto src_texture = reinterpret_cast<HIPTexture *>(command->src_handle());
@@ -240,6 +277,7 @@ void HIPCommandEncoder::visit(TextureCopyCommand *command) noexcept {
 }
 
 void HIPCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     LUISA_ASSERT(command->texture() != invalid_resource_handle);
     LUISA_ASSERT(command->buffer() != invalid_resource_handle);
     auto texture = reinterpret_cast<HIPTexture *>(command->texture());
@@ -263,6 +301,7 @@ void HIPCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
 }
 
 void HIPCommandEncoder::visit(AccelBuildCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     auto accel = reinterpret_cast<HIPAccel *>(command->handle());
     accel->build(*this, command);
     if (!command->update_instance_buffer_only()) {
@@ -272,34 +311,52 @@ void HIPCommandEncoder::visit(AccelBuildCommand *command) noexcept {
 
 void HIPCommandEncoder::visit(MeshBuildCommand *command) noexcept {
     auto mesh = reinterpret_cast<HIPMesh *>(command->handle());
+    if (!_stream->profiling_enabled() &&
+        !mesh->option().motion.is_enabled() &&
+        !hip_mesh_batch_disabled()) {
+        for (const auto *queued : _pending_mesh_builds) {
+            if (queued->handle() == command->handle()) {
+                _flush_pending_mesh_builds();
+                break;
+            }
+        }
+        _pending_mesh_builds.emplace_back(command);
+        return;
+    }
+    _flush_pending_mesh_builds();
     mesh->build(*this, command);
     _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(CurveBuildCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     auto curve = reinterpret_cast<HIPCurve *>(command->handle());
     curve->build(*this, command);
     _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     auto prim = reinterpret_cast<HIPProceduralPrimitive *>(command->handle());
     prim->build(*this, command);
     _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(MotionInstanceBuildCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     auto instance = reinterpret_cast<HIPMotionInstance *>(command->handle());
     instance->build(*this, command);
     _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {
+    _flush_pending_mesh_builds();
     auto array = reinterpret_cast<HIPBindlessArray *>(command->handle());
     array->update(*this, command);
 }
 
 void HIPCommandEncoder::visit(CustomCommand *) noexcept {
+    _flush_pending_mesh_builds();
 }
 
 }// namespace luisa::compute::hip

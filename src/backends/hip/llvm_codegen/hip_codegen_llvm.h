@@ -93,6 +93,7 @@ struct HIPCodegenLLVMResult {
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
     bool requires_global_rt_stack{false};
     bool uses_static_global_rt_stack{false};
+    bool is_relocatable_object{false};
 };
 
 [[nodiscard]] HIPCodegenLLVMResult hip_codegen_llvm(
