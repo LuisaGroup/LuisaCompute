@@ -354,6 +354,7 @@ private:
     luisa::vector<bool> _refill_at;
     luisa::vector<bool> _collect_at;
     luisa::vector<bool> _is_terminal_continuation;
+    luisa::vector<luisa::vector<uint>> _continuation_targets;
     CoroFrameStorageLayout _frame_layout;
     CoroFrameIOPlan _frame_io_plan;
     // Handlers and delayed finalization outlive the source Coroutine. Own
@@ -845,8 +846,21 @@ private:
         _refill_at.resize(_queue_count, false);
         _collect_at.resize(_queue_count, false);
         _is_terminal_continuation.assign(nc, false);
-        for (size_t i = 1u; i < nc; ++i) {
-            _is_terminal_continuation[i] = coro.graph().node(i).targets.empty();
+        _continuation_targets.assign(nc, {});
+        for (size_t i = 0u; i < nc; ++i) {
+            if (i >= 1u) {
+                _is_terminal_continuation[i] = coro.graph().node(i).targets.empty();
+            }
+            for (auto target : coro.graph().node(i).targets) {
+                if (target != 0u && target < nc) {
+                    auto t = static_cast<uint>(target);
+                    if (std::find(_continuation_targets[i].begin(),
+                                  _continuation_targets[i].end(), t) ==
+                        _continuation_targets[i].end()) {
+                        _continuation_targets[i].emplace_back(t);
+                    }
+                }
+            }
         }
 
         for (auto &name : _config.refill_continuations) {
@@ -2733,6 +2747,8 @@ private:
             std::getenv("LUISA_CORO_WAVEFRONT_TRACE_ITERATIONS") != nullptr;
         auto verify_queues =
             std::getenv("LUISA_CORO_WAVEFRONT_VERIFY_QUEUES") != nullptr;
+        const bool batch_queues_enabled = parse_bool_env(
+            "LUISA_CORO_WAVEFRONT_BATCH_QUEUES", true);
         auto parse_pct_env = [](const char *name, uint default_pct) noexcept {
             if (const auto *raw = std::getenv(name)) {
                 char *end = nullptr;
@@ -2910,6 +2926,199 @@ private:
                 stat.dispatch_count++;
                 stat.executed_count += count;
             }
+        };
+        auto can_produce_into = [&](size_t src_cont, size_t dst_cont) noexcept -> bool {
+            if (src_cont >= _continuation_targets.size()) { return false; }
+            const auto &targets = _continuation_targets[src_cont];
+            return std::find(targets.begin(), targets.end(),
+                             static_cast<uint>(dst_cont)) != targets.end();
+        };
+        auto queue_is_batchable_main = [&](size_t q) noexcept -> bool {
+            if (q < 1u || q >= nq || _host_count[q] == 0u) { return false; }
+            if (q < _queue_deferred.size() && _queue_deferred[q] != 0u) { return false; }
+            if (is_queue_async_unavailable(q)) { return false; }
+            const auto owner = queue_owner(q);
+            if (owner >= nc || logical_members[owner] != 1u) { return false; }
+            if (_has_hint_sort && owner < _have_hint.size() && _have_hint[owner]) {
+                return false;
+            }
+            if (q >= nc) {
+                const auto &reg = _extension_stages[q - nc];
+                if (reg.is_blocking_async || reg.before_resume_chain.empty()) {
+                    return false;
+                }
+                for (auto idx : reg.before_resume_chain) {
+                    if (_extension_stages[idx].handler == nullptr ||
+                        !_extension_stages[idx].handler->supports_command_list()) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+        auto encode_single_member_main_queue = [&](size_t q, uint cur_scan_count,
+                                                   const WavefrontCoroSchedulerSnapshot &snap) noexcept -> bool {
+            const auto count = _host_count[q];
+            const auto continuation = _queue_continuation[q];
+            bool fused_extension_gather = false;
+            bool use_identity_selected = false;
+            if (q >= nc) {
+                const auto &ext_stage = _extension_stages[q - nc];
+                if (!ext_stage.before_resume_chain.empty()) {
+                    const bool has_hint = _has_hint_sort &&
+                                          continuation < _have_hint.size() &&
+                                          _have_hint[continuation];
+                    if (!has_hint) {
+                        const auto &first_handler =
+                            *_extension_stages[ext_stage.before_resume_chain.front()].handler;
+                        fused_extension_gather =
+                            first_handler.gathers_selected_frames_for(
+                                count, cur_scan_count);
+                    }
+                }
+            } else if (count == cur_scan_count &&
+                       !(_has_hint_sort && q < _have_hint.size() && _have_hint[q])) {
+                if (_identity_initialized_count < _config.thread_count) {
+                    pending_commands << _init_identity_shader(_config.thread_count)
+                                            .dispatch(_config.thread_count);
+                    _identity_initialized_count = _config.thread_count;
+                }
+                use_identity_selected = true;
+            }
+            if (!fused_extension_gather && !use_identity_selected) {
+                auto count_slot = global_count_slot;
+                global_count_slot ^= 1u;
+                auto gather_threads = _gather_selected_4x ?
+                                          ((cur_scan_count + 1023u) / 1024u) * 256u :
+                                          cur_scan_count;
+                pending_commands << _gather_selected_shader(
+                                        _config.thread_count, _resume_index,
+                                        _global_buffer, count_slot,
+                                        static_cast<uint>(q), cur_scan_count)
+                                        .dispatch(gather_threads);
+                if (verify_queues) {
+                    uint gathered_count = 0u;
+                    pending_commands << _global_buffer.view()
+                                            .subview(count_slot, 1u)
+                                            .copy_to(luisa::span{
+                                                &gathered_count, 1u});
+                    luisa::vector<uint> gathered_indices(count);
+                    pending_commands << _resume_index.view()
+                                            .subview(0u, count)
+                                            .copy_to(luisa::span{gathered_indices});
+                    sync_pending();
+                    LUISA_ASSERT(
+                        gathered_count == count,
+                        "Incremental wavefront selected-queue gather "
+                        "violation at iteration {}, continuation {}: "
+                        "gathered {} frames, expected {}.",
+                        iteration_count, q, gathered_count,
+                        count);
+                    luisa::vector<uint8_t> seen(_config.thread_count, 0u);
+                    for (auto slot = 0u; slot < count; ++slot) {
+                        auto idx = gathered_indices[slot];
+                        LUISA_ASSERT(idx < _config.thread_count && seen[idx] == 0u,
+                                     "Gather duplicate/invalid frame index {} at slot {} (iter {}).",
+                                     idx, slot, iteration_count);
+                        seen[idx] = 1u;
+                    }
+                }
+                gather_scan_count += cur_scan_count;
+            }
+            _host_offset[q] = 0u;
+            if (q >= nc) {
+                const auto &registered = _extension_stages[q - nc];
+                auto indices = _resume_index.view().subview(0u, count);
+                bool ungathered_head = fused_extension_gather;
+                for (auto index : registered.before_resume_chain) {
+                    auto &stage = _extension_stages[index];
+                    CommandList *handler_commands = &pending_commands;
+                    const bool is_ungathered = ungathered_head;
+                    ungathered_head = false;
+                    {
+                        detail::WavefrontCoroSchedulerSnapshotScope snapshot_scope{snap};
+                        indices = stage.handler->dispatch_queue(WavefrontCoroExtensionDispatchContext{
+                            .stream = stream,
+                            .frame_buffer = _frame_buffer.view(),
+                            .frame_indices = indices,
+                            .frame_count = count,
+                            .frame_capacity = _config.thread_count,
+                            .logical_dispatch_size = dispatch_size,
+                            .stage = stage.stage,
+                            .command_list = handler_commands,
+                            .source_queue_token = static_cast<uint>(q),
+                            .scan_count = cur_scan_count,
+                            .ungathered_scan = is_ungathered,
+                            .scheduler_snapshot = snap});
+                    }
+                    LUISA_ASSERT(indices.size() == count,
+                                 "Extension '{}' changed selected queue cardinality.",
+                                 stage.handler->name());
+                    if (verify_queues && count != 0u) {
+                        luisa::vector<uint> ext_indices(count);
+                        pending_commands << indices.copy_to(luisa::span{ext_indices});
+                        sync_pending();
+                        luisa::vector<uint8_t> seen(_config.thread_count, 0u);
+                        uint dup_count = 0u;
+                        for (auto slot = 0u; slot < count; ++slot) {
+                            auto idx = ext_indices[slot];
+                            LUISA_ASSERT(idx < _config.thread_count,
+                                         "Extension '{}' produced out-of-range frame index {} at slot {} (iter {}).",
+                                         stage.handler->name(), idx, slot, iteration_count);
+                            if (seen[idx] != 0u) { ++dup_count; }
+                            seen[idx] = 1u;
+                        }
+                        LUISA_ASSERT(dup_count == 0u,
+                                     "Extension '{}' produced {} duplicate frame indices out of {} at iteration {}!",
+                                     stage.handler->name(), dup_count, count, iteration_count);
+                    }
+                    if (report_stats) {
+                        auto &stat = _last_dispatch_stats.extensions[index];
+                        stat.dispatch_count++;
+                        stat.executed_count += count;
+                        stat.peak_queued_count = std::max(stat.peak_queued_count, count);
+                    }
+                    _last_dispatch_stats.extension_count += count;
+                }
+                resume(continuation, static_cast<uint>(q), indices, count);
+            } else {
+                auto indices = use_identity_selected ?
+                                   _identity_index.view().subview(0u, count) :
+                                   _resume_index.view().subview(0u, count);
+                resume(continuation, static_cast<uint>(q), indices, count);
+            }
+            return continuation < deterministic_sink_continuation.size() &&
+                   deterministic_sink_continuation[continuation];
+        };
+        auto encode_aux_stage = [&](size_t aux_idx, uint aux_stage,
+                                    const WavefrontCoroSchedulerSnapshot &snap) noexcept -> bool {
+            auto &&registered = _auxiliary_work[aux_idx];
+            auto count = registered.work->stage_host_count(aux_stage);
+            LUISA_ASSERT(count != 0u,
+                         "Selected an empty wavefront auxiliary "
+                         "queue '{}'.",
+                         registered.work->name());
+            {
+                detail::WavefrontCoroSchedulerSnapshotScope snapshot_scope{snap};
+                registered.work->encode_dispatch_stage(aux_stage, stream, pending_commands, args...);
+            }
+            ++auxiliary_dispatch_seq;
+            aux_counts_dirty[aux_idx] = 1u;
+            stamp_pending_timing(
+                static_cast<size_t>(nq) + registered.stats_offset + aux_stage,
+                count, in_flight_async_count > 0u);
+            if (report_stats) {
+                auto &work = _last_dispatch_stats
+                                 .auxiliary_work[registered.stats_offset + aux_stage];
+                work.dispatch_count++;
+                work.executed_count += count;
+            }
+            if (_config.incremental_continuation_counts && !verify_queues &&
+                registered.work->try_predict_stage_transition(aux_stage)) {
+                aux_counts_dirty[aux_idx] = 0u;
+                return true;
+            }
+            return false;
         };
         Clock dispatch_clock;
         while (true) {
@@ -4011,6 +4220,7 @@ private:
             auto forced_auxiliary = _auxiliary_work.size();
             auto forced_auxiliary_stage = 0u;
             auto forced_auxiliary_count = 0u;
+            luisa::vector<uint8_t> aux_prepared(_auxiliary_work.size(), 0u);
             if (selected_continuation < nc && selected_count != 0u &&
                 (selected_blocker_override || time_budget_winner_is_main ||
                  selected_auxiliary_count <= selected_count)) {
@@ -4022,6 +4232,7 @@ private:
                     auto queued = registered.work->host_count();
                     auto capacity = registered.work->capacity();
                     registered.work->encode_prepare_for_admission(stream, pending_commands);
+                    aux_prepared[i] = 1u;
                     auto available = registered.work->host_available_slots();
                     LUISA_ASSERT(registered.work->host_count() == queued &&
                                      registered.work->capacity() == capacity &&
@@ -4429,33 +4640,88 @@ private:
                             scan_count, scheduler_snapshot, blocking_domain);
                         continue;
                     }
-                    auto count = registered.work->stage_host_count(dispatch_auxiliary_stage);
-                    LUISA_ASSERT(count != 0u,
-                                 "Selected an empty wavefront auxiliary "
-                                 "queue '{}'.",
-                                 registered.work->name());
-                    {
-                        detail::WavefrontCoroSchedulerSnapshotScope snapshot_scope{scheduler_snapshot};
-                        registered.work->encode_dispatch_stage(dispatch_auxiliary_stage, stream, pending_commands, args...);
+                    const bool aux_predicted = encode_aux_stage(
+                        dispatch_auxiliary, dispatch_auxiliary_stage, scheduler_snapshot);
+                    if (aux_predicted) {
+                        counts_known_on_host = true;
+                        continue;
                     }
-                    ++auxiliary_dispatch_seq;
-                    aux_counts_dirty[dispatch_auxiliary] = 1u;
-                    stamp_pending_timing(
-                        static_cast<size_t>(nq) + registered.stats_offset +
-                            dispatch_auxiliary_stage,
-                        count, in_flight_async_count > 0u);
-                    if (report_stats) {
-                        auto &work = _last_dispatch_stats
-                                         .auxiliary_work[registered.stats_offset + dispatch_auxiliary_stage];
-                        work.dispatch_count++;
-                        work.executed_count += count;
-                    }
-                    if (_config.incremental_continuation_counts && !verify_queues) {
-                        counts_known_on_host =
-                            registered.work->try_predict_stage_transition(
-                                dispatch_auxiliary_stage);
-                        if (counts_known_on_host) {
-                            aux_counts_dirty[dispatch_auxiliary] = 0u;
+                    if (batch_queues_enabled &&
+                        _config.largest_continuation_first &&
+                        _config.incremental_continuation_counts &&
+                        _config.fused_continuation_counts &&
+                        in_flight_async_count == 0u &&
+                        !online_timing_active &&
+                        scan_count != 0u) {
+                        bool any_non_collect_nonempty = false;
+                        for (size_t q = 1u; q < nq; ++q) {
+                            if (_host_count[q] == 0u) { continue; }
+                            if (q < _queue_deferred.size() && _queue_deferred[q] != 0u) { continue; }
+                            if (!(q < _collect_at.size() && _collect_at[q])) {
+                                any_non_collect_nonempty = true;
+                                break;
+                            }
+                        }
+                        luisa::vector<size_t> piggy_cands;
+                        for (size_t q = 1u; q < nq; ++q) {
+                            if (!queue_is_batchable_main(q)) { continue; }
+                            const auto cont = _queue_continuation[q];
+                            bool emits_aux = false;
+                            for (const auto &reg : _auxiliary_work) {
+                                if (cont < reg.max_emitted_per_continuation.size() &&
+                                    reg.max_emitted_per_continuation[cont] != 0u) {
+                                    emits_aux = true;
+                                    break;
+                                }
+                            }
+                            if (emits_aux) { continue; }
+                            if (dispatch_counter < N && should_refill &&
+                                q < _refill_at.size() && _refill_at[q]) {
+                                continue;
+                            }
+                            if (any_non_collect_nonempty &&
+                                q < _collect_at.size() && _collect_at[q]) {
+                                continue;
+                            }
+                            piggy_cands.emplace_back(q);
+                        }
+                        std::sort(piggy_cands.begin(), piggy_cands.end(),
+                                  [&](size_t a, size_t b) noexcept {
+                                      if (_host_count[a] != _host_count[b]) {
+                                          return _host_count[a] > _host_count[b];
+                                      }
+                                      return queue_owner(a) < queue_owner(b);
+                                  });
+                        luisa::vector<size_t> piggy_batch;
+                        luisa::vector<size_t> blocked;
+                        for (size_t q : piggy_cands) {
+                            const auto cont_q = _queue_continuation[q];
+                            bool is_blocked = false;
+                            for (size_t b : blocked) {
+                                if (can_produce_into(_queue_continuation[b], cont_q)) {
+                                    is_blocked = true;
+                                    break;
+                                }
+                            }
+                            if (is_blocked) {
+                                blocked.emplace_back(q);
+                                continue;
+                            }
+                            piggy_batch.emplace_back(q);
+                            blocked.emplace_back(q);
+                        }
+                        bool all_piggy_sinks = !piggy_batch.empty();
+                        for (size_t q : piggy_batch) {
+                            if (!encode_single_member_main_queue(
+                                    q, scan_count, scheduler_snapshot)) {
+                                all_piggy_sinks = false;
+                            }
+                        }
+                        if (!piggy_batch.empty() && all_piggy_sinks) {
+                            for (size_t q : piggy_batch) {
+                                _host_count[q] = 0u;
+                            }
+                            main_counts_dirty = false;
                         }
                     }
                     continue;
@@ -4467,6 +4733,158 @@ private:
                                  iteration_count, active_count, auxiliary_active_count);
                     wait_and_complete_one_async(
                         scan_count, scheduler_snapshot, _async_domain_names.size());
+                    continue;
+                }
+                const bool try_main_batch =
+                    batch_queues_enabled &&
+                    _config.largest_continuation_first &&
+                    _config.incremental_continuation_counts &&
+                    _config.fused_continuation_counts &&
+                    in_flight_async_count == 0u &&
+                    !online_timing_active &&
+                    !selected_is_deferred &&
+                    !selected_blocker_override &&
+                    !proactive_async_launch &&
+                    scan_count != 0u &&
+                    queue_is_batchable_main(selected);
+                if (try_main_batch) {
+                    const size_t num_aux = _auxiliary_work.size();
+                    luisa::vector<uint64_t> rem_cap(num_aux, 0ull);
+                    luisa::vector<uint64_t> rem_avail(num_aux, 0ull);
+                    luisa::vector<uint64_t> batch_req(num_aux, 0ull);
+                    for (size_t a = 0u; a < num_aux; ++a) {
+                        const auto &reg = _auxiliary_work[a];
+                        const uint64_t cap = reg.work->capacity();
+                        const uint64_t queued = reg.work->host_count();
+                        rem_cap[a] = cap >= queued ? cap - queued : 0ull;
+                        rem_avail[a] = aux_prepared[a] ?
+                                           static_cast<uint64_t>(reg.work->host_available_slots()) :
+                                           0ull;
+                        if (selected_continuation < reg.max_emitted_per_continuation.size()) {
+                            const uint64_t bound = reg.max_emitted_per_continuation[selected_continuation];
+                            if (bound != 0u) {
+                                const uint64_t req = static_cast<uint64_t>(selected_count) * bound;
+                                batch_req[a] += req;
+                                rem_cap[a] = rem_cap[a] >= req ? rem_cap[a] - req : 0ull;
+                                rem_avail[a] = rem_avail[a] >= req ? rem_avail[a] - req : 0ull;
+                            }
+                        }
+                    }
+                    luisa::vector<size_t> batch{selected};
+                    luisa::vector<size_t> blocked{selected};
+                    const bool selected_is_collect_or_refill =
+                        (selected < _collect_at.size() && _collect_at[selected]) ||
+                        (dispatch_counter < N && selected < _refill_at.size() && _refill_at[selected]);
+                    if (!selected_is_collect_or_refill) {
+                        luisa::vector<size_t> main_cands;
+                        for (size_t q = 1u; q < nq; ++q) {
+                            if (q == selected) { continue; }
+                            if (!queue_is_batchable_main(q)) { continue; }
+                            if (q < _collect_at.size() && _collect_at[q]) { continue; }
+                            if (dispatch_counter < N && should_refill &&
+                                q < _refill_at.size() && _refill_at[q]) {
+                                continue;
+                            }
+                            main_cands.emplace_back(q);
+                        }
+                        std::sort(main_cands.begin(), main_cands.end(),
+                                  [&](size_t a, size_t b) noexcept {
+                                      if (_host_count[a] != _host_count[b]) {
+                                          return _host_count[a] > _host_count[b];
+                                      }
+                                      return queue_owner(a) < queue_owner(b);
+                                  });
+                        for (size_t q : main_cands) {
+                            const auto cont_q = _queue_continuation[q];
+                            bool is_blocked = false;
+                            for (size_t b : blocked) {
+                                if (can_produce_into(_queue_continuation[b], cont_q)) {
+                                    is_blocked = true;
+                                    break;
+                                }
+                            }
+                            if (is_blocked) {
+                                blocked.emplace_back(q);
+                                continue;
+                            }
+                            bool admissible = true;
+                            for (size_t a = 0u; a < num_aux; ++a) {
+                                auto &reg = _auxiliary_work[a];
+                                const uint64_t bound =
+                                    cont_q < reg.max_emitted_per_continuation.size() ?
+                                        reg.max_emitted_per_continuation[cont_q] :
+                                        0ull;
+                                if (bound == 0u) { continue; }
+                                const uint64_t req = static_cast<uint64_t>(_host_count[q]) * bound;
+                                if (req > rem_cap[a]) {
+                                    admissible = false;
+                                    break;
+                                }
+                                if (aux_prepared[a] == 0u) {
+                                    const auto queued = reg.work->host_count();
+                                    const auto capacity = reg.work->capacity();
+                                    reg.work->encode_prepare_for_admission(stream, pending_commands);
+                                    const auto available = reg.work->host_available_slots();
+                                    LUISA_ASSERT(reg.work->host_count() == queued &&
+                                                     reg.work->capacity() == capacity &&
+                                                     available <= capacity - queued &&
+                                                     (queued != 0u || available == capacity),
+                                                 "Auxiliary '{}' admission preparation changed occupancy/capacity "
+                                                 "or supplied invalid materializable storage.",
+                                                 reg.work->name());
+                                    rem_avail[a] = available >= batch_req[a] ? available - batch_req[a] : 0ull;
+                                    aux_prepared[a] = 1u;
+                                }
+                                if (req > rem_avail[a]) {
+                                    admissible = false;
+                                    break;
+                                }
+                            }
+                            if (!admissible) {
+                                blocked.emplace_back(q);
+                                continue;
+                            }
+                            for (size_t a = 0u; a < num_aux; ++a) {
+                                const auto &reg = _auxiliary_work[a];
+                                const uint64_t bound =
+                                    cont_q < reg.max_emitted_per_continuation.size() ?
+                                        reg.max_emitted_per_continuation[cont_q] :
+                                        0ull;
+                                if (bound == 0u) { continue; }
+                                const uint64_t req = static_cast<uint64_t>(_host_count[q]) * bound;
+                                batch_req[a] += req;
+                                rem_cap[a] -= req;
+                                rem_avail[a] -= req;
+                            }
+                            batch.emplace_back(q);
+                            blocked.emplace_back(q);
+                        }
+                    }
+                    for (size_t a = 0u; a < num_aux; ++a) {
+                        if (batch_req[a] != 0u) {
+                            _auxiliary_work[a].work->encode_prepare_for_producer(
+                                stream, pending_commands, static_cast<uint>(batch_req[a]));
+                        }
+                    }
+                    bool all_batch_sinks = true;
+                    for (size_t q : batch) {
+                        if (!encode_single_member_main_queue(
+                                q, scan_count, scheduler_snapshot)) {
+                            all_batch_sinks = false;
+                        }
+                    }
+                    if (all_batch_sinks) {
+                        for (size_t q : batch) {
+                            _host_count[q] = 0u;
+                        }
+                        counts_known_on_host = true;
+                        main_counts_dirty = false;
+                    } else if (selected_auxiliary < num_aux &&
+                               selected_auxiliary_count != 0u &&
+                               batch_req[selected_auxiliary] == 0u) {
+                        static_cast<void>(encode_aux_stage(
+                            selected_auxiliary, selected_auxiliary_stage, scheduler_snapshot));
+                    }
                     continue;
                 }
                 if (selected_continuation < nc && selected_count != 0u) {
