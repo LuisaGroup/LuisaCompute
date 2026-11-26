@@ -1783,7 +1783,13 @@ void HIPDevice::destroy_accel(uint64_t handle) noexcept {
 void HIPDevice::set_name(Resource::Tag resource_tag,
                          uint64_t resource_handle,
                          luisa::string_view name) noexcept {
-    // ignored
+    if (resource_handle == 0u ||
+        resource_handle == luisa::compute::invalid_resource_handle) {
+        return;
+    }
+    if (resource_tag == Resource::Tag::SHADER) {
+        reinterpret_cast<HIPShader *>(resource_handle)->set_name(luisa::string{name});
+    }
 }
 
 }// namespace luisa::compute::hip

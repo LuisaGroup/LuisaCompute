@@ -43,7 +43,8 @@ namespace detail {
 template<typename Shader>
 [[nodiscard]] inline Shader coro_scheduler_label_shader(
     Shader shader, luisa::string_view stage) noexcept {
-    if (std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
+    if (std::getenv("LUISA_CORO_SHADER_MAP") != nullptr ||
+        std::getenv("LUISA_HIP_PROFILE") != nullptr) {
         shader.set_name(stage);
     }
     return shader;

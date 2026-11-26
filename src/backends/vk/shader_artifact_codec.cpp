@@ -642,7 +642,18 @@ luisa::vector<std::byte> encode_compute_shader_artifact(
              (info.required_subgroup_size <= std::numeric_limits<uint8_t>::max() &&
               (info.required_subgroup_size &
                (info.required_subgroup_size - 1u)) == 0u)),
-        "Vulkan compute shader exceeds the serialized bytecode limits.");
+        "Vulkan compute shader exceeds the serialized bytecode limits "
+        "(properties={}/{}, arguments={}/{}, printers={}/{}, spirv_bytes={}, ubo_bytes={}).",
+        info.properties.size(), max_shader_property_count,
+        info.arguments.size(), max_shader_argument_count,
+        info.printers.size(), max_shader_printer_count,
+        info.spirv.size_bytes(), info.constant_ubo_data.size_bytes());
+    if (info.arguments.size() > 64u) {
+        LUISA_INFO(
+            "Vulkan compute shader artifact exceeds legacy 64-arg cap: "
+            "properties={} binds, arguments={} args, spirv={} words.",
+            info.properties.size(), info.arguments.size(), info.spirv.size());
+    }
     std::array modules{info.spirv};
     constexpr std::array stages{ShaderArtifactSpirvStage::COMPUTE};
     auto spirv_validation = validate_spirv_artifact_modules(

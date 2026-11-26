@@ -788,6 +788,94 @@ int main(int argc, char *argv[]) {
                     .native_accel_uses_traversal());
     };
 
+    "vk_compute_shader_artifact_expanded_argument_limit_round_trips_through_cache"_test = [] {
+        using namespace lc::vk;
+        using namespace lc::vk::detail;
+        auto spirv = assemble_shader_module(
+            ShaderArtifactSpirvStage::COMPUTE);
+        auto round_trip_args = [&](size_t buffer_arg_count, size_t total_arg_count,
+                                   luisa::string_view label) {
+            luisa::vector<lc::hlsl::Property> properties;
+            luisa::vector<SavedArgument> arguments;
+            arguments.reserve(total_arg_count);
+            uint32_t reg = 0u;
+            const bool has_uniform = total_arg_count > buffer_arg_count;
+            const bool need_arg_buf = has_uniform || buffer_arg_count > 0u;
+            if (need_arg_buf) {
+                properties.push_back(
+                    {lc::hlsl::ShaderVariableType::StructuredBuffer, 0u, reg++, 1u});
+            }
+            for (size_t i = 0u; i < buffer_arg_count; ++i) {
+                SavedArgument arg{};
+                arg.tag = luisa::compute::Type::Tag::BUFFER;
+                arg.var_usage = luisa::compute::Usage::READ;
+                arg.struct_size = 4u;
+                arg.set_buffer_metadata_index(static_cast<uint32_t>(i));
+                arguments.push_back(arg);
+                properties.push_back(
+                    {lc::hlsl::ShaderVariableType::StructuredBuffer, 0u, reg++, 1u});
+            }
+            for (size_t i = buffer_arg_count; i < total_arg_count; ++i) {
+                arguments.push_back(uniform_int_argument());
+            }
+            properties.push_back(
+                {lc::hlsl::ShaderVariableType::SPIRVIndirectDispatch, 0u, reg++, 1u});
+            properties.push_back(sampler_property());
+
+            auto shader_md5 = test_md5(label);
+            auto type_md5 = test_md5("wide-arg-types");
+            auto bytes = encode_compute_shader_artifact(
+                {.properties = properties,
+                 .arguments = arguments,
+                 .shader_md5 = shader_md5,
+                 .type_md5 = type_md5,
+                 .block_size = {32u, 1u, 1u},
+                 .spirv = spirv,
+                 .codegen_dialect = ShaderCodegenDialect::XIR_SPIRV});
+
+            MemoryBinaryIO io;
+            const luisa::string cache_name{label};
+            static_cast<void>(io.write_shader_cache(cache_name, bytes));
+            auto stream = io.read_shader_cache(cache_name);
+            expect(stream != nullptr);
+            auto decoded = decode_compute_shader_artifact(
+                *stream, shader_md5, type_md5,
+                ShaderCodegenDialect::XIR_SPIRV);
+            expect(static_cast<bool>(decoded))
+                << shader_artifact_codec_error_name(decoded.error);
+            expect(eq(decoded.artifact.header.kernel_arg_count,
+                      static_cast<uint32_t>(total_arg_count)));
+            expect(eq(decoded.artifact.arguments.size(), total_arg_count));
+            expect(eq(decoded.artifact.properties.size(), properties.size()));
+            for (size_t i = 0u; i < total_arg_count; ++i) {
+                expect(decoded.artifact.arguments[i].tag == arguments[i].tag);
+                expect(decoded.artifact.arguments[i].var_usage ==
+                       arguments[i].var_usage);
+                expect(eq(decoded.artifact.arguments[i].struct_size,
+                          arguments[i].struct_size));
+                expect(eq(decoded.artifact.arguments[i].buffer_metadata_index(),
+                          arguments[i].buffer_metadata_index()));
+            }
+            return bytes;
+        };
+
+        // 1) Loft VT scale (>64): 64 buffers + 2 uniforms = 66 arguments, 67 properties.
+        static_cast<void>(round_trip_args(64u, 66u, "wide-args-66"));
+        // 2) Full expanded cap: 256 arguments (max_shader_argument_count).
+        auto max_bytes = round_trip_args(
+            240u, static_cast<size_t>(max_shader_argument_count), "wide-args-256");
+
+        // 3) Fail closed above max_shader_argument_count (257).
+        auto header = compute_header(max_bytes);
+        header.kernel_arg_count =
+            static_cast<uint32_t>(max_shader_argument_count) + 1u;
+        header.semantic_header_md5 = shader_semantic_header_md5(header);
+        replace_compute_header(max_bytes, header);
+        MemoryBinaryStream oversized_stream{max_bytes};
+        auto oversized = decode_compute_shader_artifact(oversized_stream);
+        expect(!static_cast<bool>(oversized));
+    };
+
     "vk_raster_shader_artifact_codec_round_trips_through_binary_io"_test = [] {
         using namespace lc::vk::detail;
         auto vertex = assemble_shader_module(

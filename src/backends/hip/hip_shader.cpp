@@ -25,6 +25,11 @@ void HIPShader::set_name(luisa::string &&name) noexcept {
     _name = std::move(name);
 }
 
+luisa::string HIPShader::name() const noexcept {
+    std::scoped_lock lock{_name_mutex};
+    return _name;
+}
+
 void HIPShader::launch(HIPCommandEncoder &encoder,
                        ShaderDispatchCommand *command) const noexcept {
     auto report_empty_launch = [&]() noexcept {

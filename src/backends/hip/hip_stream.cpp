@@ -2,9 +2,12 @@
 // Created by mike on 1/9/26.
 //
 
+#include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cstdlib>
 #include <limits>
+#include <string>
 
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/logging.h>
@@ -14,6 +17,7 @@
 
 #include "hip_check.h"
 #include "hip_device.h"
+#include "hip_shader.h"
 #include "hip_command_encoder.h"
 #include "hip_stream.h"
 
@@ -103,11 +107,42 @@ HIPStream::HIPStream(HIPDevice *device) noexcept
     _create_callback_semaphore();
     _spawn_callback_thread();
     if (auto env = std::getenv("LUISA_HIP_PROFILE"); env != nullptr) {
-        _profiling_enabled = (luisa::string_view{env} == "1" || luisa::string_view{env} == "true");
-        if (_profiling_enabled) {
-            LUISA_INFO("HIP stream profiling enabled (LUISA_HIP_PROFILE=1).");
+        const auto mode = luisa::string_view{env};
+        if (mode == "summary" || mode == "Summary" || mode == "SUMMARY") {
+            _summary_profiling_enabled = true;
+            LUISA_INFO("HIP stream summary profiling enabled (LUISA_HIP_PROFILE=summary).");
+        } else {
+            _profiling_enabled = (mode == "1" || mode == "true");
+            if (_profiling_enabled) {
+                LUISA_INFO("HIP stream profiling enabled (LUISA_HIP_PROFILE=1).");
+            }
         }
     }
+}
+
+void HIPStream::_drain_profile_events_after_sync() noexcept {
+    if (_pending_profile_events.empty()) {
+        return;
+    }
+    for (auto &ep : _pending_profile_events) {
+        float gpu_ms = 0.f;
+        LUISA_CHECK_HIP(hipEventElapsedTime(&gpu_ms, ep.start, ep.stop));
+        _total_gpu_time_ms += static_cast<double>(gpu_ms);
+        if (ep.tag == Command::Tag::EShaderDispatchCommand) {
+            luisa::string key = ep.shader_name;
+            if (key.empty()) {
+                key = luisa::format("shader_0x{:x}", ep.shader_handle);
+            }
+            auto &agg = _shader_profile_totals[std::move(key)];
+            agg.dispatches += 1u;
+            agg.gpu_ms += static_cast<double>(gpu_ms);
+        } else {
+            _other_gpu_time_ms += static_cast<double>(gpu_ms);
+        }
+        LUISA_CHECK_HIP(hipEventDestroy(ep.start));
+        LUISA_CHECK_HIP(hipEventDestroy(ep.stop));
+    }
+    _pending_profile_events.clear();
 }
 
 HIPStream::~HIPStream() noexcept {
@@ -118,6 +153,51 @@ HIPStream::~HIPStream() noexcept {
                    _total_gpu_time_ms / static_cast<double>(_dispatch_count));
     }
     _shutdown_callback_thread();
+    if (_summary_profiling_enabled) {
+        _drain_profile_events_after_sync();
+        if (_commit_count > 0u || _sync_count > 0u) {
+            struct Entry {
+                luisa::string name;
+                uint64_t dispatches;
+                double gpu_ms;
+            };
+            luisa::vector<Entry> sorted;
+            sorted.reserve(_shader_profile_totals.size());
+            double shader_gpu_ms = 0.0;
+            for (const auto &[k, v] : _shader_profile_totals) {
+                shader_gpu_ms += v.gpu_ms;
+                sorted.push_back(Entry{k, v.dispatches, v.gpu_ms});
+            }
+            std::sort(sorted.begin(), sorted.end(), [](const Entry &a, const Entry &b) {
+                return a.gpu_ms > b.gpu_ms;
+            });
+            LUISA_INFO(
+                "HIP stream summary: commits={} syncs={} host_encode_ms={:.3f} sync_wait_ms={:.3f} "
+                "shader_gpu_ms={:.3f} other_gpu_ms={:.3f} total_gpu_ms={:.3f}",
+                _commit_count, _sync_count, _host_encode_ms, _sync_wait_ms,
+                shader_gpu_ms, _other_gpu_time_ms, _total_gpu_time_ms);
+            for (const auto &e : sorted) {
+                LUISA_INFO("  HIP kernel '{}': dispatches={} gpu_ms={:.3f} avg_ms={:.4f}",
+                           e.name, e.dispatches, e.gpu_ms,
+                           e.dispatches > 0u ? e.gpu_ms / static_cast<double>(e.dispatches) : 0.0);
+            }
+            std::string json;
+            json.reserve(4096u);
+            json += luisa::format(
+                "{{\"commits\":{},\"sync_calls\":{},\"host_encode_ms\":{:.3f},\"sync_wait_ms\":{:.3f},"
+                "\"shader_gpu_ms\":{:.3f},\"other_gpu_ms\":{:.3f},\"total_gpu_ms\":{:.3f},\"shaders\":[",
+                _commit_count, _sync_count, _host_encode_ms, _sync_wait_ms,
+                shader_gpu_ms, _other_gpu_time_ms, _total_gpu_time_ms).c_str();
+            for (size_t i = 0u; i < sorted.size(); ++i) {
+                if (i != 0u) { json += ','; }
+                json += luisa::format(
+                    "{{\"name\":\"{}\",\"dispatches\":{},\"gpu_ms\":{:.3f}}}",
+                    sorted[i].name, sorted[i].dispatches, sorted[i].gpu_ms).c_str();
+            }
+            json += "]}";
+            LUISA_INFO("LUISA_HIP_PROFILE_SUMMARY_JSON={}", json);
+        }
+    }
     if (_rt_scratch_buffer != nullptr) {
         LUISA_CHECK_HIP(hipFree(_rt_scratch_buffer));
     }
@@ -277,6 +357,29 @@ void HIPStream::dispatch(CommandList &&command_list) noexcept {
             _total_gpu_time_ms += batch_total_ms;
             LUISA_INFO("HIP dispatch #{}: {} cmd(s), GPU time = {:.3f} ms (total = {:.3f} ms)",
                        _dispatch_count, commands.size(), batch_total_ms, _total_gpu_time_ms);
+        } else if (_summary_profiling_enabled) {
+            const auto t_enc0 = std::chrono::steady_clock::now();
+            _pending_profile_events.reserve(_pending_profile_events.size() + commands.size());
+            for (auto &cmd : commands) {
+                PendingProfileEvent ep{};
+                ep.tag = cmd->tag();
+                if (ep.tag == Command::Tag::EShaderDispatchCommand) {
+                    auto shader_cmd = static_cast<ShaderDispatchCommand *>(cmd.get());
+                    ep.shader_handle = shader_cmd->handle();
+                    if (auto *shader = reinterpret_cast<const HIPShader *>(ep.shader_handle)) {
+                        ep.shader_name = shader->name();
+                    }
+                }
+                LUISA_CHECK_HIP(hipEventCreate(&ep.start));
+                LUISA_CHECK_HIP(hipEventCreate(&ep.stop));
+                LUISA_CHECK_HIP(hipEventRecord(ep.start, _stream));
+                cmd->accept(encoder);
+                LUISA_CHECK_HIP(hipEventRecord(ep.stop, _stream));
+                _pending_profile_events.emplace_back(std::move(ep));
+            }
+            const auto t_enc1 = std::chrono::steady_clock::now();
+            _host_encode_ms += std::chrono::duration<double, std::milli>(t_enc1 - t_enc0).count();
+            _commit_count += 1u;
         } else {
             for (auto &cmd : commands) {
                 cmd->accept(encoder);
@@ -288,6 +391,9 @@ void HIPStream::dispatch(CommandList &&command_list) noexcept {
 }
 
 void HIPStream::synchronize() noexcept {
+    const auto t_sync0 = _summary_profiling_enabled
+                             ? std::chrono::steady_clock::now()
+                             : std::chrono::steady_clock::time_point{};
     auto ticket = _current_ticket.load();
     LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
     _notify_hiprt_build_completed_after_synchronize();
@@ -300,6 +406,13 @@ void HIPStream::synchronize() noexcept {
         auto finished = _finished_ticket.load(std::memory_order_acquire);
         if (finished >= ticket) { break; }
         _finished_ticket.wait(finished, std::memory_order_acquire);
+    }
+    if (_summary_profiling_enabled) {
+        const auto t_sync1 = std::chrono::steady_clock::now();
+        _sync_wait_ms += std::chrono::duration<double, std::milli>(t_sync1 - t_sync0).count();
+        _sync_count += 1u;
+        std::scoped_lock lock{_dispatch_mutex};
+        _drain_profile_events_after_sync();
     }
 }
 

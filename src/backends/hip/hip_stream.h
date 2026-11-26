@@ -14,7 +14,10 @@
 
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/queue.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/unordered_map.h>
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/runtime/rhi/command.h>
 
 #include "hip_stage_buffer_pool.h"
 
@@ -30,6 +33,19 @@ public:
     struct CallbackPackage {
         uint64_t ticket;
         CallbackContainer callbacks;
+    };
+
+    struct PendingProfileEvent {
+        hipEvent_t start{};
+        hipEvent_t stop{};
+        Command::Tag tag{};
+        uint64_t shader_handle{0u};
+        luisa::string shader_name;
+    };
+
+    struct ProfileAggregate {
+        uint64_t dispatches{0u};
+        double gpu_ms{0.0};
     };
 
 private:
@@ -55,8 +71,16 @@ private:
     mutable std::mutex _log_callback_mutex;
     LogCallback _log_callback;
     bool _profiling_enabled{false};
+    bool _summary_profiling_enabled{false};
     double _total_gpu_time_ms{0.0};
+    double _other_gpu_time_ms{0.0};
+    double _host_encode_ms{0.0};
+    double _sync_wait_ms{0.0};
     uint64_t _dispatch_count{0u};
+    uint64_t _commit_count{0u};
+    uint64_t _sync_count{0u};
+    luisa::vector<PendingProfileEvent> _pending_profile_events;
+    luisa::unordered_map<luisa::string, ProfileAggregate> _shader_profile_totals;
 
 private:
     void _create_callback_semaphore() noexcept;
@@ -64,6 +88,7 @@ private:
     void _spawn_callback_thread() noexcept;
     void _shutdown_callback_thread() noexcept;
     void _notify_hiprt_build_completed_after_synchronize() noexcept;
+    void _drain_profile_events_after_sync() noexcept;
 
 public:
     explicit HIPStream(HIPDevice *device) noexcept;

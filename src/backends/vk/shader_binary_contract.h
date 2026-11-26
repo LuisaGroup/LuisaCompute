@@ -220,7 +220,7 @@ inline constexpr size_t raster_semantic_header_byte_size = 184u;
 // Up to 256 local bindings plus the sampler, three global heaps, and the
 // optional legacy ConstantValue push-constant marker.
 inline constexpr uint64_t max_shader_property_count = 261u;
-inline constexpr uint64_t max_shader_argument_count = 64u;
+inline constexpr uint64_t max_shader_argument_count = 256u;
 inline constexpr uint64_t max_shader_printer_count = 1u << 20u;
 inline constexpr uint64_t max_shader_printer_payload_size = 64u << 20u;
 inline constexpr uint64_t max_spirv_module_byte_size = 256u << 20u;

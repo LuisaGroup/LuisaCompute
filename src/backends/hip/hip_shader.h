@@ -44,6 +44,7 @@ public:
     void launch(HIPCommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
     void set_name(luisa::string &&name) noexcept;
+    [[nodiscard]] luisa::string name() const noexcept;
 };
 
 }// namespace luisa::compute::hip
