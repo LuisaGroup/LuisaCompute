@@ -316,6 +316,12 @@ void analyze_group_derivatives(
                 }
             }
         }
+        for (const auto &[sym, has_deriv] : ll.dynamic_inputs) {
+            if (has_deriv && is_sym_differentiable(sym)) {
+                bool dummy = false;
+                mark_struct_tree(d_src[li], sym, dummy);
+            }
+        }
         for (uint32_t pc = 0u; pc < ll.shader->instructions().size(); ++pc) {
             if (!la.instructions[pc].reachable) { continue; }
             const auto &inst = *ll.shader->instructions()[pc];

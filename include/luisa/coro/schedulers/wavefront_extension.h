@@ -230,6 +230,10 @@ public:
     [[nodiscard]] virtual bool gathers_selected_frames() const noexcept {
         return false;
     }
+    [[nodiscard]] virtual bool gathers_selected_frames_for(
+        uint /*frame_count*/, uint /*scan_count*/) const noexcept {
+        return gathers_selected_frames();
+    }
     /// Hint that this independent `stage` handler prefers to run only after
     /// non-deferred continuation/auxiliary queues drain, coalescing misses and
     /// letting active consumers finish using resident resources before eviction.

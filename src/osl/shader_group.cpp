@@ -18,7 +18,8 @@ uint32_t ShaderGroup::add_layer(luisa::string name, const Shader *shader) noexce
     _layers.emplace_back(ShaderLayer{
         .name = std::move(name),
         .shader = shader,
-        .overrides = {}});
+        .overrides = {},
+        .dynamic_inputs = {}});
     return idx;
 }
 
@@ -32,6 +33,11 @@ uint32_t ShaderGroup::add_layer(const Shader *shader) noexcept {
 void ShaderGroup::set_parameter(uint32_t layer, luisa::string_view param_name, ParameterValue value) noexcept {
     if (layer >= _layers.size()) { return; }
     _layers[layer].overrides.insert_or_assign(luisa::string{param_name}, std::move(value));
+}
+
+void ShaderGroup::mark_dynamic_input(uint32_t layer, luisa::string_view param_name, bool has_deriv) noexcept {
+    if (layer >= _layers.size()) { return; }
+    _layers[layer].dynamic_inputs.insert_or_assign(luisa::string{param_name}, has_deriv);
 }
 
 void ShaderGroup::connect_shaders(uint32_t src_layer, luisa::string_view src_param,
@@ -263,6 +269,20 @@ bool link_shader_group(
                 return false;
             }
         }
+        for (const auto &[pname, has_deriv] : layer.dynamic_inputs) {
+            static_cast<void>(has_deriv);
+            const Symbol *sym = find_shader_symbol(*layer.shader, pname);
+            if (sym == nullptr) {
+                add_error(layer.name, luisa::format("Dynamic input '{}' not found in shader '{}'.",
+                                                    pname, layer.shader->identifier()));
+                return false;
+            }
+            if (!is_param_symbol(sym)) {
+                add_error(layer.name, luisa::format("Dynamic input '{}' in shader '{}' is not a parameter or output parameter.",
+                                                    pname, layer.shader->identifier()));
+                return false;
+            }
+        }
     }
 
     // Validate connections & check duplicate destination connections
@@ -468,6 +488,23 @@ bool link_shader_group(
             const Symbol *sym = find_shader_symbol(*ll.shader, pname);
             ll.param_overrides.emplace(sym, &pval);
             ll.skip_init_params.emplace(sym->root());
+        }
+        auto mark_dyn = [&](const Symbol *s, bool has_deriv, auto &self) -> void {
+            if (s == nullptr) { return; }
+            if (s->children().empty()) {
+                ll.dynamic_inputs.insert_or_assign(s, has_deriv);
+                return;
+            }
+            for (const Symbol *c : s->children()) {
+                self(c, has_deriv, self);
+            }
+        };
+        for (const auto &[pname, has_deriv] : ll.layer->dynamic_inputs) {
+            const Symbol *sym = find_shader_symbol(*ll.shader, pname);
+            mark_dyn(sym, has_deriv, mark_dyn);
+            if (sym != nullptr) {
+                ll.skip_init_params.emplace(sym->root());
+            }
         }
     }
     out_group.eliminated_layer_count = num_layers - order.size();

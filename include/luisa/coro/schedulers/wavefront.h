@@ -117,6 +117,12 @@ struct WavefrontCoroSchedulerConfig {
     // LUISA_CORO_ONLINE_TIMING=0/1 and LUISA_CORO_TIME_BUDGET_SCHED=0/1.
     bool enable_online_timing = true;
     bool enable_time_budget_scheduling = true;
+    // Continuations in this set act as collection hubs in greedy scheduling:
+    // when non-collect producers have pending frames, drain those producers
+    // before running the hub so rays batch together for a larger, more
+    // coherent dispatch, unless refill is needed. Kept last for positional
+    // aggregate source compatibility.
+    luisa::vector<luisa::string> collect_continuations;
 };
 
 /// Host-observed work executed by one coroutine graph node during the most
@@ -346,6 +352,7 @@ private:
     luisa::vector<uint> _host_offset;
     luisa::vector<bool> _have_hint;
     luisa::vector<bool> _refill_at;
+    luisa::vector<bool> _collect_at;
     luisa::vector<bool> _is_terminal_continuation;
     CoroFrameStorageLayout _frame_layout;
     CoroFrameIOPlan _frame_io_plan;
@@ -836,6 +843,7 @@ private:
         _host_offset.resize(_total_token_count);
         _have_hint.resize(_queue_count, false);
         _refill_at.resize(_queue_count, false);
+        _collect_at.resize(_queue_count, false);
         _is_terminal_continuation.assign(nc, false);
         for (size_t i = 1u; i < nc; ++i) {
             _is_terminal_continuation[i] = coro.graph().node(i).targets.empty();
@@ -849,6 +857,15 @@ private:
                          "valid non-entry coroutine suspension.",
                          name);
             _refill_at[node->index] = true;
+        }
+        for (auto &name : _config.collect_continuations) {
+            auto node = coro.graph().node_by_name(name);
+            LUISA_ASSERT(node != nullptr && node->index != 0u &&
+                             node->index < nc,
+                         "Wavefront collect continuation '{}' does not name a "
+                         "valid non-entry coroutine suspension.",
+                         name);
+            _collect_at[node->index] = true;
         }
 
         luisa::vector<luisa::string> valid_hint_fields;
@@ -2116,6 +2133,7 @@ private:
                 auto queue = first.stage.queue_index;
                 _queue_continuation[queue] = static_cast<uint>(boundary.to_index);
                 _refill_at[queue] = _refill_at[boundary.to_index];
+                _collect_at[queue] = _collect_at[boundary.to_index];
             }
         }
         _coalesce_resume_annotation_queues();
@@ -2388,6 +2406,7 @@ private:
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
         _finalize_extension_handlers();
         if (!_timeline_labels_registered && _device != nullptr &&
+            _device->backend_name() == "vk" &&
             _device->impl()->query("vk_timeline_active") == "1") {
             auto label_buf = [&](uint64_t handle, const char *name) noexcept {
                 char buf[160];
@@ -2636,7 +2655,9 @@ private:
                 }
             }
         } online_timing_guard;
-        if (online_timing_active && _device != nullptr && _device->impl() != nullptr) {
+        if (online_timing_active && _device != nullptr &&
+            _device->impl() != nullptr &&
+            _device->backend_name() == "vk") {
             timing_enable_query =
                 luisa::format("vk_stream_timing_enable:{}", stream.handle());
             timing_disable_query =
@@ -3474,6 +3495,17 @@ private:
                 selected = nq;
                 selected_count = 0u;
                 selected_priority = nq;
+                const auto select_refill_threshold =
+                    _config.refill_threshold == 0u ?
+                        _active_frame_capacity / 2u :
+                        std::min(_config.refill_threshold, _active_frame_capacity);
+                const bool refill_wanted =
+                    !allow_deferred && dispatch_counter < N &&
+                    active_count < select_refill_threshold;
+                size_t best_nc_priority = nq;
+                uint best_nc_count = 0u;
+                size_t best_c_priority = nq;
+                uint best_c_count = 0u;
                 for (size_t i = 1u; i < nq; ++i) {
                     auto is_deferred =
                         i < _queue_deferred.size() && _queue_deferred[i] != 0u;
@@ -3481,19 +3513,48 @@ private:
                     if (is_queue_async_unavailable(i)) {
                         continue;
                     }
-                    // Compare the complete continuation, not its separately
-                    // annotated entry queues. Ascending owners retain tie order.
-                    if (logical_count[i] > selected_count) {
-                        selected_count = logical_count[i];
-                        selected_priority = i;
+                    const auto c = logical_count[i];
+                    if (c == 0u) { continue; }
+                    const bool is_collect =
+                        i < _collect_at.size() && _collect_at[i];
+                    if (is_collect) {
+                        if (c > best_c_count) {
+                            best_c_count = c;
+                            best_c_priority = i;
+                        }
+                    } else {
+                        if (c > best_nc_count) {
+                            best_nc_count = c;
+                            best_nc_priority = i;
+                        }
                     }
                 }
-                for (size_t i = 1u; i < nq; ++i) {
-                    if (_host_count[i] != 0u &&
-                        !is_queue_async_unavailable(i) &&
-                        queue_owner(i) == selected_priority) {
-                        selected = i;
-                        break;
+                if (!allow_deferred && best_nc_count > 0u) {
+                    if (refill_wanted && best_c_count > 0u &&
+                        best_c_priority < _refill_at.size() &&
+                        _refill_at[best_c_priority] &&
+                        best_c_count >= best_nc_count) {
+                        selected_count = best_c_count;
+                        selected_priority = best_c_priority;
+                    } else {
+                        selected_count = best_nc_count;
+                        selected_priority = best_nc_priority;
+                    }
+                } else if (best_c_count > best_nc_count) {
+                    selected_count = best_c_count;
+                    selected_priority = best_c_priority;
+                } else {
+                    selected_count = best_nc_count;
+                    selected_priority = best_nc_priority;
+                }
+                if (selected_count != 0u) {
+                    for (size_t i = 1u; i < nq; ++i) {
+                        if (_host_count[i] != 0u &&
+                            !is_queue_async_unavailable(i) &&
+                            queue_owner(i) == selected_priority) {
+                            selected = i;
+                            break;
+                        }
                     }
                 }
             };
@@ -4034,6 +4095,68 @@ private:
             auto should_refill =
                 active_count == 0u ||
                 (active_count < refill_threshold && !deferred_backpressure);
+            // Drain-tail compaction: once all paths have been generated, shrink a
+            // sparse active prefix ([0, scan_count) when <= 25% occupied) down to
+            // [0, active_count) so subsequent incremental gathers scan only live frames.
+            if (_config.frame_buffer_compaction &&
+                _config.incremental_continuation_counts &&
+                dispatch_counter == N &&
+                in_flight_async_count == 0u &&
+                active_count > 0u &&
+                scan_count >= 16384u &&
+                active_count * 4u <= scan_count) {
+                auto tail_holes_slot = global_count_slot;
+                global_count_slot ^= 1u;
+                auto gather_threads = _gather_selected_4x ?
+                                          ((active_count + 1023u) / 1024u) * 256u :
+                                          active_count;
+                pending_commands << _gather_selected_shader(
+                                        _config.thread_count, _resume_index,
+                                        _global_buffer, tail_holes_slot, 0u, active_count)
+                                        .dispatch(gather_threads);
+                gather_scan_count += active_count;
+                _host_offset[0u] = 0u;
+                const auto hole_bound = std::min(active_count, compact_empty_count);
+                uint verified_tail_holes = 0u;
+                if (verify_queues) {
+                    pending_commands << _global_buffer.view()
+                                            .subview(tail_holes_slot, 1u)
+                                            .copy_to(luisa::span{
+                                                &verified_tail_holes, 1u});
+                    sync_pending();
+                    LUISA_ASSERT(
+                        verified_tail_holes <= hole_bound,
+                        "Drain-tail prefix hole gather violation at iteration {}: "
+                        "gathered {} holes, exceeding max {}.",
+                        iteration_count, verified_tail_holes, hole_bound);
+                }
+                auto reloc_slot = global_count_slot;
+                global_count_slot ^= 1u;
+                pending_commands << _compact_shader(
+                                        _config.thread_count, _resume_index,
+                                        _global_buffer, reloc_slot, active_count,
+                                        hole_bound, scan_count)
+                                        .dispatch(scan_count - active_count);
+                compact_scan_count += scan_count - active_count;
+                if (verify_queues) {
+                    uint relocated_count = 0u;
+                    pending_commands << _global_buffer.view()
+                                            .subview(reloc_slot, 1u)
+                                            .copy_to(luisa::span{
+                                                &relocated_count, 1u});
+                    sync_pending();
+                    LUISA_ASSERT(
+                        relocated_count == verified_tail_holes,
+                        "Drain-tail compaction conservation violation at iteration {}: "
+                        "relocated {} active sources into {} prefix holes.",
+                        iteration_count, relocated_count, verified_tail_holes);
+                }
+                _used_frame_count = active_count;
+                scan_count = active_count;
+                compact_empty_count = 0u;
+                _host_count[0u] = 0u;
+                recompute_host_offsets();
+            }
             if (dispatch_auxiliary == _auxiliary_work.size() &&
                 !proactive_async_launch &&
                 in_flight_compaction_blocking_count == 0u &&
@@ -4352,7 +4475,8 @@ private:
                                     const auto &first_handler =
                                         *_extension_stages[ext_stage.before_resume_chain.front()].handler;
                                     fused_extension_gather =
-                                        first_handler.gathers_selected_frames();
+                                        first_handler.gathers_selected_frames_for(
+                                            selected_count, scan_count);
                                 }
                             }
                         } else if (selected_count == scan_count &&

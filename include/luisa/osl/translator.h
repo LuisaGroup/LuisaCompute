@@ -158,7 +158,16 @@ protected:
         bool want_deriv,
         luisa::span<const NamedOption> opts) noexcept;
 
-    // 8. Ray queries & string interning
+    // 8. Ray queries, dynamic inputs, & string interning
+    [[nodiscard]] virtual DualValue emit_dynamic_input(
+        uint32_t layer_index,
+        luisa::string_view param_name,
+        const Type *param_type,
+        int array_length,
+        bool want_deriv) noexcept;
+    [[nodiscard]] virtual ClosureValue emit_dynamic_closure_input(
+        uint32_t layer_index,
+        luisa::string_view param_name) noexcept;
     [[nodiscard]] virtual xir::Value *emit_trace(
         const DualValue &pos,
         const DualValue &dir,

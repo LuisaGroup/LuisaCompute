@@ -53,6 +53,11 @@ public:
 };
 
 void CUDACommandEncoder::commit(CommandList::CallbackContainer &&user_callbacks) noexcept {
+    constexpr size_t max_deferred_download_batch = 32u;
+    if (!user_callbacks.empty() ||
+        _stream->deferred_download_count() >= max_deferred_download_batch) {
+        _stream->flush_deferred_downloads_inline_locked();
+    }
     if (!user_callbacks.empty()) {
         _callbacks.emplace_back(
             UserCallbackContext::create(
@@ -89,21 +94,20 @@ void CUDACommandEncoder::visit(BufferDownloadCommand *command) noexcept {
     auto address = buffer->device_address() + command->offset();
     auto data = command->data();
     auto size = command->size();
-    with_download_pool_no_fallback(size, [&](auto download_buffer) noexcept {
-        if (download_buffer) {
-            LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
-                download_buffer->address(), address,
-                size, _stream->handle()));
-            LUISA_CHECK_CUDA(cuMemcpyAsync(
-                reinterpret_cast<CUdeviceptr>(data),
-                reinterpret_cast<CUdeviceptr>(download_buffer->address()),
-                size, _stream->handle()));
-        } else {
-            LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
-                data, address, size, _stream->handle()));
+    auto *download_buffer = _stream->download_pool()->allocate(size, false);
+    if (download_buffer != nullptr) {
+        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
+            download_buffer->address(), address,
+            size, _stream->handle()));
+        _stream->record_deferred_host_download(data, download_buffer, size);
+    } else {
+        if (_stream->sync_if_overlapping_host_download(data, size)) {
+            note_pdl_non_kernel_command();
         }
-    });
-    _stream->record_pending_host_download(data, size);
+        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(
+            data, address, size, _stream->handle()));
+        _stream->record_pending_host_download(data, size);
+    }
 }
 
 void CUDACommandEncoder::visit(BufferCopyCommand *command) noexcept {
@@ -218,20 +222,19 @@ void CUDACommandEncoder::visit(TextureDownloadCommand *command) noexcept {
     copy.dstMemoryType = CU_MEMORYTYPE_HOST;
     copy.dstPitch = pitch;
     copy.dstHeight = height;
-    with_download_pool_no_fallback(size_bytes, [&](auto download_buffer) noexcept {
-        if (download_buffer) {
-            copy.dstHost = download_buffer->address();
-            LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
-            LUISA_CHECK_CUDA(cuMemcpyAsync(
-                reinterpret_cast<CUdeviceptr>(command->data()),
-                reinterpret_cast<CUdeviceptr>(download_buffer->address()),
-                size_bytes, _stream->handle()));
-        } else {
-            copy.dstHost = command->data();
-            LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
+    auto *download_buffer = _stream->download_pool()->allocate(size_bytes, false);
+    if (download_buffer != nullptr) {
+        copy.dstHost = download_buffer->address();
+        LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
+        _stream->record_deferred_host_download(command->data(), download_buffer, size_bytes);
+    } else {
+        if (_stream->sync_if_overlapping_host_download(command->data(), size_bytes)) {
+            note_pdl_non_kernel_command();
         }
-    });
-    _stream->record_pending_host_download(command->data(), size_bytes);
+        copy.dstHost = command->data();
+        LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
+        _stream->record_pending_host_download(command->data(), size_bytes);
+    }
 }
 
 void CUDACommandEncoder::visit(TextureCopyCommand *command) noexcept {

@@ -71,6 +71,7 @@ struct LinkedLayer {
     luisa::vector<uint32_t> incoming_connections;
     luisa::unordered_map<const Symbol *, int> effective_array_length;
     luisa::unordered_map<const Symbol *, const ParameterValue *> param_overrides;
+    luisa::unordered_map<const Symbol *, bool> dynamic_inputs;
     luisa::unordered_set<const Symbol *> skip_init_params;
     luisa::vector<OSOCodeRange> ranges;
 };

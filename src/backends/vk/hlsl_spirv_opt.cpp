@@ -403,12 +403,10 @@ namespace {
             optimizer.RegisterPass(spvtools::CreateSimplificationPass());
         }
 
-        if (outlined_funcs > 0u) {
-            // Clear synthetic DontInline hints so the GPU driver's backend
-            // retains full freedom over final call/inline decisions (matching
-            // native XIR-to-SPIR-V emission).
-            optimizer.RegisterPass(spvtools::CreateRemoveDontInlinePass());
-        }
+        // Clear any DontInline hints so the GPU driver's backend retains
+        // full freedom over final call/inline decisions and emitted SPIR-V
+        // never carries DontInline.
+        optimizer.RegisterPass(spvtools::CreateRemoveDontInlinePass());
         optimizer.RegisterPass(spvtools::CreateSpreadVolatileSemanticsPass());
         optimizer.RegisterPass(spvtools::CreateRemoveUnusedInterfaceVariablesPass());
         optimizer.RegisterPass(spvtools::CreateCompactIdsPass());

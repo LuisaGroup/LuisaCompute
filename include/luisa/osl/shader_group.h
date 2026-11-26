@@ -65,6 +65,7 @@ struct ShaderLayer {
     luisa::string name;
     const Shader *shader{nullptr};
     luisa::unordered_map<luisa::string, ParameterValue> overrides;
+    luisa::unordered_map<luisa::string, bool> dynamic_inputs;
 };
 
 class LUISA_OSL_API ShaderGroup {
@@ -86,6 +87,7 @@ public:
     uint32_t add_layer(luisa::string name, const Shader *shader) noexcept;
     uint32_t add_layer(const Shader *shader) noexcept;
     void set_parameter(uint32_t layer, luisa::string_view param_name, ParameterValue value) noexcept;
+    void mark_dynamic_input(uint32_t layer, luisa::string_view param_name, bool has_deriv = false) noexcept;
     void connect_shaders(uint32_t src_layer, luisa::string_view src_param,
                          uint32_t dst_layer, luisa::string_view dst_param) noexcept;
     void mark_output(uint32_t layer, luisa::string_view param_name, bool want_deriv = false) noexcept;

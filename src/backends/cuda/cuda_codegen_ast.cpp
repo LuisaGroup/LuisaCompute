@@ -2528,7 +2528,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
                          "__raygen__main" :
                          "kernel_main");
     } else if (f.tag() == Function::Tag::CALLABLE) {
-        _scratch << (f.requires_noinline() ? "__noinline__ __device__ " : "__forceinline__ __device__ ");
+        _scratch << "__forceinline__ __device__ ";
         if (f.return_type() != nullptr) {
             _emit_type_name(f.return_type());
         } else {

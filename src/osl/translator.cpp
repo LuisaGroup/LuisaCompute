@@ -1071,6 +1071,27 @@ void OSLTranslator::Impl::allocate_group_storage() noexcept {
                 ov = it->second;
             }
 
+            if (ll.dynamic_inputs.contains(sym)) {
+                if (stor.is_closure) {
+                    if (stor.array_length > 0) {
+                        report_error(luisa::format("Dynamic closure array input '{}' is not supported.", sym->identifier()));
+                        return;
+                    }
+                    ClosureValue cv = owner->emit_dynamic_closure_input(ll.group_layer_index, sym->identifier());
+                    if (!errors.empty()) { return; }
+                    builder.store(stor.val_ptr, cv.value ? cv.value : zero_of(xt));
+                } else {
+                    DualValue dv = owner->emit_dynamic_input(
+                        ll.group_layer_index, sym->identifier(), sym->type(), stor.array_length, stor.is_dual);
+                    if (!errors.empty()) { return; }
+                    builder.store(stor.val_ptr, dv.val ? dv.val : zero_of(xt));
+                    if (stor.dx_ptr) { builder.store(stor.dx_ptr, dv.dx ? dv.dx : zero_of(xt)); }
+                    if (stor.dy_ptr) { builder.store(stor.dy_ptr, dv.dy ? dv.dy : zero_of(xt)); }
+                }
+                rt.storage.emplace(sym, stor);
+                continue;
+            }
+
             if (stor.is_closure) {
                 ClosureValue z = owner->emit_closure_zero();
                 if (stor.array_length == 0) {
@@ -1879,6 +1900,21 @@ DualValue OSLTranslator::emit_noise(
     luisa::span<const DualValue> coords, luisa::span<const DualValue> periods,
     const Type *dst_type, bool want_deriv, luisa::span<const NamedOption> opts) noexcept {
     return _impl->emit_default_noise(noise_type, op, coords, periods, dst_type, want_deriv, opts);
+}
+
+DualValue OSLTranslator::emit_dynamic_input(
+    uint32_t layer_index, luisa::string_view param_name,
+    const Type *, int, bool) noexcept {
+    report_error(luisa::format("OSLTranslator::emit_dynamic_input({}, '{}') not implemented.",
+                               layer_index, param_name));
+    return {};
+}
+
+ClosureValue OSLTranslator::emit_dynamic_closure_input(
+    uint32_t layer_index, luisa::string_view param_name) noexcept {
+    report_error(luisa::format("OSLTranslator::emit_dynamic_closure_input({}, '{}') not implemented.",
+                               layer_index, param_name));
+    return {};
 }
 
 xir::Value *OSLTranslator::emit_trace(

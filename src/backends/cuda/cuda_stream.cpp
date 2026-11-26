@@ -1,4 +1,6 @@
+#include <cstring>
 #include <cstdlib>
+#include <limits>
 #include <mutex>
 
 #include <nvtx3/nvToolsExtCuda.h>
@@ -118,28 +120,84 @@ using LaunchHostFuncSpinWait = CUresult (*)(CUstream, CUhostFn, void *, unsigned
 #endif
 }
 
-/// Enqueue the ticket publication of one `CUDAStream::callback()` submission.
-/// `syncMode` is per call, so the deferred staging-event path stays untouched,
-/// and only the user-callback path asks the driver to spin its host-task thread.
-inline void launch_host_func(CUstream stream, StreamCallbackSemaphoreUpdate *update) noexcept {
-    auto host_func = [](void *data) noexcept {
-        static_cast<StreamCallbackSemaphoreUpdate *>(data)->recycle();
-    };
+/// Enqueue a host callback ordered after prior work on `stream` (preferring
+/// spin-wait mode when supported by the driver).
+inline void launch_host_func_raw(CUstream stream, CUhostFn host_func, void *data) noexcept {
     if (auto launch_spin_wait = launch_host_func_spin_wait(); launch_spin_wait != nullptr) {
-        auto error = launch_spin_wait(stream, host_func, update, kHostTaskSpinWait);
+        auto error = launch_spin_wait(stream, host_func, data, kHostTaskSpinWait);
         if (error == CUDA_SUCCESS) { return; }
         // CUDA_ERROR_NOT_SUPPORTED is the documented "this driver will not
         // spin wait" answer, and an out-of-range sync mode is reported as
         // CUDA_ERROR_INVALID_VALUE. Both are reported before the host function is
         // enqueued, so re-issuing the identical submission through the blocking
-        // entry point below is safe and loses no ticket; should a driver ever
-        // report them after enqueueing, the node's idempotent `recycle()` keeps
-        // the double submission from double-destroying it.
+        // entry point below is safe.
         if (error != CUDA_ERROR_NOT_SUPPORTED && error != CUDA_ERROR_INVALID_VALUE) {
             LUISA_CHECK_CUDA(error);
         }
     }
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(stream, host_func, update));
+    LUISA_CHECK_CUDA(cuLaunchHostFunc(stream, host_func, data));
+}
+
+/// Enqueue the ticket publication of one `CUDAStream::callback()` submission.
+inline void launch_host_func(CUstream stream, StreamCallbackSemaphoreUpdate *update) noexcept {
+    auto host_func = [](void *data) noexcept {
+        static_cast<StreamCallbackSemaphoreUpdate *>(data)->recycle();
+    };
+    launch_host_func_raw(stream, host_func, update);
+}
+
+class CUDADownloadCopyContext final {
+
+private:
+    luisa::vector<CUDAStream::DeferredDownloadCopy> _copies;
+    std::atomic_bool _done{};
+
+    [[nodiscard]] static auto &_object_pool() noexcept {
+        static Pool<CUDADownloadCopyContext, true> pool;
+        return pool;
+    }
+
+public:
+    explicit CUDADownloadCopyContext(
+        luisa::vector<CUDAStream::DeferredDownloadCopy> &&copies) noexcept
+        : _copies{std::move(copies)} {}
+
+    [[nodiscard]] static auto create(
+        luisa::vector<CUDAStream::DeferredDownloadCopy> &&copies) noexcept {
+        return _object_pool().create(std::move(copies));
+    }
+
+    void recycle() noexcept {
+        if (!_done.exchange(true, std::memory_order_acq_rel)) {
+            for (const auto &copy : _copies) {
+                if (copy.size > 0u) {
+                    std::memcpy(copy.dst, copy.staging->address(), copy.size);
+                }
+                copy.staging->recycle();
+            }
+            _object_pool().destroy(this);
+        }
+    }
+
+    void discard_without_copy() noexcept {
+        if (!_done.exchange(true, std::memory_order_acq_rel)) {
+            for (const auto &copy : _copies) {
+                copy.staging->recycle();
+            }
+            _object_pool().destroy(this);
+        }
+    }
+};
+
+inline CUresult try_launch_host_func_raw(CUstream stream, CUhostFn host_func, void *data) noexcept {
+    if (auto launch_spin_wait = launch_host_func_spin_wait(); launch_spin_wait != nullptr) {
+        auto error = launch_spin_wait(stream, host_func, data, kHostTaskSpinWait);
+        if (error == CUDA_SUCCESS) { return CUDA_SUCCESS; }
+        if (error != CUDA_ERROR_NOT_SUPPORTED && error != CUDA_ERROR_INVALID_VALUE) {
+            return error;
+        }
+    }
+    return cuLaunchHostFunc(stream, host_func, data);
 }
 
 }// namespace cuda_stream_detail
@@ -196,6 +254,7 @@ CUDAStream::~CUDAStream() noexcept {
     // wait for the stream to finish
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
     _reclaim_staging(true);
+    _drain_deferred_downloads_after_sync(std::numeric_limits<uint64_t>::max());
     // wait for the callback thread to stop
     _callback_thread.join();
     // destroy the events before the stream they were recorded on
@@ -217,12 +276,7 @@ void CUDAStream::synchronize() noexcept {
     // and this call, and forcing it would hand its block back to the pool while the
     // copies that use it are still queued.
     _reclaim_staging(false);
-    {
-        std::scoped_lock lock{_host_download_mutex};
-        erase_host_transfer_if(_pending_host_downloads, [dl_seq](const PendingHostDownload &entry) noexcept {
-            return entry.seq <= dl_seq;
-        });
-    }
+    _drain_deferred_downloads_after_sync(dl_seq);
     auto wait_iterations = 0u;
     constexpr auto max_wait_iterations_before_yield = 1024u;
     for (;;) {// TODO: is spinning good enough?
@@ -308,12 +362,92 @@ void CUDAStream::_reclaim_staging(bool all) noexcept {
     _pending_staging.resize(keep);
 }
 
+void CUDAStream::_drain_deferred_downloads_after_sync(uint64_t max_seq) noexcept {
+    luisa::vector<DeferredDownloadCopy> ready;
+    {
+        std::scoped_lock lock{_host_download_mutex};
+        erase_host_transfer_if(_pending_host_downloads, [max_seq](const PendingHostDownload &entry) noexcept {
+            return entry.seq <= max_seq;
+        });
+        if (!_deferred_downloads.empty()) {
+            auto keep = size_t{0u};
+            ready.reserve(_deferred_downloads.size());
+            for (auto i = size_t{0u}; i < _deferred_downloads.size(); ++i) {
+                auto &entry = _deferred_downloads[i];
+                if (entry.seq <= max_seq) {
+                    ready.emplace_back(entry);
+                } else {
+                    if (keep != i) { _deferred_downloads[keep] = entry; }
+                    ++keep;
+                }
+            }
+            _deferred_downloads.resize(keep);
+        }
+    }
+    for (const auto &copy : ready) {
+        if (copy.size > 0u) {
+            std::memcpy(copy.dst, copy.staging->address(), copy.size);
+        }
+        copy.staging->recycle();
+    }
+}
+
+size_t CUDAStream::deferred_download_count() noexcept {
+    std::scoped_lock lock{_host_download_mutex};
+    return _deferred_downloads.size();
+}
+
+void CUDAStream::record_deferred_host_download(
+    void *dst, CUDAHostBufferPool::View *staging, size_t size_bytes) noexcept {
+    auto range = make_host_byte_range(dst, size_bytes);
+    auto seq = _host_download_seq.fetch_add(1u, std::memory_order_acq_rel) + 1u;
+    std::scoped_lock lock{_host_download_mutex};
+    if (_pending_host_downloads.size() >= 64u &&
+        _deferred_downloads.empty() &&
+        cuStreamQuery(_stream) == CUDA_SUCCESS) {
+        _pending_host_downloads.clear();
+    }
+    if (!range.empty()) {
+        _pending_host_downloads.emplace_back(PendingHostDownload{range, seq});
+    }
+    _deferred_downloads.emplace_back(DeferredDownloadCopy{
+        .dst = dst,
+        .staging = staging,
+        .size = size_bytes,
+        .seq = seq});
+}
+
+void CUDAStream::flush_deferred_downloads_inline_locked() noexcept {
+    luisa::vector<DeferredDownloadCopy> copies;
+    {
+        std::scoped_lock lock{_host_download_mutex};
+        if (_deferred_downloads.empty()) { return; }
+        copies = std::move(_deferred_downloads);
+        _deferred_downloads.clear();
+    }
+    auto *ctx = cuda_stream_detail::CUDADownloadCopyContext::create(std::move(copies));
+    auto host_func = [](void *data) noexcept {
+        static_cast<cuda_stream_detail::CUDADownloadCopyContext *>(data)->recycle();
+    };
+    auto result = cuda_stream_detail::try_launch_host_func_raw(_stream, host_func, ctx);
+    if (result != CUDA_SUCCESS) {
+        ctx->discard_without_copy();
+        LUISA_CHECK_CUDA(result);
+    }
+    note_pdl_predecessor(false);
+}
+
 void CUDAStream::record_pending_host_download(
     const void *data, size_t size_bytes) noexcept {
     auto range = make_host_byte_range(data, size_bytes);
     if (range.empty()) { return; }
     auto seq = _host_download_seq.fetch_add(1u, std::memory_order_acq_rel) + 1u;
     std::scoped_lock lock{_host_download_mutex};
+    if (_pending_host_downloads.size() >= 64u &&
+        _deferred_downloads.empty() &&
+        cuStreamQuery(_stream) == CUDA_SUCCESS) {
+        _pending_host_downloads.clear();
+    }
     _pending_host_downloads.emplace_back(PendingHostDownload{range, seq});
 }
 
@@ -335,16 +469,13 @@ bool CUDAStream::sync_if_overlapping_host_download(
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
     clear_pdl_predecessor();
     _reclaim_staging(false);
-    {
-        std::scoped_lock lock{_host_download_mutex};
-        erase_host_transfer_if(_pending_host_downloads, [target_seq](const PendingHostDownload &entry) noexcept {
-            return entry.seq <= target_seq;
-        });
-    }
+    _drain_deferred_downloads_after_sync(target_seq);
     return true;
 }
 
 void CUDAStream::signal(CUDAEvent *event, uint64_t value) noexcept {
+    std::scoped_lock lock{_dispatch_mutex};
+    flush_deferred_downloads_inline_locked();
     event->signal(_stream, value);
     // A semaphore write is not a kernel launch.
     note_pdl_predecessor(false);

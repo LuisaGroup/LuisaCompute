@@ -576,6 +576,23 @@ void analyze_group_strings_and_constants(
                 }
                 return;
             }
+            if (ll.dynamic_inputs.contains(sym)) {
+                if (prim == SimpleType::Primitive::STRING) {
+                    if (sym->is_array()) {
+                        luisa::vector<StringLattice> arr(static_cast<size_t>(std::max(0, len)), StringLattice::top());
+                        init_state.string_arrays.emplace(sym, std::move(arr));
+                    } else {
+                        init_state.strings[sym] = StringLattice::top();
+                    }
+                } else {
+                    init_state.scalars[sym] = ScalarLattice::top();
+                    init_state.triples.erase(sym);
+                    init_state.non_const_triples.emplace(sym);
+                    init_state.matrices.erase(sym);
+                    init_state.non_const_matrices.emplace(sym);
+                }
+                return;
+            }
 
             if (sym->is_array()) {
                 if (prim == SimpleType::Primitive::STRING) {
@@ -1218,12 +1235,21 @@ void analyze_group_strings_and_constants(
 
             if (op == "isconnected" && args.size() >= 2u) {
                 const Symbol *sym = args[1];
+                const Symbol *root = sym->root();
                 bool conn = false;
                 for (uint32_t ci : ll.incoming_connections) {
                     const auto &c = group.connections[ci];
-                    if (c.dst_symbol == sym || c.dst_symbol == sym->root()) {
+                    if (c.dst_symbol == sym || c.dst_symbol == root) {
                         conn = true;
                         break;
+                    }
+                }
+                if (!conn) {
+                    for (const auto &[dyn_sym, _] : ll.dynamic_inputs) {
+                        if (dyn_sym == sym || dyn_sym->root() == root) {
+                            conn = true;
+                            break;
+                        }
                     }
                 }
                 set_int(args[0], conn ? 1 : 0);

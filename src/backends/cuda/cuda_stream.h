@@ -42,6 +42,13 @@ public:
         CallbackContainer callbacks;
     };
 
+    struct DeferredDownloadCopy {
+        void *dst{};
+        CUDAHostBufferPool::View *staging{};
+        size_t size{0u};
+        uint64_t seq{0u};
+    };
+
 private:
     CUDADevice *_device;
     CUDAHostBufferPool _upload_pool;
@@ -82,7 +89,9 @@ private:
     };
     spin_mutex _host_download_mutex;
     luisa::vector<PendingHostDownload> _pending_host_downloads;
+    luisa::vector<DeferredDownloadCopy> _deferred_downloads;
     std::atomic_uint64_t _host_download_seq{0u};
+    void _drain_deferred_downloads_after_sync(uint64_t max_seq) noexcept;
 
 private:
     using LogCallback = DeviceInterface::StreamLogCallback;
@@ -120,6 +129,9 @@ public:
     /// Return staging pool views to the pool once the stream has passed this
     /// submission, without a host callback (records one CUevent).
     void defer_recycle(luisa::vector<CUDACallbackContext *> &&contexts) noexcept;
+    [[nodiscard]] size_t deferred_download_count() noexcept;
+    void record_deferred_host_download(void *dst, CUDAHostBufferPool::View *staging, size_t size_bytes) noexcept;
+    void flush_deferred_downloads_inline_locked() noexcept;
     void record_pending_host_download(const void *data, size_t size_bytes) noexcept;
     [[nodiscard]] bool sync_if_overlapping_host_download(const void *data, size_t size_bytes) noexcept;
     void set_name(luisa::string &&name) noexcept;

@@ -2282,6 +2282,14 @@ bool OSLTranslator::Impl::try_emit_instruction(
                 break;
             }
         }
+        if (!conn) {
+            for (const auto &[dyn_sym, _] : ll.dynamic_inputs) {
+                if (dyn_sym->root() == q) {
+                    conn = true;
+                    break;
+                }
+            }
+        }
         store_symbol(active_layer, args[0],
                      convert_dual({.val = const_int(conn ? 1 : 0)}, osl_int(), args[0]->type(), false));
         return true;
