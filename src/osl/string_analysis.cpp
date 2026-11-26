@@ -3,6 +3,7 @@
 #include <climits>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <utility>
 
 #include <luisa/core/stl/format.h>
