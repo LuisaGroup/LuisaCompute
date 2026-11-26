@@ -7,6 +7,18 @@ set(LUISA_COMPUTE_OSL_SOURCES
         type.cpp
         oso_parser.cpp)
 
+if (TARGET luisa-compute-xir)
+    list(APPEND LUISA_COMPUTE_OSL_SOURCES
+            string_table.cpp
+            shader_group.cpp
+            string_analysis.cpp
+            deriv_analysis.cpp
+            translator.cpp
+            translator_ops.cpp
+            translator_color.cpp
+            translator_noise.cpp)
+endif ()
+
 if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(_LUISA_OSL_LIBRARY_TYPE STATIC)
 else ()
@@ -15,6 +27,9 @@ endif ()
 add_library(luisa-compute-osl
         ${_LUISA_OSL_LIBRARY_TYPE} ${LUISA_COMPUTE_OSL_SOURCES})
 target_link_libraries(luisa-compute-osl PUBLIC luisa-compute-ast)
+if (TARGET luisa-compute-xir)
+    target_link_libraries(luisa-compute-osl PUBLIC luisa-compute-xir)
+endif ()
 
 target_compile_definitions(luisa-compute-osl PRIVATE LUISA_OSL_EXPORT_DLL=1)
 

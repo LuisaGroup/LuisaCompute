@@ -893,6 +893,21 @@ if has_config("lc_enable_osl") then
     test_proj("test_oso_parser", "integration/runtime/test_oso_parser.cpp", false, function()
         add_deps("lc-osl")
     end)
+    if has_config("lc_enable_xir") then
+        for _, name in ipairs({
+            "test_osl_types_and_math",
+            "test_osl_control_flow",
+            "test_osl_strings_and_hooks",
+            "test_osl_derivatives",
+            "test_osl_shader_group_and_closures",
+            "test_osl_diagnostics_fail_closed",
+        }) do
+            test_proj(name, "unit/osl/" .. name .. ".cpp", false, function()
+                add_defines("LUISA_ENABLE_XIR")
+                add_deps("lc-osl")
+            end)
+        end
+    end
 end
 
 test_proj("test_bindless", "integration/runtime/test_bindless.cpp", true)

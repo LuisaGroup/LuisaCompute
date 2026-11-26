@@ -2323,3 +2323,30 @@ luisa_compute_add_test(test_nbody_render_plan unit/core/test_nbody_render_plan.c
 target_include_directories(test_nbody_render_plan PRIVATE integration/common)
 luisa_compute_add_test(test_photon_mapping_plan unit/core/test_photon_mapping_plan.cpp LABELS "unit;unit_core")
 target_include_directories(test_photon_mapping_plan PRIVATE integration/common)
+
+# --- unit/osl: OSL (.oso) -> Luisa XIR translator tests (official OSL testsuite categories) ---
+if (TARGET luisa-compute-osl AND TARGET luisa-compute-xir)
+    set(_osl_test_default_backend "")
+    foreach (_b IN ITEMS fallback simd dx vk metal cuda hip)
+        if (TARGET luisa-compute-backend-${_b})
+            set(_osl_test_default_backend "${_b}")
+            break()
+        endif ()
+    endforeach ()
+    foreach (_osl_exec_test IN ITEMS
+             test_osl_types_and_math
+             test_osl_control_flow
+             test_osl_strings_and_hooks
+             test_osl_derivatives
+             test_osl_shader_group_and_closures)
+        if (_osl_test_default_backend)
+            luisa_compute_add_test(${_osl_exec_test} unit/osl/${_osl_exec_test}.cpp
+                    LABELS "unit;unit_osl;unit_xir"
+                    ARGS ${_osl_test_default_backend})
+        else ()
+            luisa_compute_add_test(${_osl_exec_test} unit/osl/${_osl_exec_test}.cpp)
+        endif ()
+    endforeach ()
+    luisa_compute_add_test(test_osl_diagnostics_fail_closed unit/osl/test_osl_diagnostics_fail_closed.cpp
+            LABELS "unit;unit_osl;unit_xir")
+endif ()

@@ -178,17 +178,15 @@ luisa::unique_ptr<Symbol> OSOParser::_parse_symbol() noexcept {
     _skip_whitespaces();
     _match_eol();
 
-    // find its parent
+    // find its parent (note: oslc -O2 may omit parent struct symbols for scalarized temp/local fields)
     Symbol *parent = nullptr;
     // find the last '.' in the identifier
     if (auto dot = identifier.find_last_of('.');
         dot != luisa::string ::npos) {
         auto parent_ident = luisa::string_view{identifier}.substr(0u, dot);
-        auto iter = _id_to_symbol.find(parent_ident);
-        LUISA_ASSERT(iter != _id_to_symbol.end(),
-                     "Unknown parent symbol '{}' of '{}' at {}.",
-                     parent_ident, identifier, _location());
-        parent = iter->second;
+        if (auto iter = _id_to_symbol.find(parent_ident); iter != _id_to_symbol.end()) {
+            parent = iter->second;
+        }
     }
     // create the symbol
     auto symbol = luisa::make_unique<Symbol>(

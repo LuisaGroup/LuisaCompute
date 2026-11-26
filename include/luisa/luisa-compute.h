@@ -106,6 +106,12 @@
 #include <luisa/osl/shader.h>
 #include <luisa/osl/symbol.h>
 #include <luisa/osl/type.h>
+#ifdef LUISA_ENABLE_XIR
+#include <luisa/osl/string_table.h>
+#include <luisa/osl/shader_group.h>
+#include <luisa/osl/translator_types.h>
+#include <luisa/osl/translator.h>
+#endif
 
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/buffer.h>
