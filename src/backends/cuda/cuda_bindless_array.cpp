@@ -103,15 +103,14 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
         case Sampler::Filter::LINEAR_LINEAR:
             texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_LINEAR;
-            texture_desc.maxMipmapLevelClamp = 999.0f;
             break;
         case Sampler::Filter::ANISOTROPIC:
             texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.maxAnisotropy = 16;
-            texture_desc.maxMipmapLevelClamp = 999.0f;
             break;
     }
+    texture_desc.maxMipmapLevelClamp = 999.0f;
     texture_desc.flags = CU_TRSF_NORMALIZED_COORDINATES;
     return texture_desc;
 }
