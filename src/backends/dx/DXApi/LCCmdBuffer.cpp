@@ -2055,6 +2055,15 @@ void LCCmdBuffer::_execute_chunk(
                 _pending_host_downloads.push_back(PendingHostDownload{dl, submitted_fence});
             }
         }
+        // Prune after every non-empty submission, including download-only batches.
+        // Otherwise event-synchronized readback streams retain every record until
+        // an unrelated upload or a full stream synchronization happens.
+        const auto completed = queue.completed_allocator_frame();
+        luisa::compute::erase_host_transfer_if(
+            _pending_host_downloads,
+            [completed](const PendingHostDownload &entry) noexcept {
+                return entry.fence <= completed;
+            });
     }
 }
 void LCCmdBuffer::Execute(

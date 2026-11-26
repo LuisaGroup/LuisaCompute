@@ -1566,6 +1566,15 @@ if (TARGET luisa-compute-backend-fallback)
     set_tests_properties(fallback_test_host_transfer_ordering PROPERTIES
             LABELS "unit;unit_runtime;fallback" TIMEOUT 120)
 endif ()
+foreach (host_transfer_backend IN ITEMS dx vk)
+    if (TARGET luisa-compute-backend-${host_transfer_backend})
+        add_dependencies(test_host_transfer_ordering luisa-compute-backend-${host_transfer_backend})
+        add_test(NAME ${host_transfer_backend}_test_host_transfer_ordering
+                COMMAND $<TARGET_FILE:test_host_transfer_ordering> ${host_transfer_backend})
+        set_tests_properties(${host_transfer_backend}_test_host_transfer_ordering PROPERTIES
+                LABELS "unit;unit_runtime;${host_transfer_backend}" TIMEOUT 120)
+    endif ()
+endforeach ()
 luisa_compute_add_test(test_buffer unit/runtime/test_buffer.cpp)
 luisa_compute_add_test(test_batch_readback unit/runtime/test_batch_readback.cpp)
 luisa_compute_add_test(test_resource_ref_count unit/runtime/test_resource_ref_count.cpp)
