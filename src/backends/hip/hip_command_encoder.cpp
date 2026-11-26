@@ -48,6 +48,23 @@ public:
 };
 
 void HIPCommandEncoder::commit(CommandList::CallbackContainer &&user_callbacks) noexcept {
+    constexpr size_t max_deferred_download_batch = 32u;
+    if (!user_callbacks.empty() ||
+        (!_deferred_downloads.empty() &&
+         (_stream->deferred_download_count_locked() + _deferred_downloads.size() >=
+          max_deferred_download_batch))) {
+        auto queued = _stream->take_deferred_downloads_locked();
+        if (!queued.empty() || !_deferred_downloads.empty()) {
+            queued.insert(queued.end(), _deferred_downloads.begin(), _deferred_downloads.end());
+            _deferred_downloads.clear();
+            _callbacks.insert(
+                _callbacks.begin(),
+                HIPStream::create_download_copy_context(std::move(queued)));
+        }
+    } else if (!_deferred_downloads.empty()) {
+        _stream->append_deferred_downloads_locked(std::move(_deferred_downloads));
+        _deferred_downloads.clear();
+    }
     if (!user_callbacks.empty()) {
         _callbacks.emplace_back(
             UserCallbackContext::create(
@@ -78,19 +95,16 @@ void HIPCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
     auto binding = buffer->binding(command->offset(), command->size());
     auto data = command->data();
     auto size = command->size();
-    with_download_pool_no_fallback(size, [&](auto download_buffer) noexcept {
-        if (download_buffer) {
-            LUISA_CHECK_HIP(hipMemcpyDtoHAsync(
-                download_buffer->address(), binding.ptr,
-                size, _stream->handle()));
-            LUISA_CHECK_HIP(hipMemcpyAsync(
-                data, download_buffer->address(),
-                size, hipMemcpyHostToHost, _stream->handle()));
-        } else {
-            LUISA_CHECK_HIP(hipMemcpyDtoHAsync(
-                data, binding.ptr, size, _stream->handle()));
-        }
-    });
+    auto *download_buffer = _stream->download_pool()->allocate(size, false);
+    if (download_buffer != nullptr) {
+        LUISA_CHECK_HIP(hipMemcpyDtoHAsync(
+            download_buffer->address(), binding.ptr,
+            size, _stream->handle()));
+        _deferred_downloads.push_back({data, download_buffer, size});
+    } else {
+        LUISA_CHECK_HIP(hipMemcpyDtoHAsync(
+            data, binding.ptr, size, _stream->handle()));
+    }
 }
 
 void HIPCommandEncoder::visit(BufferCopyCommand *command) noexcept {
@@ -182,18 +196,15 @@ void HIPCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
     copy.dstMemoryType = hipMemoryTypeHost;
     copy.dstPitch = pitch;
     copy.dstHeight = height;
-    with_download_pool_no_fallback(size_bytes, [&](auto download_buffer) noexcept {
-        if (download_buffer) {
-            copy.dstHost = download_buffer->address();
-            LUISA_CHECK_HIP(hipDrvMemcpy3DAsync(&copy, _stream->handle()));
-            LUISA_CHECK_HIP(hipMemcpyAsync(
-                command->data(), download_buffer->address(),
-                size_bytes, hipMemcpyHostToHost, _stream->handle()));
-        } else {
-            copy.dstHost = command->data();
-            LUISA_CHECK_HIP(hipDrvMemcpy3DAsync(&copy, _stream->handle()));
-        }
-    });
+    auto *download_buffer = _stream->download_pool()->allocate(size_bytes, false);
+    if (download_buffer != nullptr) {
+        copy.dstHost = download_buffer->address();
+        LUISA_CHECK_HIP(hipDrvMemcpy3DAsync(&copy, _stream->handle()));
+        _deferred_downloads.push_back({command->data(), download_buffer, size_bytes});
+    } else {
+        copy.dstHost = command->data();
+        LUISA_CHECK_HIP(hipDrvMemcpy3DAsync(&copy, _stream->handle()));
+    }
 }
 
 void HIPCommandEncoder::visit(TextureCopyCommand *command) noexcept {

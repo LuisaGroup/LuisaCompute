@@ -48,6 +48,12 @@ public:
         double gpu_ms{0.0};
     };
 
+    struct DeferredDownloadCopy {
+        void *dst{};
+        HIPStageBufferPool::View *staging{};
+        size_t size{0u};
+    };
+
 private:
     HIPDevice *_device;
     hipStream_t _stream{};
@@ -81,6 +87,7 @@ private:
     uint64_t _sync_count{0u};
     luisa::vector<PendingProfileEvent> _pending_profile_events;
     luisa::unordered_map<luisa::string, ProfileAggregate> _shader_profile_totals;
+    luisa::vector<DeferredDownloadCopy> _deferred_downloads;
 
 private:
     void _create_callback_semaphore() noexcept;
@@ -89,6 +96,7 @@ private:
     void _shutdown_callback_thread() noexcept;
     void _notify_hiprt_build_completed_after_synchronize() noexcept;
     void _drain_profile_events_after_sync() noexcept;
+    void _drain_deferred_downloads_after_sync() noexcept;
 
 public:
     explicit HIPStream(HIPDevice *device) noexcept;
@@ -97,6 +105,16 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _stream; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
     [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
+    [[nodiscard]] size_t deferred_download_count_locked() const noexcept {
+        return _deferred_downloads.size();
+    }
+    void append_deferred_downloads_locked(
+        luisa::vector<DeferredDownloadCopy> &&copies) noexcept;
+    [[nodiscard]] luisa::vector<DeferredDownloadCopy>
+    take_deferred_downloads_locked() noexcept;
+    [[nodiscard]] static HIPCallbackContext *create_download_copy_context(
+        luisa::vector<DeferredDownloadCopy> &&copies) noexcept;
+    void flush_deferred_downloads() noexcept;
     // Temporary acceleration-structure builders on one stream are totally
     // ordered, so they share one allocation whose lifetime is the stream.
     [[nodiscard]] hipDeviceptr_t rt_scratch_buffer(size_t required_size) noexcept;

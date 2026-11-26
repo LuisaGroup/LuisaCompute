@@ -6,6 +6,7 @@
 #include <bit>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <string>
 
@@ -89,8 +90,91 @@ void HIPStream::_shutdown_callback_thread() noexcept {
     // wait for the stream to finish
     LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
     _notify_hiprt_build_completed_after_synchronize();
+    _drain_deferred_downloads_after_sync();
     // wait for the callback thread to stop
     _callback_thread.join();
+}
+
+namespace {
+
+class HIPDownloadCopyContext final : public HIPCallbackContext {
+
+private:
+    luisa::vector<HIPStream::DeferredDownloadCopy> _copies;
+
+    [[nodiscard]] static auto &_object_pool() noexcept {
+        static Pool<HIPDownloadCopyContext, true> pool;
+        return pool;
+    }
+
+public:
+    explicit HIPDownloadCopyContext(
+        luisa::vector<HIPStream::DeferredDownloadCopy> &&copies) noexcept
+        : _copies{std::move(copies)} {}
+
+    [[nodiscard]] static auto create(
+        luisa::vector<HIPStream::DeferredDownloadCopy> &&copies) noexcept {
+        return _object_pool().create(std::move(copies));
+    }
+
+    void recycle() noexcept override {
+        for (const auto &copy : _copies) {
+            std::memcpy(copy.dst, copy.staging->address(), copy.size);
+            copy.staging->recycle();
+        }
+        _object_pool().destroy(this);
+    }
+};
+
+}// namespace
+
+void HIPStream::append_deferred_downloads_locked(
+    luisa::vector<DeferredDownloadCopy> &&copies) noexcept {
+    _deferred_downloads.insert(
+        _deferred_downloads.end(),
+        copies.begin(),
+        copies.end());
+}
+
+luisa::vector<HIPStream::DeferredDownloadCopy>
+HIPStream::take_deferred_downloads_locked() noexcept {
+    auto taken = std::move(_deferred_downloads);
+    _deferred_downloads.clear();
+    return taken;
+}
+
+HIPCallbackContext *HIPStream::create_download_copy_context(
+    luisa::vector<DeferredDownloadCopy> &&copies) noexcept {
+    return HIPDownloadCopyContext::create(std::move(copies));
+}
+
+void HIPStream::flush_deferred_downloads() noexcept {
+    luisa::vector<DeferredDownloadCopy> pending;
+    {
+        std::scoped_lock lock{_dispatch_mutex};
+        if (_deferred_downloads.empty()) {
+            return;
+        }
+        pending = take_deferred_downloads_locked();
+    }
+    CallbackContainer cbs;
+    cbs.emplace_back(create_download_copy_context(std::move(pending)));
+    callback(std::move(cbs));
+}
+
+void HIPStream::_drain_deferred_downloads_after_sync() noexcept {
+    luisa::vector<DeferredDownloadCopy> pending;
+    {
+        std::scoped_lock lock{_dispatch_mutex};
+        if (_deferred_downloads.empty()) {
+            return;
+        }
+        pending = take_deferred_downloads_locked();
+    }
+    for (const auto &copy : pending) {
+        std::memcpy(copy.dst, copy.staging->address(), copy.size);
+        copy.staging->recycle();
+    }
 }
 
 void HIPStream::_notify_hiprt_build_completed_after_synchronize() noexcept {
@@ -397,6 +481,7 @@ void HIPStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
     LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
     _notify_hiprt_build_completed_after_synchronize();
+    _drain_deferred_downloads_after_sync();
     // HIP has already drained the device stream. The remaining wait is only
     // for the callback thread to recycle host-side command resources and
     // publish the completion ticket. Waiting on that atomic avoids occupying
