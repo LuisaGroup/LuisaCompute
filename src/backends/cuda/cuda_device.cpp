@@ -442,9 +442,9 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 }  // namespace cuda_device_detail_3
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 31 adds explicit-sampler and direct-texture sampling ops.
+// Revision 32 expands CUDASurface to 32B and switches direct texture sampling to hardware tex.
 namespace cuda_device_detail_2 {
-static constexpr uint64_t cuda_llvm_cache_revision = 31u;
+static constexpr uint64_t cuda_llvm_cache_revision = 32u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -491,7 +491,8 @@ namespace cuda_device_detail_2 {
         case PixelFormat::RG8UNorm: return CU_AD_FORMAT_UNSIGNED_INT8;
         case PixelFormat::RGBA8SInt: return CU_AD_FORMAT_SIGNED_INT8;
         case PixelFormat::RGBA8UInt: [[fallthrough]];
-        case PixelFormat::RGBA8UNorm: return CU_AD_FORMAT_UNSIGNED_INT8;
+        case PixelFormat::RGBA8UNorm: [[fallthrough]];
+        case PixelFormat::RGBA8SRGB: return CU_AD_FORMAT_UNSIGNED_INT8;
         case PixelFormat::R16SInt: return CU_AD_FORMAT_SIGNED_INT16;
         case PixelFormat::R16UInt: [[fallthrough]];
         case PixelFormat::R16UNorm: return CU_AD_FORMAT_UNSIGNED_INT16;
@@ -519,11 +520,19 @@ namespace cuda_device_detail_2 {
         case PixelFormat::BC4UNorm: return CU_AD_FORMAT_BC4_UNORM;
         case PixelFormat::BC5UNorm: return CU_AD_FORMAT_BC5_UNORM;
         case PixelFormat::BC6HUF16: return CU_AD_FORMAT_BC6H_UF16;
-        case PixelFormat::BC7UNorm: return CU_AD_FORMAT_BC7_UNORM;
+        case PixelFormat::BC7UNorm: [[fallthrough]];
+        case PixelFormat::BC7SRGB: return CU_AD_FORMAT_BC7_UNORM;
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Invalid pixel format 0x{:02x}.",
                               luisa::to_underlying(format));
+}
+
+[[nodiscard]] static auto cuda_array_channels(PixelFormat format) noexcept {
+    // CUDA arrays only allow 1, 2, or 4 channels; BC1 (CU_AD_FORMAT_BC1_UNORM)
+    // and BC6H report 3 logical channels in LuisaCompute and require 4 here.
+    auto channels = pixel_format_channel_count(format);
+    return channels == 3u ? 4u : channels;
 }
 
 }  // namespace cuda_device_detail_2
@@ -846,7 +855,7 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
     LUISA_ASSERT(external_native_handle == nullptr, "Not implemented.");
     auto p = with_handle([=] {
         auto array_format = cuda_device_detail_2::cuda_array_format(format);
-        auto channels = pixel_format_channel_count(format);
+        auto channels = cuda_device_detail_2::cuda_array_channels(format);
         CUDA_ARRAY3D_DESCRIPTOR array_desc{};
         array_desc.Width = width;
         array_desc.Height = height;
@@ -867,7 +876,7 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
             return reinterpret_cast<uint64_t>(handle);
         }();
         return new_with_allocator<CUDATexture>(
-            array_handle, make_uint3(width, height, depth),
+            this, array_handle, make_uint3(width, height, depth),
             format, mipmap_levels);
     });
     return {.handle = reinterpret_cast<uint64_t>(p),
@@ -1075,6 +1084,7 @@ template<bool allow_update_expected_metadata>
         if (all(expected_metadata.block_size == 0u)) { expected_metadata.block_size = metadata->block_size; }
         if (expected_metadata.argument_types.empty()) { expected_metadata.argument_types = metadata->argument_types; }
         if (expected_metadata.argument_usages.empty()) { expected_metadata.argument_usages = metadata->argument_usages; }
+        if (expected_metadata.texture_sampler_masks.empty()) { expected_metadata.texture_sampler_masks = metadata->texture_sampler_masks; }
         if (expected_metadata.format_types.empty()) { expected_metadata.format_types = metadata->format_types; }
     }
     // Lazy LLVM codegen cannot know the optimized payload capacity yet.
@@ -1255,6 +1265,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         LUISA_ERROR_WITH_LOCATION("CUDA inline ray queries require XIR support.");
 #endif
     }
+    auto texture_sampler_masks = analyze_cuda_texture_sampler_masks(kernel);
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
     if (use_llvm_codegen) {
         // LLVM lowers PrintInst to CUDA's device-side vprintf ABI. It neither
@@ -1275,11 +1286,12 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             LUISA_ERROR_WITH_LOCATION("LUISA_CUDA_LLVM_OPTIX_IR=1 requires configuring LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR=ON.");
 #endif
         }
-        generate_ptx = [this, &kernel, &option, code_format](CUDAShaderMetadata &generated_metadata) {
+        generate_ptx = [this, &kernel, &option, code_format, &texture_sampler_masks](CUDAShaderMetadata &generated_metadata) {
             auto xir_module = cuda_device_detail::luisa_cuda_backend_translate_ast_to_xir(kernel, option);
             CUDACodegenLLVMConfig config{
                 .source_file = option.name,
                 .bindings = kernel.bound_arguments(),
+                .texture_sampler_masks = texture_sampler_masks,
                 .block_size = {
                     kernel.block_size().x,
                     kernel.block_size().y,
@@ -1488,6 +1500,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             luisa::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(usages),
                            [kernel](auto &&arg) noexcept { return kernel.variable_usage(arg.uid()); });
             return usages; }(),
+        .texture_sampler_masks = std::move(texture_sampler_masks),
         .format_types = [&fmt = print_formats, uses_cuda_printf] {
             luisa::vector<std::pair<luisa::string, luisa::string>> t;
             if (uses_cuda_printf) { return t; }

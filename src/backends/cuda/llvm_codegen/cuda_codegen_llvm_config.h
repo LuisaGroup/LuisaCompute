@@ -28,6 +28,7 @@ struct CUDACodegenLLVMConfig {
 
     luisa::string source_file{};
     luisa::span<const Function::Binding> bindings{};
+    luisa::span<const uint32_t> texture_sampler_masks{};
     std::array<uint32_t, 3> block_size{};// {0, 0, 0} if dynamic, must be constant for now
     uint32_t cuda_arch{};
     OptLevel opt_level{OptLevel::LEVEL_AGGRESSIVE};

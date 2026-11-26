@@ -4,6 +4,7 @@
 #include <luisa/core/logging.h>
 
 #include "cuda_ptx_version.h"
+#include "cuda_shader_metadata.h"
 #include "cuda_shader_printer.h"
 #include "cuda_shader.h"
 
@@ -14,9 +15,11 @@ void CUDAShader::_patch_ptx_version(luisa::vector<std::byte> &ptx) noexcept {
 }
 
 CUDAShader::CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,
-                       luisa::vector<Usage> arg_usages) noexcept
+                       luisa::vector<Usage> arg_usages,
+                       luisa::vector<uint32_t> texture_sampler_masks) noexcept
     : _printer{std::move(printer)},
-      _argument_usages{std::move(arg_usages)} {}
+      _argument_usages{std::move(arg_usages)},
+      _texture_sampler_masks{std::move(texture_sampler_masks)} {}
 
 CUDAShader::~CUDAShader() noexcept = default;
 
@@ -25,6 +28,12 @@ Usage CUDAShader::argument_usage(size_t i) const noexcept {
                  "Invalid argument index {} for shader with {} argument(s).",
                  i, _argument_usages.size());
     return _argument_usages[i];
+}
+
+uint32_t CUDAShader::texture_sampler_mask(size_t i) const noexcept {
+    return i < _texture_sampler_masks.size() ?
+               _texture_sampler_masks[i] :
+               CUDAShaderMetadata::texture_uses_surface_bit;
 }
 
 void CUDAShader::set_name(luisa::string &&name) noexcept {

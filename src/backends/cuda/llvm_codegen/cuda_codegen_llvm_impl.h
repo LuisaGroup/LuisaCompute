@@ -103,6 +103,8 @@ public:
 
     static constexpr auto llvm_texture_type_handle_index = 0;
     static constexpr auto llvm_texture_type_storage_index = 1;
+    static constexpr auto llvm_texture_type_sampler_table_index = 2;
+    static constexpr auto llvm_texture_type_single_tex_index = 3;
 
     static constexpr auto llvm_bindless_array_type_slots_index = 0;
     static constexpr auto llvm_bindless_array_type_size_index = 1;
@@ -168,7 +170,7 @@ private:
     RayTracingAnalysis _rt_analysis;
 
     llvm::Type *_llvm_buffer_type{nullptr};             // { ptr, i64 size } as defined in cuda_buffer.h
-    llvm::Type *_llvm_texture_type{nullptr};            // { i64 handle, i64 storage } as defined in cuda_texture.h
+    llvm::Type *_llvm_texture_type{nullptr};            // { i64 handle, i64 storage, i64 sampler_table, i64 single_tex } as defined in cuda_texture.h
     llvm::Type *_llvm_bindless_array_type{nullptr};     // { ptr slots, i64 capacity } as defined in cuda_bindless_array.h
     llvm::Type *_llvm_bindless_array_slot_type{nullptr};// { i64 buffer, i64 size, i64 tex2d, i64 tex3d } as defined in cuda_bindless_array.h
     llvm::Type *_llvm_accel_type{nullptr};              // { i64 handle, ptr instances } as defined in cuda_accel.h
@@ -393,7 +395,7 @@ private:
     [[nodiscard]] llvm::Value *_get_bindless_array_texture_handle(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index, int dim) noexcept;
     [[nodiscard]] llvm::Value *_get_bindless_array_texture_handle_with_sampler(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index, llvm::Value *filter, llvm::Value *address, int dim) noexcept;
     [[nodiscard]] llvm::Value *_translate_bindless_texture_sample(IB &b, const FunctionContext &func_ctx, const xir::ResourceQueryInst *inst, int dim, bool with_sampler) noexcept;
-    [[nodiscard]] llvm::Function *_get_surface_sample_function(int dim, llvm::Type *llvm_value_type) noexcept;
+    [[nodiscard]] llvm::Value *_translate_texture_sample(IB &b, FunctionContext &func_ctx, const xir::ResourceQueryInst *inst, int dim) noexcept;
     [[nodiscard]] llvm::Value *_get_accel_instance_pointer(IB &b, llvm::Value *accel, llvm::Value *instance_index) noexcept;
     [[nodiscard]] llvm::Value *_get_accel_instance_motion_data(IB &b, llvm::Value *accel, llvm::Value *instance_index, llvm::Value *key_index, size_t stride) noexcept;
     void _set_accel_instance_opacity(IB &b, llvm::Value *accel, llvm::Value *instance_index, llvm::Value *is_opaque) noexcept;

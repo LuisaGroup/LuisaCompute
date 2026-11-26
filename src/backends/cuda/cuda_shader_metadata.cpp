@@ -1,11 +1,170 @@
 #include <charconv>
+#include <type_traits>
 
+#include <luisa/ast/expression.h>
+#include <luisa/ast/statement.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
 #include "cuda_shader_metadata.h"
 
 namespace luisa::compute::cuda {
+
+namespace {
+
+[[nodiscard]] luisa::optional<uint32_t> extract_const_uint(const Expression *expr) noexcept {
+    while (expr != nullptr && expr->tag() == Expression::Tag::CAST) {
+        const auto *cast_expr = static_cast<const CastExpr *>(expr);
+        if (cast_expr->op() != CastOp::STATIC) {
+            return luisa::nullopt;
+        }
+        expr = cast_expr->expression();
+    }
+    if (expr == nullptr || expr->tag() != Expression::Tag::LITERAL) {
+        return luisa::nullopt;
+    }
+    const auto *lit = static_cast<const LiteralExpr *>(expr);
+    return luisa::visit(
+        [](auto v) noexcept -> luisa::optional<uint32_t> {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+                return static_cast<uint32_t>(v);
+            }
+            return luisa::nullopt;
+        },
+        lit->value());
+}
+
+[[nodiscard]] luisa::vector<uint32_t> analyze_function_texture_masks(
+    Function f,
+    luisa::unordered_map<const detail::FunctionBuilder *, luisa::vector<uint32_t>> &memo,
+    luisa::unordered_set<const detail::FunctionBuilder *> &visiting) noexcept {
+    const auto *key = f.builder();
+    if (auto iter = memo.find(key); iter != memo.end()) {
+        return iter->second;
+    }
+    luisa::vector<uint32_t> masks(f.arguments().size(), 0u);
+    auto make_conservative = [&]() noexcept {
+        for (size_t i = 0u; i < f.arguments().size(); ++i) {
+            if (f.arguments()[i].type()->is_texture()) {
+                masks[i] = CUDAShaderMetadata::texture_usage_default_conservative;
+            }
+        }
+    };
+    if (!visiting.emplace(key).second) {
+        make_conservative();
+        return masks;
+    }
+
+    luisa::unordered_map<uint32_t, size_t> param_index_by_uid;
+    param_index_by_uid.reserve(f.arguments().size());
+    bool has_texture_param = false;
+    for (size_t i = 0u; i < f.arguments().size(); ++i) {
+        param_index_by_uid.emplace(f.arguments()[i].uid(), i);
+        if (f.arguments()[i].type()->is_texture()) {
+            has_texture_param = true;
+        }
+    }
+
+    auto resolve_param_index = [&](const Expression *expr) noexcept -> luisa::optional<size_t> {
+        if (expr != nullptr && expr->tag() == Expression::Tag::REF) {
+            const auto uid = static_cast<const RefExpr *>(expr)->variable().uid();
+            if (auto iter = param_index_by_uid.find(uid); iter != param_index_by_uid.end()) {
+                return iter->second;
+            }
+        }
+        return luisa::nullopt;
+    };
+
+    auto apply_mask_to_expr = [&](const Expression *tex_expr, uint32_t bits) noexcept {
+        if (auto idx = resolve_param_index(tex_expr); idx.has_value()) {
+            masks[*idx] |= bits;
+        } else if (has_texture_param) {
+            for (size_t i = 0u; i < f.arguments().size(); ++i) {
+                if (f.arguments()[i].type()->is_texture()) {
+                    masks[i] |= bits;
+                }
+            }
+        }
+    };
+
+    if (f.body() != nullptr) {
+        traverse_expressions<true>(
+            f.body(),
+            [&](const Expression *expr) noexcept {
+                if (expr->tag() != Expression::Tag::CALL) {
+                    return;
+                }
+                const auto *call = static_cast<const CallExpr *>(expr);
+                const auto args = call->arguments();
+                switch (call->op()) {
+                    case CallOp::TEXTURE_READ:
+                    case CallOp::TEXTURE_WRITE:
+                        if (!args.empty()) {
+                            apply_mask_to_expr(args.front(), CUDAShaderMetadata::texture_uses_surface_bit);
+                        }
+                        break;
+                    case CallOp::TEXTURE2D_SAMPLE:
+                    case CallOp::TEXTURE2D_SAMPLE_LEVEL:
+                    case CallOp::TEXTURE2D_SAMPLE_GRAD:
+                    case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL:
+                    case CallOp::TEXTURE3D_SAMPLE:
+                    case CallOp::TEXTURE3D_SAMPLE_LEVEL:
+                    case CallOp::TEXTURE3D_SAMPLE_GRAD:
+                    case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: {
+                        if (args.size() >= 3u) {
+                            const auto f_const = extract_const_uint(args[args.size() - 2u]);
+                            const auto a_const = extract_const_uint(args[args.size() - 1u]);
+                            uint32_t bits = CUDAShaderMetadata::texture_sampler_mask_bits;
+                            if (f_const.has_value() && a_const.has_value()) {
+                                const auto code = ((*f_const & 3u) << 2u) | (*a_const & 3u);
+                                bits = 1u << code;
+                            }
+                            apply_mask_to_expr(args.front(), bits);
+                        }
+                        break;
+                    }
+                    case CallOp::CUSTOM: {
+                        const auto callee = call->custom();
+                        const auto callee_masks = analyze_function_texture_masks(callee, memo, visiting);
+                        for (size_t j = 0u; j < args.size() && j < callee_masks.size(); ++j) {
+                            if (callee_masks[j] != 0u) {
+                                apply_mask_to_expr(args[j], callee_masks[j]);
+                            }
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            },
+            [](const Statement *) noexcept {},
+            [](const Statement *) noexcept {});
+    }
+
+    visiting.erase(key);
+    memo.emplace(key, masks);
+    return masks;
+}
+
+}// namespace
+
+luisa::vector<uint32_t> analyze_cuda_texture_sampler_masks(Function kernel) noexcept {
+    bool has_texture = false;
+    for (auto arg : kernel.arguments()) {
+        if (arg.type()->is_texture()) {
+            has_texture = true;
+            break;
+        }
+    }
+    if (!has_texture) {
+        return {};
+    }
+    luisa::unordered_map<const detail::FunctionBuilder *, luisa::vector<uint32_t>> memo;
+    luisa::unordered_set<const detail::FunctionBuilder *> visiting;
+    return analyze_function_texture_masks(kernel, memo, visiting);
+}
 
 bool cuda_shader_code_matches_format(luisa::span<const std::byte> code,
                                       CUDAShaderMetadata::CodeFormat format) noexcept {
@@ -75,6 +234,12 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
             case Usage::READ: result.append("READ "); break;
             case Usage::WRITE: result.append("WRITE "); break;
             case Usage::READ_WRITE: result.append("READ_WRITE "); break;
+        }
+    }
+    if (!metadata.texture_sampler_masks.empty()) {
+        result.append(luisa::format("TEXTURE_SAMPLER_MASKS {} ", metadata.texture_sampler_masks.size()));
+        for (auto mask : metadata.texture_sampler_masks) {
+            result.append(luisa::format("{:x} ", mask));
         }
     }
     result.append(luisa::format("FORMAT_TYPES {} ", metadata.format_types.size()));
@@ -147,6 +312,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<uint> max_register_count;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
     luisa::optional<luisa::vector<Usage>> argument_usages;
+    luisa::optional<luisa::vector<uint32_t>> texture_sampler_masks;
     luisa::optional<luisa::vector<std::pair<luisa::string, luisa::string>>> format_types;
 
     for (;;) {
@@ -487,6 +653,30 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 }
             }
             argument_usages.emplace(std::move(usages));
+        } else if (token == "TEXTURE_SAMPLER_MASKS") {
+            if (texture_sampler_masks.has_value()) {
+                LUISA_WARNING_WITH_LOCATION("Duplicate texture sampler masks in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION("Invalid texture sampler masks count in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto count = x.value();
+            luisa::vector<uint32_t> masks;
+            masks.reserve(count);
+            for (auto i = 0ull; i < count; i++) {
+                auto raw = read_token();
+                auto parsed = parse_checksum(raw);
+                if (!parsed.has_value() || parsed.value() > CUDAShaderMetadata::texture_usage_default_conservative) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid texture sampler mask '{}' in shader metadata.", raw);
+                    return luisa::nullopt;
+                }
+                masks.emplace_back(static_cast<uint32_t>(parsed.value()));
+            }
+            texture_sampler_masks.emplace(std::move(masks));
         } else if (token == "FORMAT_TYPES") {
             if (format_types.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -628,6 +818,12 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             "Argument count mismatch in shader metadata.");
         return luisa::nullopt;
     }
+    if (texture_sampler_masks.has_value() &&
+        texture_sampler_masks->size() != argument_types->size()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Argument types and texture sampler masks mismatch in shader metadata.");
+        return luisa::nullopt;
+    }
     if (!format_types.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing format types in shader metadata.");
@@ -662,6 +858,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .block_size = block_size.value(),
         .argument_types = std::move(argument_types.value()),
         .argument_usages = std::move(argument_usages.value()),
+        .texture_sampler_masks = std::move(texture_sampler_masks).value_or(luisa::vector<uint32_t>{}),
         .format_types = std::move(format_types.value())};
 }
 

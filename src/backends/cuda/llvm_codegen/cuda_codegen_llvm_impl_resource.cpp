@@ -97,33 +97,13 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
         case xir::ResourceQueryOp::TEXTURE2D_SAMPLE: [[fallthrough]];
         case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_LEVEL: [[fallthrough]];
         case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_GRAD: [[fallthrough]];
-        case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_GRAD_LEVEL: {
-            auto arg_count = inst->operand_count();
-            auto llvm_texture = _get_llvm_value(b, func_ctx, inst->operand(0));
-            auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_filter = _get_llvm_value(b, func_ctx, inst->operand(arg_count - 2u));
-            auto llvm_address = _get_llvm_value(b, func_ctx, inst->operand(arg_count - 1u));
-            auto llvm_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_storage_packed = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
-            auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
-            auto llvm_func = _get_surface_sample_function(2, llvm_result_type);
-            return b.CreateCall(llvm_func, {llvm_handle, llvm_storage_packed, llvm_coord, llvm_filter, llvm_address});
-        }
+        case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_GRAD_LEVEL:
+            return _translate_texture_sample(b, func_ctx, inst, 2);
         case xir::ResourceQueryOp::TEXTURE3D_SAMPLE: [[fallthrough]];
         case xir::ResourceQueryOp::TEXTURE3D_SAMPLE_LEVEL: [[fallthrough]];
         case xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD: [[fallthrough]];
-        case xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: {
-            auto arg_count = inst->operand_count();
-            auto llvm_texture = _get_llvm_value(b, func_ctx, inst->operand(0));
-            auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_filter = _get_llvm_value(b, func_ctx, inst->operand(arg_count - 2u));
-            auto llvm_address = _get_llvm_value(b, func_ctx, inst->operand(arg_count - 1u));
-            auto llvm_handle = b.CreateExtractValue(llvm_texture, llvm_texture_type_handle_index);
-            auto llvm_storage_packed = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
-            auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
-            auto llvm_func = _get_surface_sample_function(3, llvm_result_type);
-            return b.CreateCall(llvm_func, {llvm_handle, llvm_storage_packed, llvm_coord, llvm_filter, llvm_address});
-        }
+        case xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
+            return _translate_texture_sample(b, func_ctx, inst, 3);
         case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE: [[fallthrough]];
         case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: [[fallthrough]];
         case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: [[fallthrough]];
@@ -834,151 +814,142 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_bindless_texture_sample(
     return _safe_fp_cast(b, llvm_value, _get_llvm_type(inst->type())->reg_type);
 }
 
-llvm::Function *CUDACodegenLLVMImpl::_get_surface_sample_function(
-    int dim, llvm::Type *llvm_value_type) noexcept {
-    auto name = fmt::format("luisa.cuda.texture.{}d.sample.{}", dim, _to_string(llvm_value_type));
-    if (auto f = _llvm_module->getFunction(name)) { return f; }
-    auto i32 = llvm::Type::getInt32Ty(_llvm_context);
-    auto i64 = llvm::Type::getInt64Ty(_llvm_context);
-    auto f32 = llvm::Type::getFloatTy(_llvm_context);
-    auto coord_type = llvm::VectorType::get(f32, dim, false);
-    auto f32x4_type = llvm::VectorType::get(f32, 4, false);
-    auto f_type = llvm::FunctionType::get(llvm_value_type, {i64, i64, coord_type, i32, i32}, false);
-    auto llvm_func = llvm::Function::Create(f_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-    llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
-    auto entry = llvm::BasicBlock::Create(_llvm_context, "entry", llvm_func);
-    IB b{entry};
-    auto handle = llvm_func->getArg(0);
-    auto storage_packed = llvm_func->getArg(1);
-    auto uv = llvm_func->getArg(2);
-    auto filter = llvm_func->getArg(3);
-    auto address = llvm_func->getArg(4);
-    auto storage = b.CreateAnd(b.CreateLShr(storage_packed, b.getInt64(48)), b.getInt64(0xFF));
-    std::array<llvm::Value *, 3> dims{};
-    for (int d = 0; d < dim; d++) {
-        dims[d] = b.CreateTrunc(b.CreateAnd(b.CreateLShr(storage_packed, b.getInt64(d * 16)), b.getInt64(0xFFFF)), i32);
+llvm::Value *CUDACodegenLLVMImpl::_translate_texture_sample(
+    IB &b, FunctionContext &func_ctx, const xir::ResourceQueryInst *inst, int dim) noexcept {
+    const auto op = inst->op();
+    const auto arg_count = inst->operand_count();
+    auto *llvm_texture = _get_llvm_value(b, func_ctx, inst->operand(0));
+    auto *llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(1));
+    auto *llvm_filter = _get_llvm_value(b, func_ctx, inst->operand(arg_count - 2u));
+    auto *llvm_address = _get_llvm_value(b, func_ctx, inst->operand(arg_count - 1u));
+
+    auto *llvm_i64_type = b.getInt64Ty();
+    auto *llvm_sampler_table = b.CreateExtractValue(llvm_texture, llvm_texture_type_sampler_table_index);
+    auto *llvm_single_tex = b.CreateExtractValue(llvm_texture, llvm_texture_type_single_tex_index);
+    auto *llvm_func = b.GetInsertBlock()->getParent();
+    auto *bb_entry = b.GetInsertBlock();
+    auto *bb_table = llvm::BasicBlock::Create(_llvm_context, "tex.table", llvm_func);
+    auto *bb_merge = llvm::BasicBlock::Create(_llvm_context, "tex.merge", llvm_func);
+    b.CreateCondBr(b.CreateICmpNE(llvm_sampler_table, b.getInt64(0)), bb_table, bb_merge);
+
+    b.SetInsertPoint(bb_table);
+    auto *global_ptr_type = llvm::PointerType::get(_llvm_context, nvptx_address_space_global);
+    auto *table_ptr = b.CreateIntToPtr(llvm_sampler_table, global_ptr_type);
+    auto *f = b.CreateAnd(b.CreateZExtOrTrunc(llvm_filter, llvm_i64_type), b.getInt64(3));
+    auto *a = b.CreateAnd(b.CreateZExtOrTrunc(llvm_address, llvm_i64_type), b.getInt64(3));
+    auto *sampler_code = b.CreateOr(b.CreateShl(f, b.getInt64(2)), a);
+    auto *loaded_handle = b.CreateLoad(llvm_i64_type, b.CreateInBoundsGEP(llvm_i64_type, table_ptr, sampler_code));
+    b.CreateBr(bb_merge);
+
+    b.SetInsertPoint(bb_merge);
+    auto *handle_phi = b.CreatePHI(llvm_i64_type, 2);
+    handle_phi->addIncoming(loaded_handle, bb_table);
+    handle_phi->addIncoming(llvm_single_tex, bb_entry);
+    llvm::Value *llvm_handle = handle_phi;
+
+    auto *llvm_storage = b.CreateExtractValue(llvm_texture, llvm_texture_type_storage_index);
+    auto *llvm_base_level_i32 = b.CreateTrunc(
+        b.CreateAnd(b.CreateLShr(llvm_storage, b.getInt64(56)), b.getInt64(0xFF)), b.getInt32Ty());
+    auto *llvm_base_level_f32 = b.CreateUIToFP(llvm_base_level_i32, b.getFloatTy());
+
+    auto *llvm_coord_x = b.CreateExtractElement(llvm_coord, b.getInt64(0));
+    auto *llvm_coord_y = b.CreateExtractElement(llvm_coord, b.getInt64(1));
+    const bool is_default = op == xir::ResourceQueryOp::TEXTURE2D_SAMPLE ||
+                            op == xir::ResourceQueryOp::TEXTURE3D_SAMPLE;
+    const bool is_level = op == xir::ResourceQueryOp::TEXTURE2D_SAMPLE_LEVEL ||
+                          op == xir::ResourceQueryOp::TEXTURE3D_SAMPLE_LEVEL;
+    const bool is_grad_level = op == xir::ResourceQueryOp::TEXTURE2D_SAMPLE_GRAD_LEVEL ||
+                               op == xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL;
+    if (is_grad_level) {
+        LUISA_WARNING_WITH_LOCATION("Level parameter in TEXTURE*D_SAMPLE_GRAD_LEVEL is ignored in CUDA backend.");
     }
-    auto address_fn_name = llvm::StringRef{"luisa.cuda.sample.address"};
-    auto address_fn = _llvm_module->getFunction(address_fn_name);
-    if (address_fn == nullptr) {
-        auto pair_ty = llvm::StructType::get(_llvm_context, {i32, b.getInt1Ty()});
-        address_fn = llvm::Function::Create(
-            llvm::FunctionType::get(pair_ty, {i32, i32, i32}, false),
-            llvm::Function::PrivateLinkage, address_fn_name, *_llvm_module);
-        address_fn->addFnAttr(llvm::Attribute::AlwaysInline);
-        IB ab{llvm::BasicBlock::Create(_llvm_context, "entry", address_fn)};
-        auto ci = address_fn->getArg(0);
-        auto cdim = address_fn->getArg(1);
-        auto caddr = address_fn->getArg(2);
-        auto bb_edge = llvm::BasicBlock::Create(_llvm_context, "edge", address_fn);
-        auto bb_repeat = llvm::BasicBlock::Create(_llvm_context, "repeat", address_fn);
-        auto bb_mirror = llvm::BasicBlock::Create(_llvm_context, "mirror", address_fn);
-        auto bb_zero = llvm::BasicBlock::Create(_llvm_context, "zero", address_fn);
-        auto sw = ab.CreateSwitch(caddr, bb_zero, 4);
-        sw->addCase(ab.getInt32(0), bb_edge);
-        sw->addCase(ab.getInt32(1), bb_repeat);
-        sw->addCase(ab.getInt32(2), bb_mirror);
-        auto ret_pair = [&](llvm::Value *idx, llvm::Value *oob) {
-            llvm::Value *p = llvm::PoisonValue::get(pair_ty);
-            p = ab.CreateInsertValue(p, idx, 0);
-            p = ab.CreateInsertValue(p, oob, 1);
-            ab.CreateRet(p);
-        };
-        ab.SetInsertPoint(bb_edge);
-        auto dim_m1 = ab.CreateSub(cdim, ab.getInt32(1));
-        auto clamped = ab.CreateSelect(ab.CreateICmpSLT(ci, ab.getInt32(0)), ab.getInt32(0),
-                                       ab.CreateSelect(ab.CreateICmpSGT(ci, dim_m1), dim_m1, ci));
-        ret_pair(clamped, ab.getInt1(false));
-        ab.SetInsertPoint(bb_repeat);
-        auto r = ab.CreateSRem(ci, cdim);
-        auto wrapped = ab.CreateSelect(ab.CreateICmpSLT(r, ab.getInt32(0)), ab.CreateAdd(r, cdim), r);
-        ret_pair(wrapped, ab.getInt1(false));
-        ab.SetInsertPoint(bb_mirror);
-        auto period = ab.CreateMul(cdim, ab.getInt32(2));
-        auto mr = ab.CreateSRem(ci, period);
-        auto mw = ab.CreateSelect(ab.CreateICmpSLT(mr, ab.getInt32(0)), ab.CreateAdd(mr, period), mr);
-        auto folded = ab.CreateSelect(ab.CreateICmpSLT(mw, cdim), mw, ab.CreateSub(ab.CreateSub(period, ab.getInt32(1)), mw));
-        auto mir_idx = ab.CreateSelect(ab.CreateICmpSLE(cdim, ab.getInt32(1)), ab.getInt32(0), folded);
-        ret_pair(mir_idx, ab.getInt1(false));
-        ab.SetInsertPoint(bb_zero);
-        auto is_oob = ab.CreateOr(ab.CreateICmpSLT(ci, ab.getInt32(0)), ab.CreateICmpSGE(ci, cdim));
-        ret_pair(ci, is_oob);
-    }
-    auto read_fn = dim == 2 ? _get_texture2d_read_function(f32x4_type) : _get_texture3d_read_function(f32x4_type);
-    auto read_addressed = [&](llvm::ArrayRef<llvm::Value *> coords) -> llvm::Value * {
-        auto icoord_ty = llvm::VectorType::get(i32, dim, false);
-        llvm::Value *icoord = llvm::PoisonValue::get(icoord_ty);
-        llvm::Value *any_oob = b.getInt1(false);
-        for (int d = 0; d < dim; d++) {
-            auto res = b.CreateCall(address_fn, {coords[d], dims[d], address});
-            icoord = b.CreateInsertElement(icoord, b.CreateExtractValue(res, 0), d);
-            any_oob = b.CreateOr(any_oob, b.CreateExtractValue(res, 1));
-        }
-        auto bb_in = llvm::BasicBlock::Create(_llvm_context, "in", llvm_func);
-        auto bb_out = llvm::BasicBlock::Create(_llvm_context, "out", llvm_func);
-        auto bb_merge = llvm::BasicBlock::Create(_llvm_context, "merge", llvm_func);
-        b.CreateCondBr(any_oob, bb_out, bb_in);
-        b.SetInsertPoint(bb_in);
-        auto fetched = b.CreateCall(read_fn, {handle, storage, icoord});
-        auto bb_in_end = b.GetInsertBlock();
-        b.CreateBr(bb_merge);
-        b.SetInsertPoint(bb_out);
-        b.CreateBr(bb_merge);
-        b.SetInsertPoint(bb_merge);
-        auto phi = b.CreatePHI(f32x4_type, 2);
-        phi->addIncoming(fetched, bb_in_end);
-        phi->addIncoming(llvm::Constant::getNullValue(f32x4_type), bb_out);
+
+    auto emit_default_with_base = [&](llvm::SmallVector<llvm::Value *, 4> coords) noexcept -> llvm::Value * {
+        auto *bb_cur = b.GetInsertBlock();
+        auto *bb_lod0 = llvm::BasicBlock::Create(_llvm_context, "tex.lod0", llvm_func);
+        auto *bb_lodn = llvm::BasicBlock::Create(_llvm_context, "tex.lodn", llvm_func);
+        auto *bb_done = llvm::BasicBlock::Create(_llvm_context, "tex.done", llvm_func);
+        b.CreateCondBr(b.CreateICmpEQ(llvm_base_level_i32, b.getInt32(0)), bb_lod0, bb_lodn);
+
+        b.SetInsertPoint(bb_lod0);
+        llvm::SmallVector<llvm::Value *, 5> args0;
+        args0.emplace_back(llvm_handle);
+        args0.append(coords.begin(), coords.end());
+        auto *res0 = b.CreateIntrinsic(
+            dim == 2 ? llvm::Intrinsic::nvvm_tex_unified_2d_v4f32_f32 :
+                       llvm::Intrinsic::nvvm_tex_unified_3d_v4f32_f32,
+            args0);
+        b.CreateBr(bb_done);
+
+        b.SetInsertPoint(bb_lodn);
+        llvm::SmallVector<llvm::Value *, 6> argsn;
+        argsn.emplace_back(llvm_handle);
+        argsn.append(coords.begin(), coords.end());
+        argsn.emplace_back(llvm_base_level_f32);
+        auto *resn = b.CreateIntrinsic(
+            dim == 2 ? llvm::Intrinsic::nvvm_tex_unified_2d_level_v4f32_f32 :
+                       llvm::Intrinsic::nvvm_tex_unified_3d_level_v4f32_f32,
+            argsn);
+        b.CreateBr(bb_done);
+
+        b.SetInsertPoint(bb_done);
+        auto *phi = b.CreatePHI(res0->getType(), 2);
+        phi->addIncoming(res0, bb_lod0);
+        phi->addIncoming(resn, bb_lodn);
+        static_cast<void>(bb_cur);
         return phi;
     };
-    auto bb_point = llvm::BasicBlock::Create(_llvm_context, "filter.point", llvm_func);
-    auto bb_linear = llvm::BasicBlock::Create(_llvm_context, "filter.linear", llvm_func);
-    b.CreateCondBr(b.CreateICmpEQ(filter, b.getInt32(0)), bb_point, bb_linear);
 
-    b.SetInsertPoint(bb_point);
-    std::array<llvm::Value *, 3> pt_coords{};
-    for (int d = 0; d < dim; d++) {
-        auto u = b.CreateExtractElement(uv, b.getInt64(d));
-        auto fdim = b.CreateSIToFP(dims[d], f32);
-        auto scaled = b.CreateFMul(u, fdim);
-        pt_coords[d] = b.CreateFPToSI(b.CreateUnaryIntrinsic(llvm::Intrinsic::floor, scaled), i32);
-    }
-    auto pt_val = read_addressed(llvm::ArrayRef<llvm::Value *>{pt_coords}.take_front(dim));
-    b.CreateRet(_safe_fp_cast(b, pt_val, llvm_value_type));
-
-    b.SetInsertPoint(bb_linear);
-    std::array<llvm::Value *, 3> base_i{}, frac_w{};
-    auto half = llvm::ConstantFP::get(f32, 0.5);
-    for (int d = 0; d < dim; d++) {
-        auto u = b.CreateExtractElement(uv, b.getInt64(d));
-        auto fdim = b.CreateSIToFP(dims[d], f32);
-        auto coord = b.CreateFSub(b.CreateFMul(u, fdim), half);
-        auto fl = b.CreateUnaryIntrinsic(llvm::Intrinsic::floor, coord);
-        base_i[d] = b.CreateFPToSI(fl, i32);
-        frac_w[d] = b.CreateVectorSplat(4, b.CreateFSub(coord, fl));
-    }
-    auto lerp4 = [&](llvm::Value *a, llvm::Value *bval, llvm::Value *w) {
-        return b.CreateFAdd(a, b.CreateFMul(w, b.CreateFSub(bval, a)));
-    };
-    llvm::Value *lin_val = nullptr;
+    llvm::Value *llvm_result = nullptr;
     if (dim == 2) {
-        auto x0 = base_i[0], y0 = base_i[1];
-        auto x1 = b.CreateAdd(x0, b.getInt32(1)), y1 = b.CreateAdd(y0, b.getInt32(1));
-        auto r0 = lerp4(read_addressed({x0, y0}), read_addressed({x1, y0}), frac_w[0]);
-        auto r1 = lerp4(read_addressed({x0, y1}), read_addressed({x1, y1}), frac_w[0]);
-        lin_val = lerp4(r0, r1, frac_w[1]);
+        if (is_default) {
+            llvm_result = emit_default_with_base({llvm_coord_x, llvm_coord_y});
+        } else if (is_level) {
+            auto *llvm_level = b.CreateFAdd(_get_llvm_value(b, func_ctx, inst->operand(2)), llvm_base_level_f32);
+            llvm_result = b.CreateIntrinsic(llvm::Intrinsic::nvvm_tex_unified_2d_level_v4f32_f32,
+                                            {llvm_handle, llvm_coord_x, llvm_coord_y, llvm_level});
+        } else {
+            auto *llvm_scale = b.CreateBitCast(
+                b.CreateShl(b.CreateAdd(llvm_base_level_i32, b.getInt32(127)), b.getInt32(23)), b.getFloatTy());
+            auto *llvm_scale_vec = b.CreateVectorSplat(2, llvm_scale);
+            auto *llvm_ddx = b.CreateFMul(_get_llvm_value(b, func_ctx, inst->operand(2)), llvm_scale_vec);
+            auto *llvm_ddy = b.CreateFMul(_get_llvm_value(b, func_ctx, inst->operand(3)), llvm_scale_vec);
+            llvm_result = b.CreateIntrinsic(llvm::Intrinsic::nvvm_tex_unified_2d_grad_v4f32_f32,
+                                            {llvm_handle, llvm_coord_x, llvm_coord_y,
+                                             b.CreateExtractElement(llvm_ddx, b.getInt64(0)),
+                                             b.CreateExtractElement(llvm_ddx, b.getInt64(1)),
+                                             b.CreateExtractElement(llvm_ddy, b.getInt64(0)),
+                                             b.CreateExtractElement(llvm_ddy, b.getInt64(1))});
+        }
     } else {
-        auto x0 = base_i[0], y0 = base_i[1], z0 = base_i[2];
-        auto x1 = b.CreateAdd(x0, b.getInt32(1)), y1 = b.CreateAdd(y0, b.getInt32(1)), z1 = b.CreateAdd(z0, b.getInt32(1));
-        auto slice0 = lerp4(lerp4(read_addressed({x0, y0, z0}), read_addressed({x1, y0, z0}), frac_w[0]),
-                            lerp4(read_addressed({x0, y1, z0}), read_addressed({x1, y1, z0}), frac_w[0]),
-                            frac_w[1]);
-        auto slice1 = lerp4(lerp4(read_addressed({x0, y0, z1}), read_addressed({x1, y0, z1}), frac_w[0]),
-                            lerp4(read_addressed({x0, y1, z1}), read_addressed({x1, y1, z1}), frac_w[0]),
-                            frac_w[1]);
-        lin_val = lerp4(slice0, slice1, frac_w[2]);
+        auto *llvm_coord_z = b.CreateExtractElement(llvm_coord, b.getInt64(2));
+        if (is_default) {
+            llvm_result = emit_default_with_base({llvm_coord_x, llvm_coord_y, llvm_coord_z});
+        } else if (is_level) {
+            auto *llvm_level = b.CreateFAdd(_get_llvm_value(b, func_ctx, inst->operand(2)), llvm_base_level_f32);
+            llvm_result = b.CreateIntrinsic(llvm::Intrinsic::nvvm_tex_unified_3d_level_v4f32_f32,
+                                            {llvm_handle, llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_level});
+        } else {
+            auto *llvm_scale = b.CreateBitCast(
+                b.CreateShl(b.CreateAdd(llvm_base_level_i32, b.getInt32(127)), b.getInt32(23)), b.getFloatTy());
+            auto *llvm_scale_vec = b.CreateVectorSplat(3, llvm_scale);
+            auto *llvm_ddx = b.CreateFMul(_get_llvm_value(b, func_ctx, inst->operand(2)), llvm_scale_vec);
+            auto *llvm_ddy = b.CreateFMul(_get_llvm_value(b, func_ctx, inst->operand(3)), llvm_scale_vec);
+            llvm_result = b.CreateIntrinsic(llvm::Intrinsic::nvvm_tex_unified_3d_grad_v4f32_f32,
+                                            {llvm_handle, llvm_coord_x, llvm_coord_y, llvm_coord_z,
+                                             b.CreateExtractElement(llvm_ddx, b.getInt64(0)),
+                                             b.CreateExtractElement(llvm_ddx, b.getInt64(1)),
+                                             b.CreateExtractElement(llvm_ddx, b.getInt64(2)),
+                                             b.CreateExtractElement(llvm_ddy, b.getInt64(0)),
+                                             b.CreateExtractElement(llvm_ddy, b.getInt64(1)),
+                                             b.CreateExtractElement(llvm_ddy, b.getInt64(2))});
+        }
     }
-    b.CreateRet(_safe_fp_cast(b, lin_val, llvm_value_type));
-    return llvm_func;
+    auto *llvm_value = _create_llvm_vector(b, {b.CreateExtractValue(llvm_result, 0),
+                                               b.CreateExtractValue(llvm_result, 1),
+                                               b.CreateExtractValue(llvm_result, 2),
+                                               b.CreateExtractValue(llvm_result, 3)});
+    return _safe_fp_cast(b, llvm_value, _get_llvm_type(inst->type())->reg_type);
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_get_accel_instance_pointer(IB &b, llvm::Value *accel, llvm::Value *instance_index) noexcept {

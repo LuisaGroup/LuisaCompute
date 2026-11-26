@@ -54,7 +54,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
                                  const char *entry, const CUDAShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
     : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
-                 metadata.argument_usages},
+                 metadata.argument_usages,
+                 metadata.texture_sampler_masks},
       _bound_arguments{std::move(bound_arguments)} {
 
     LUISA_ASSERT(metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING,
@@ -401,8 +402,10 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             return argument_buffer->address() + offset;
         };
 
-        auto encode_argument = [&allocate_argument, command](const auto &arg) noexcept {
+        size_t arg_index = 0u;
+        auto encode_argument = [this, &arg_index, &allocate_argument, &encoder, command](const auto &arg) noexcept {
             using Tag = ShaderDispatchCommand::Argument::Tag;
+            const auto current_arg_index = arg_index++;
             switch (arg.tag) {
                 case Tag::BUFFER: {
                     auto buffer = reinterpret_cast<const CUDABuffer *>(arg.buffer.handle);
@@ -413,7 +416,10 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                 }
                 case Tag::TEXTURE: {
                     auto texture = reinterpret_cast<const CUDATexture *>(arg.texture.handle);
-                    auto binding = texture->binding(arg.texture.level);
+                    const auto meta_mask = texture_sampler_mask(current_arg_index);
+                    const auto sampler_mask = static_cast<uint16_t>(meta_mask & CUDAShaderMetadata::texture_sampler_mask_bits);
+                    const auto needs_surface = (meta_mask & CUDAShaderMetadata::texture_uses_surface_bit) != 0u;
+                    auto binding = texture->binding(arg.texture.level, sampler_mask, needs_surface, encoder.stream()->handle());
                     auto ptr = allocate_argument(sizeof(binding));
                     std::memcpy(ptr, &binding, sizeof(binding));
                     break;

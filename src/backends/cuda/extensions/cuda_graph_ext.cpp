@@ -767,8 +767,10 @@ struct GraphDagVisitor final : MutableCommandVisitor {
             }
             std::memcpy(argument_buffer.data() + offset, src, bytes);
         };
+        size_t arg_index = 0u;
         for (auto &&arg : dispatch->arguments()) {
             using Tag = ShaderDispatchCommand::Argument::Tag;
+            const auto current_arg_index = arg_index++;
             switch (arg.tag) {
                 case Tag::BUFFER: {
                     auto offset = allocate_argument(sizeof(CUDABuffer::Binding));
@@ -780,7 +782,10 @@ struct GraphDagVisitor final : MutableCommandVisitor {
                 case Tag::TEXTURE: {
                     auto offset = allocate_argument(sizeof(CUDATexture::Binding));
                     auto *texture = reinterpret_cast<const CUDATexture *>(arg.texture.handle);
-                    auto binding = texture->binding(arg.texture.level);
+                    const auto meta_mask = shader->texture_sampler_mask(current_arg_index);
+                    const auto sampler_mask = static_cast<uint16_t>(meta_mask & CUDAShaderMetadata::texture_sampler_mask_bits);
+                    const auto needs_surface = (meta_mask & CUDAShaderMetadata::texture_uses_surface_bit) != 0u;
+                    auto binding = texture->binding(arg.texture.level, sampler_mask, needs_surface, nullptr);
                     store(offset, &binding, sizeof(binding));
                     break;
                 }

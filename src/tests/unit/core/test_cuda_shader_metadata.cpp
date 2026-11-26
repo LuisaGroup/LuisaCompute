@@ -45,6 +45,7 @@ constexpr string_view kLegacyMetadata =
         .requires_trace_closest = false,
         .requires_trace_any = false,
         .requires_ray_query = true,
+        .requires_procedural_ray_query = true,
         .ray_query_payload_count = payload_count,
         .requires_printing = false,
         .requires_grid_dependency_synchronize = false,
@@ -275,6 +276,44 @@ int main(int argc, char *argv[]) {
         expect(ir != ptx);
         ptx.code_format = CUDAShaderMetadata::CodeFormat::OPTIX_IR;
         expect(ptx == ir);
+    };
+
+    "cuda_shader_metadata_texture_sampler_masks_roundtrip"_test = [] {
+        auto original = make_metadata(2u);
+        original.texture_sampler_masks = {0x10004u, 0x0001u};
+        auto serialized = serialize_cuda_shader_metadata(original);
+        expect(serialized.find("TEXTURE_SAMPLER_MASKS 2 10004 1 ") != string::npos);
+        auto parsed = deserialize_cuda_shader_metadata(serialized);
+        expect(parsed.has_value());
+        if (parsed) {
+            expect(*parsed == original);
+            expect(eq(parsed->texture_sampler_masks.size(), size_t{2u}));
+            expect(eq(parsed->texture_sampler_masks[0], 0x10004u));
+            expect(eq(parsed->texture_sampler_masks[1], 0x0001u));
+        }
+
+        auto modified = original;
+        modified.texture_sampler_masks[1] = 0xFFFFu;
+        expect(modified != original);
+
+        auto legacy = deserialize_cuda_shader_metadata(kLegacyMetadata);
+        expect(legacy.has_value());
+        if (legacy) {
+            expect(legacy->texture_sampler_masks.empty());
+        }
+    };
+
+    "cuda_shader_metadata_rejects_invalid_texture_sampler_masks"_test = [] {
+        for (auto suffix : {
+                 "TEXTURE_SAMPLER_MASKS 1 0 ",
+                 "TEXTURE_SAMPLER_MASKS 2 0 20000 ",
+                 "TEXTURE_SAMPLER_MASKS 2 0 junk ",
+                 "TEXTURE_SAMPLER_MASKS 2 0 1 TEXTURE_SAMPLER_MASKS 2 0 1 "}) {
+            auto serialized = string{kLegacyMetadata};
+            serialized.append(suffix);
+            expect(!deserialize_cuda_shader_metadata(serialized).has_value())
+                << "invalid texture sampler masks:" << suffix;
+        }
     };
 
 

@@ -261,7 +261,8 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_buffer_type() noexcept {
 llvm::Type *CUDACodegenLLVMImpl::_get_llvm_texture_type() noexcept {
     if (_llvm_texture_type == nullptr) {
         auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
-        _llvm_texture_type = llvm::StructType::get(_llvm_context, {llvm_i64_type, llvm_i64_type}, false);
+        _llvm_texture_type = llvm::StructType::get(
+            _llvm_context, {llvm_i64_type, llvm_i64_type, llvm_i64_type, llvm_i64_type}, false);
         detail::luisa_check_llvm_type_size_and_alignment(
             *_data_layout, _llvm_texture_type,
             sizeof(CUDATexture::Binding),

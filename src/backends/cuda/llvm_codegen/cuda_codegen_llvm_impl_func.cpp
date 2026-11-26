@@ -2,6 +2,8 @@
 // Created by mike on 9/25/25.
 //
 
+#include <bit>
+
 #include <llvm/Support/MathExtras.h>
 
 #include <luisa/xir/passes/dom_tree.h>
@@ -92,13 +94,23 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_function(const xir::FunctionDefi
 }
 
 void CUDACodegenLLVMImpl::_assume_kernel_argument_storage(IB &b, llvm::Value *value, const xir::Argument *arg, size_t argument_index) noexcept {
-    if (argument_index < _config.bindings.size() && arg->is_resource() && arg->type()->is_texture()) {
-        if (auto binding = luisa::get_if<Function::TextureBinding>(&_config.bindings[argument_index])) {
-            auto storage = reinterpret_cast<CUDATexture *>(binding->handle)->storage();
-            auto packed = b.CreateExtractValue(value, llvm_texture_type_storage_index);
-            // CUDASurface packs dimensions below the pixel storage byte.
-            auto llvm_storage = b.CreateAnd(b.CreateLShr(packed, b.getInt64(48)), b.getInt64(0xff));
-            b.CreateAssumption(b.CreateICmpEQ(llvm_storage, b.getInt64(luisa::to_underlying(storage))));
+    if (arg->is_resource() && arg->type()->is_texture()) {
+        if (argument_index < _config.bindings.size()) {
+            if (auto binding = luisa::get_if<Function::TextureBinding>(&_config.bindings[argument_index])) {
+                auto storage = reinterpret_cast<CUDATexture *>(binding->handle)->storage();
+                auto packed = b.CreateExtractValue(value, llvm_texture_type_storage_index);
+                // CUDASurface packs dimensions below the pixel storage byte.
+                auto llvm_storage = b.CreateAnd(b.CreateLShr(packed, b.getInt64(48)), b.getInt64(0xff));
+                b.CreateAssumption(b.CreateICmpEQ(llvm_storage, b.getInt64(luisa::to_underlying(storage))));
+            }
+        }
+        if (argument_index < _config.texture_sampler_masks.size()) {
+            const auto sampler_mask = static_cast<uint16_t>(_config.texture_sampler_masks[argument_index] & 0xFFFFu);
+            if (sampler_mask != 0u) {
+                auto sampler_table = b.CreateExtractValue(value, llvm_texture_type_sampler_table_index);
+                auto is_zero = b.CreateICmpEQ(sampler_table, b.getInt64(0));
+                b.CreateAssumption(std::has_single_bit(sampler_mask) ? is_zero : b.CreateNot(is_zero));
+            }
         }
     }
 }

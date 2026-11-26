@@ -60,7 +60,9 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
                                    const char *entry, const CUDAShaderMetadata &metadata,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
                                    bool enable_cache) noexcept
-    : CUDAShader{CUDAShaderPrinter::create(metadata.format_types), metadata.argument_usages},
+    : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
+                 metadata.argument_usages,
+                 metadata.texture_sampler_masks},
       _entry{entry},
       _block_size{metadata.block_size.x,
                   metadata.block_size.y,
@@ -209,8 +211,10 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
         return argument_buffer.data() + offset;
     };
 
-    auto encode_argument = [&allocate_argument, &encoder, command](const auto &arg) noexcept {
+    size_t arg_index = 0u;
+    auto encode_argument = [this, &arg_index, &allocate_argument, &encoder, command](const auto &arg) noexcept {
         using Tag = ShaderDispatchCommand::Argument::Tag;
+        const auto current_arg_index = arg_index++;
         switch (arg.tag) {
             case Tag::BUFFER: {
                 if (reinterpret_cast<const CUDABufferBase *>(arg.buffer.handle)->is_indirect()) {
@@ -228,7 +232,10 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             }
             case Tag::TEXTURE: {
                 auto texture = reinterpret_cast<const CUDATexture *>(arg.texture.handle);
-                auto binding = texture->binding(arg.texture.level);
+                const auto meta_mask = texture_sampler_mask(current_arg_index);
+                const auto sampler_mask = static_cast<uint16_t>(meta_mask & CUDAShaderMetadata::texture_sampler_mask_bits);
+                const auto needs_surface = (meta_mask & CUDAShaderMetadata::texture_uses_surface_bit) != 0u;
+                auto binding = texture->binding(arg.texture.level, sampler_mask, needs_surface, encoder.stream()->handle());
                 auto ptr = allocate_argument(sizeof(binding));
                 std::memcpy(ptr, &binding, sizeof(binding));
                 break;

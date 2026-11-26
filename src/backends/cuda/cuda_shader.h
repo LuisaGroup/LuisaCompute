@@ -23,6 +23,7 @@ class CUDAShader {
 private:
     luisa::unique_ptr<CUDAShaderPrinter> _printer;
     luisa::vector<Usage> _argument_usages;
+    luisa::vector<uint32_t> _texture_sampler_masks;
     luisa::string _name;
     mutable spin_mutex _name_mutex;
 
@@ -35,13 +36,15 @@ public:
 
 public:
     CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,
-               luisa::vector<Usage> arg_usages) noexcept;
+               luisa::vector<Usage> arg_usages,
+               luisa::vector<uint32_t> texture_sampler_masks = {}) noexcept;
     virtual ~CUDAShader() noexcept;
     CUDAShader(CUDAShader &&) noexcept = delete;
     CUDAShader(const CUDAShader &) noexcept = delete;
     CUDAShader &operator=(CUDAShader &&) noexcept = delete;
     CUDAShader &operator=(const CUDAShader &) noexcept = delete;
     [[nodiscard]] Usage argument_usage(size_t i) const noexcept;
+    [[nodiscard]] uint32_t texture_sampler_mask(size_t i) const noexcept;
     [[nodiscard]] auto printer() const noexcept { return _printer.get(); }
     // True when the shader owns a launch-time printer (its kernel takes an
     // extra LCPrintBuffer slot and the normal launch registers a download

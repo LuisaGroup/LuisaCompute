@@ -67,71 +67,6 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
     }
 }
 
-[[nodiscard]] static auto cuda_texture_descriptor(Sampler sampler) noexcept {
-    CUDA_TEXTURE_DESC texture_desc{};
-    switch (sampler.address()) {
-        case Sampler::Address::EDGE:
-            texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_CLAMP;
-            texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_CLAMP;
-            texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_CLAMP;
-            break;
-        case Sampler::Address::REPEAT:
-            texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_WRAP;
-            texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_WRAP;
-            texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_WRAP;
-            break;
-        case Sampler::Address::MIRROR:
-            texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_MIRROR;
-            texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_MIRROR;
-            texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_MIRROR;
-            break;
-        case Sampler::Address::ZERO:
-            texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_BORDER;
-            texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_BORDER;
-            texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_BORDER;
-            break;
-    }
-    switch (sampler.filter()) {
-        case Sampler::Filter::POINT:
-            texture_desc.filterMode = CU_TR_FILTER_MODE_POINT;
-            texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;
-            break;
-        case Sampler::Filter::LINEAR_POINT:
-            texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
-            texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;
-            break;
-        case Sampler::Filter::LINEAR_LINEAR:
-            texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
-            texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_LINEAR;
-            break;
-        case Sampler::Filter::ANISOTROPIC:
-            texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
-            texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_LINEAR;
-            texture_desc.maxAnisotropy = 16;
-            break;
-    }
-    texture_desc.maxMipmapLevelClamp = 999.0f;
-    texture_desc.flags = CU_TRSF_NORMALIZED_COORDINATES;
-    return texture_desc;
-}
-
-[[nodiscard]] inline auto create_cuda_texture_object(uint64_t handle, Sampler sampler) noexcept {
-    CUDA_RESOURCE_DESC res_desc{};
-    auto array = reinterpret_cast<const CUDATexture *>(handle);
-    if (array->levels() == 1u) {
-        res_desc.resType = CU_RESOURCE_TYPE_ARRAY;
-        res_desc.res.array.hArray = reinterpret_cast<CUarray>(array->handle());
-    } else {
-        res_desc.resType = CU_RESOURCE_TYPE_MIPMAPPED_ARRAY;
-        res_desc.res.mipmap.hMipmappedArray = reinterpret_cast<CUmipmappedArray>(array->handle());
-    }
-    auto tex_desc = cuda_texture_descriptor(sampler);
-    if (is_srgb(array->format())) { tex_desc.flags |= CU_TRSF_SRGB; }
-    CUtexObject texture;
-    LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
-    return texture;
-}
-
 void CUDABindlessArray::update(CUDACommandEncoder &encoder,
                                BindlessArrayUpdateCommand *cmd) noexcept {
 
@@ -175,7 +110,8 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
                     const Sampler s{
                         static_cast<Sampler::Filter>(f),
                         static_cast<Sampler::Address>(a)};
-                    const auto t = create_cuda_texture_object(src.handle, s);
+                    const auto t = create_cuda_texture_object(
+                        reinterpret_cast<const CUDATexture *>(src.handle), s);
                     const auto code = (f << 2u) | a;
                     table.objects[code] = t;
                     _texture_tracker.retain(t);

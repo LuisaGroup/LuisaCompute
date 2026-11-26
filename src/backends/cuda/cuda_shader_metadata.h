@@ -6,11 +6,17 @@
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/runtime/rhi/curve_basis.h>
+#include <luisa/ast/function.h>
 #include <luisa/ast/usage.h>
 
 namespace luisa::compute::cuda {
 
 struct CUDAShaderMetadata {
+
+    static constexpr uint32_t texture_sampler_mask_bits = 0xFFFFu;
+    static constexpr uint32_t texture_uses_surface_bit = 1u << 16u;
+    static constexpr uint32_t texture_usage_default_conservative =
+        texture_sampler_mask_bits | texture_uses_surface_bit;
 
     enum struct Kind : uint8_t {
         UNKNOWN,
@@ -47,6 +53,7 @@ struct CUDAShaderMetadata {
     uint3 block_size;
     luisa::vector<luisa::string> argument_types;
     luisa::vector<Usage> argument_usages;
+    luisa::vector<uint32_t> texture_sampler_masks;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
 
     [[nodiscard]] auto operator==(const CUDAShaderMetadata &rhs) const noexcept {
@@ -68,6 +75,7 @@ struct CUDAShaderMetadata {
                all(block_size == rhs.block_size) &&
                argument_types == rhs.argument_types &&
                argument_usages == rhs.argument_usages &&
+               texture_sampler_masks == rhs.texture_sampler_masks &&
                format_types == rhs.format_types;
     }
 };
@@ -75,6 +83,8 @@ struct CUDAShaderMetadata {
 // Checks the serialization envelope, not the semantics of PTX or bitcode.
 [[nodiscard]] bool cuda_shader_code_matches_format(luisa::span<const std::byte> code,
                                                    CUDAShaderMetadata::CodeFormat format) noexcept;
+
+[[nodiscard]] luisa::vector<uint32_t> analyze_cuda_texture_sampler_masks(Function kernel) noexcept;
 
 [[nodiscard]] luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata) noexcept;
 [[nodiscard]] luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::string_view metadata) noexcept;

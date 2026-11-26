@@ -950,11 +950,11 @@ private:
                     auto binding = f.bound_arguments()[i];
                     if (auto b = luisa::get_if<Function::TextureBinding>(&binding);
                         b != nullptr && f.arguments()[i] == v) {
-                        auto surf = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                        const auto storage = reinterpret_cast<const CUDATexture *>(b->handle)->encoded_storage(b->level);
                         _codegen->_emit_indent();
                         _codegen->_scratch << "lc_assume(";
                         _codegen->_emit_variable_name(v);
-                        _codegen->_scratch << ".surface.storage == " << surf.storage << ");\n";
+                        _codegen->_scratch << ".surface.storage == " << storage << ");\n";
                     }
                 }
             }
@@ -2575,11 +2575,11 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         for (auto i = 0u; i < f.bound_arguments().size(); i++) {
             auto binding = f.bound_arguments()[i];
             if (auto b = luisa::get_if<Function::TextureBinding>(&binding)) {
-                auto surface = reinterpret_cast<CUDATexture *>(b->handle)->binding(b->level);
+                const auto storage = reinterpret_cast<const CUDATexture *>(b->handle)->encoded_storage(b->level);
                 // inform the compiler of the underlying storage
                 _scratch << "\n  lc_assume(";
                 _emit_variable_name(f.arguments()[i]);
-                _scratch << ".surface.storage == " << surface.storage << ");";
+                _scratch << ".surface.storage == " << storage << ");";
             }
         }
     } else {
