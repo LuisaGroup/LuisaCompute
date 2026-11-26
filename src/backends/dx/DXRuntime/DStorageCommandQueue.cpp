@@ -105,8 +105,11 @@ void DStorageCommandQueue::ExecuteThread() {
             device->wait_fence(evt->fence(), fence);
             {
                 std::lock_guard lck(evt->event_mtx);
-                evt->finished_event = std::max<uint64_t>(fence, evt->finished_event);
+                const auto next_val = std::max<uint64_t>(
+                    fence, evt->finished_event.load(std::memory_order_relaxed));
+                evt->finished_event.store(next_val, std::memory_order_release);
             }
+            evt->finished_event.notify_all();
             if (wakeupThread) {
                 executedFrame++;
             }

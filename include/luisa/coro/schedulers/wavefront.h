@@ -2872,6 +2872,11 @@ private:
                 active_offset += _host_count[i];
             }
         };
+        const bool init_clean_counts =
+            _config.incremental_continuation_counts && !verify_queues;
+        bool main_counts_dirty = !init_clean_counts;
+        luisa::vector<uint8_t> aux_counts_dirty(
+            _auxiliary_work.size(), init_clean_counts ? uint8_t{0u} : uint8_t{1u});
         auto resume = [&](size_t continuation, uint source_queue,
                           BufferView<uint> indices, uint count) noexcept {
             pending_commands << _resume_kernels[continuation](
@@ -2892,6 +2897,13 @@ private:
                 ++async_consumer_dispatch_seq;
             }
             resumed_count += count;
+            main_counts_dirty = true;
+            for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
+                if (continuation < _auxiliary_work[a].max_emitted_per_continuation.size() &&
+                    _auxiliary_work[a].max_emitted_per_continuation[continuation] != 0u) {
+                    aux_counts_dirty[a] = 1u;
+                }
+            }
             stamp_pending_timing(continuation, count, in_flight_async_count > 0u);
             if (report_stats) {
                 auto &stat = _last_dispatch_stats.continuations[continuation];
@@ -2928,20 +2940,39 @@ private:
             // consumers from the previous iteration. The scheduler's normal
             // main-queue synchronization below also completes these copies,
             // so observing side queues adds no host synchronization point.
+            bool any_aux_dirty = false;
+            for (auto d : aux_counts_dirty) {
+                if (d != 0u) {
+                    any_aux_dirty = true;
+                    break;
+                }
+            }
             auto skip_readback =
                 _config.incremental_continuation_counts &&
-                counts_known_on_host && !verify_queues;
+                counts_known_on_host && !verify_queues && !any_aux_dirty;
+            bool need_sync_readback = false;
             if (!skip_readback) {
-                for (auto &&registered : _auxiliary_work) {
-                    registered.work->encode_count_readback(stream, pending_commands);
+                for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
+                    if (verify_queues || !_config.incremental_continuation_counts ||
+                        aux_counts_dirty[i] != 0u) {
+                        _auxiliary_work[i].work->encode_count_readback(stream, pending_commands);
+                        aux_counts_dirty[i] = 0u;
+                        need_sync_readback = true;
+                    }
                 }
             }
             if (_config.incremental_continuation_counts) {
                 if (!skip_readback) {
-                    pending_commands << _resume_count.copy_to(
-                        luisa::span{_host_count.data(),
-                                    _host_count.size()});
-                    sync_pending();
+                    if (verify_queues || main_counts_dirty) {
+                        pending_commands << _resume_count.copy_to(
+                            luisa::span{_host_count.data(),
+                                        _host_count.size()});
+                        main_counts_dirty = false;
+                        need_sync_readback = true;
+                    }
+                    if (need_sync_readback) {
+                        sync_pending();
+                    }
                 }
                 counts_known_on_host = false;
                 if (verify_queues && scan_count != 0u) {
@@ -3329,6 +3360,7 @@ private:
                     }
                     slot = AsyncBatchSlot{};
                     counts_known_on_host = false;
+                    main_counts_dirty = true;
                     if (used_filtered_out != nullptr) {
                         *used_filtered_out = true;
                     }
@@ -3343,6 +3375,9 @@ private:
                     counts_known_on_host =
                         (_config.incremental_continuation_counts &&
                          _config.fused_continuation_counts && !verify_queues);
+                    if (!counts_known_on_host) {
+                        main_counts_dirty = true;
+                    }
                 }
                 if (online_timing_active) {
                     pending_timed_dispatches += 2u;
@@ -4269,6 +4304,13 @@ private:
                 }
                 dispatch_counter += gen_count;
                 generated_count += gen_count;
+                main_counts_dirty = true;
+                for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
+                    if (!_auxiliary_work[a].max_emitted_per_continuation.empty() &&
+                        _auxiliary_work[a].max_emitted_per_continuation[0u] != 0u) {
+                        aux_counts_dirty[a] = 1u;
+                    }
+                }
                 stamp_pending_timing(0u, gen_count, in_flight_async_count > 0u);
                 ++continuation_dispatch_seq;
                 if (_config.frame_buffer_compaction) {
@@ -4279,6 +4321,7 @@ private:
                     _config.fused_continuation_counts && !verify_queues) {
                     _host_count[_deterministic_entry_target] += gen_count;
                     counts_known_on_host = true;
+                    main_counts_dirty = false;
                 }
             } else {
                 const bool selected_is_eligible_async_submit =
@@ -4396,6 +4439,7 @@ private:
                         registered.work->encode_dispatch_stage(dispatch_auxiliary_stage, stream, pending_commands, args...);
                     }
                     ++auxiliary_dispatch_seq;
+                    aux_counts_dirty[dispatch_auxiliary] = 1u;
                     stamp_pending_timing(
                         static_cast<size_t>(nq) + registered.stats_offset +
                             dispatch_auxiliary_stage,
@@ -4410,6 +4454,9 @@ private:
                         counts_known_on_host =
                             registered.work->try_predict_stage_transition(
                                 dispatch_auxiliary_stage);
+                        if (counts_known_on_host) {
+                            aux_counts_dirty[dispatch_auxiliary] = 0u;
+                        }
                     }
                     continue;
                 }
@@ -4666,6 +4713,9 @@ private:
                                 counts_known_on_host =
                                     _config.fused_continuation_counts;
                             }
+                            if (!counts_known_on_host) {
+                                main_counts_dirty = true;
+                            }
                             async_submitted = true;
                             if (_config.largest_continuation_first) {
                                 break;
@@ -4754,6 +4804,7 @@ private:
                                 deterministic_sink_continuation[continuation]) {
                                 _host_count[i] = 0u;
                                 counts_known_on_host = true;
+                                main_counts_dirty = false;
                             }
                             continue;
                         }
@@ -4816,6 +4867,7 @@ private:
                                 _host_count[registered.next_queue] :
                                 0u;
                         counts_known_on_host = false;
+                        main_counts_dirty = true;
                         used_sync_filtered = true;
                         break;
                     }
@@ -4829,6 +4881,8 @@ private:
                             _host_count[registered.next_queue] += count;
                         }
                         counts_known_on_host = true;
+                    } else {
+                        main_counts_dirty = true;
                     }
                 }
                 if (used_sync_filtered ||
@@ -4859,6 +4913,7 @@ private:
                         deterministic_sink_continuation[i]) {
                         _host_count[i] = 0u;
                         counts_known_on_host = true;
+                        main_counts_dirty = false;
                     }
                 }
             }

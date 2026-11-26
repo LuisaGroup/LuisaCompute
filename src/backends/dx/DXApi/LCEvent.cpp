@@ -1,6 +1,7 @@
 #include <DXApi/LCEvent.h>
 #include <DXRuntime/CommandQueue.h>
 #include <DXRuntime/DStorageCommandQueue.h>
+#include <luisa/core/intrin.h>
 namespace lc::dx {
 LCEvent::LCEvent(Device *device, bool shared)
     : Resource(device) {
@@ -11,19 +12,27 @@ LCEvent::LCEvent(Device *device, bool shared)
 }
 LCEvent::~LCEvent() {
     if (!_fence) return;
-    HANDLE eventHandle = CreateEventExW(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-    auto d = vstd::scope_exit([&] {
-        CloseHandle(eventHandle);
-    });
     if (_fence->GetCompletedValue() < last_fence) {
-        ThrowIfFailed(_fence->SetEventOnCompletion(last_fence, eventHandle));
-        WaitForSingleObject(eventHandle, INFINITE);
+        device->wait_fence(_fence.Get(), last_fence);
     }
 }
 
 void LCEvent::sync(uint64_t fenceIdx) const {
-    while (finished_event < fenceIdx) {
-        std::this_thread::yield();
+    for (;;) {
+        if (finished_event.load(std::memory_order_acquire) >= fenceIdx) {
+            return;
+        }
+        for (uint32_t spin = 0u; spin < 4096u; ++spin) {
+            if (finished_event.load(std::memory_order_acquire) >= fenceIdx) {
+                return;
+            }
+            LUISA_INTRIN_PAUSE();
+        }
+        const auto cur = finished_event.load(std::memory_order_acquire);
+        if (cur >= fenceIdx) {
+            return;
+        }
+        finished_event.wait(cur, std::memory_order_acquire);
     }
 }
 void LCEvent::signal(CommandQueue *queue, uint64_t fenceIdx) const {

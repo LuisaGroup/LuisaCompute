@@ -35,6 +35,7 @@ private:
     std::atomic_uint64_t _executed_frame = 0;
     std::atomic_uint64_t _completed_allocator_frame = 0;
     std::atomic_uint64_t _last_frame = 0;
+    std::atomic_uint64_t _work_epoch = 0;
     Device *_device;
     GpuAllocator *_resource_allocator;
     D3D12_COMMAND_LIST_TYPE _type;

@@ -6,10 +6,13 @@
 #include <Shader/BuiltinKernel.h>
 #include "../../common/hlsl/shader_compiler.h"
 #include <Shader/ComputeShader.h>
+#include <luisa/core/intrin.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/core/stl/algorithm.h>
 #include <array>
+#include <chrono>
+#include <cstdlib>
 #ifdef LUISA_DX_SDK
 extern "C" extern const uint32_t D3D12SDKVersion = D3D12_PREVIEW_SDK_VERSION;
 
@@ -57,13 +60,63 @@ Device::~Device() {
 #endif
 }
 
+namespace {
+
+[[nodiscard]] uint32_t dx_sync_spin_us() noexcept {
+    static auto const spin_us = [] {
+        if (const char *raw = std::getenv("LUISA_DX_SYNC_SPIN_US");
+            raw != nullptr && raw[0] != '\0') {
+            char *end = nullptr;
+            const auto parsed = std::strtoul(raw, &end, 10);
+            if (end != raw && *end == '\0') {
+                return static_cast<uint32_t>(parsed);
+            }
+        }
+        return 500u;
+    }();
+    return spin_us;
+}
+
+struct ThreadLocalWaitEvent {
+    HANDLE handle{nullptr};
+    ~ThreadLocalWaitEvent() noexcept {
+        if (handle != nullptr) {
+            CloseHandle(handle);
+        }
+    }
+    [[nodiscard]] HANDLE get() noexcept {
+        if (handle == nullptr) {
+            handle = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
+        }
+        return handle;
+    }
+};
+
+}// namespace
+
 void Device::wait_fence(ID3D12Fence *fence, uint64 fenceIndex) {
     if (fenceIndex <= 0) return;
     if (device_settings && device_settings->SyncFence(fence, fenceIndex)) return;
-    HANDLE eventHandle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
-    auto d = vstd::scope_exit([&] {
-        CloseHandle(eventHandle);
-    });
+    if (fence->GetCompletedValue() >= fenceIndex) return;
+    if (const auto spin_us = dx_sync_spin_us(); spin_us > 0u) {
+        const auto spin_start = std::chrono::steady_clock::now();
+        for (;;) {
+            for (uint32_t i = 0u; i < 64u; ++i) {
+                if (fence->GetCompletedValue() >= fenceIndex) return;
+                for (uint32_t p = 0u; p < 8u; ++p) {
+                    LUISA_INTRIN_PAUSE();
+                }
+            }
+            const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now() - spin_start)
+                                        .count();
+            if (elapsed_us >= static_cast<int64_t>(spin_us)) {
+                break;
+            }
+        }
+    }
+    thread_local ThreadLocalWaitEvent tl_event;
+    HANDLE eventHandle = tl_event.get();
     if (fence->GetCompletedValue() < fenceIndex) {
         ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
         WaitForSingleObject(eventHandle, INFINITE);
