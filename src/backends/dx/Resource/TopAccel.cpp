@@ -71,6 +71,9 @@ void TopAccel::SetMesh(BottomAccel *mesh, uint64 index) {
     inst->accelIndex = index;
 }
 TopAccel::~TopAccel() {
+    if (device) {
+        device->note_resource_destroyed();
+    }
     for (auto &&i : allInstance) {
         auto mesh = i.handle;
         if (mesh)
@@ -401,6 +404,9 @@ bool TopAccel::CheckAccel(
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
     alloc->dispose_after_complete(std::move(accelBuffer));
     accelBuffer = std::move(newAccelBuffer);
+    if (device) {
+        device->note_resource_destroyed();
+    }
     return true;
 }
 }// namespace lc::dx

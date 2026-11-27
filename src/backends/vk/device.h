@@ -289,6 +289,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     // acquire semantics before reusing pooled sets, and a stale value can only
     // cause an extra pool reset, never a stale set.
     std::atomic_uint64_t _shader_layout_destroy_generation{0u};
+    std::atomic_uint64_t _resource_destroy_generation{0u};
     // Phase 3B (opt A): the ids of the interned descriptor-set layouts that were
     // destroyed, in destruction order. Index `i` of this log corresponds to
     // generation `i + 1`, so a `CommandBufferState` that remembers the generation it
@@ -670,6 +671,12 @@ public:
     [[nodiscard]] uint64_t shader_layout_destroy_generation() const noexcept {
         return _shader_layout_destroy_generation.load(
             std::memory_order_acquire);
+    }
+    void note_resource_destroyed() noexcept {
+        _resource_destroy_generation.fetch_add(1u, std::memory_order_release);
+    }
+    [[nodiscard]] uint64_t resource_destroy_generation() const noexcept {
+        return _resource_destroy_generation.load(std::memory_order_acquire);
     }
     [[nodiscard]] uint64_t max_timeline_semaphore_value_difference() const noexcept {
         // Per the Vulkan spec, maxTimelineSemaphoreValueDifference == 0 means

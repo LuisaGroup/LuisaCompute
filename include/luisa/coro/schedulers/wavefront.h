@@ -1239,6 +1239,32 @@ private:
                 }
             };
 
+        luisa::vector<luisa::move_only_function<void()>> pending_compilations;
+        auto enqueue_compile = [&]<typename ShaderT, typename KernelT>(
+                                   ShaderT &slot, KernelT &&kernel,
+                                   ShaderOption option, luisa::string stage) {
+            if (_config.shader_compile_threads <= 1u) {
+                slot = _compile_shader(
+                    device, kernel, std::move(option), std::move(stage));
+            } else {
+                // Register diagnostics in graph/build order on the constructing
+                // thread. Workers own the kernel wrapper and label and write only
+                // their preallocated shader slot; no shared vectors are appended.
+                auto structural_hash = kernel.function()->function().hash();
+                _shader_structure_hashes.emplace_back(structural_hash);
+                _shader_infos.emplace_back(WavefrontCoroShaderInfo{
+                    .stage = stage, .structural_hash = structural_hash});
+                pending_compilations.emplace_back(
+                    [&device, &slot,
+                     kernel = std::forward<KernelT>(kernel),
+                     option = std::move(option),
+                     stage = std::move(stage)]() mutable {
+                        slot = detail::coro_scheduler_label_shader(
+                            device.compile(kernel, std::move(option)), stage);
+                    });
+            }
+        };
+
         if (auto entry_sub = coro[0u]) {
             auto entry_candidates = make_candidate_queues(0u);
             Kernel1D k_gen = [&coro, frame_buffer, extension_route_buffer,
@@ -1301,15 +1327,14 @@ private:
                     emit_fused_resume_counts(next, entry_candidates);
                 }
             };
-            _gen_kernel = _compile_shader(
-                device,
-                k_gen,
+            enqueue_compile(
+                _gen_kernel,
+                std::move(k_gen),
                 detail::coro_scheduler_shader_option(
                     _config.shader_option, "wavefront_generate"),
                 "wavefront_generate/<entry>");
         }
 
-        luisa::vector<luisa::move_only_function<void()>> pending_compilations;
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
@@ -1410,27 +1435,10 @@ private:
                 luisa::format("wavefront_resume_{}", i));
             auto stage = luisa::format("wavefront_resume_{}/{}", i,
                                        coro.graph().node(i).name);
-            if (_config.shader_compile_threads <= 1u) {
-                _resume_kernels[i] = _compile_shader(
-                    device, k_cont, std::move(option), std::move(stage));
-            } else {
-                // Register diagnostics in graph order on the constructing
-                // thread. Workers own the AST and label and write only their
-                // preallocated shader slot; no shared vectors are appended.
-                auto structural_hash = k_cont.function()->function().hash();
-                _shader_structure_hashes.emplace_back(structural_hash);
-                _shader_infos.emplace_back(WavefrontCoroShaderInfo{
-                    .stage = stage, .structural_hash = structural_hash});
-                pending_compilations.emplace_back(
-                    [this, &device, i, kernel = std::move(k_cont),
-                     option = std::move(option), stage = std::move(stage)]() mutable {
-                        _resume_kernels[i] = detail::coro_scheduler_label_shader(
-                            device.compile(kernel, std::move(option)), stage);
-                    });
-            }
+            enqueue_compile(
+                _resume_kernels[i], std::move(k_cont),
+                std::move(option), std::move(stage));
         }
-        detail::coro_scheduler_compile_shaders(
-            pending_compilations, _config.shader_compile_threads);
 
         if (!_extension_stages.empty()) {
             auto *async_slot_source_queue_buffer = &_async_slot_source_queue;
@@ -1527,8 +1535,9 @@ private:
                         };
                     }
                 };
-            _advance_extension_stage_shader = _compile_shader(
-                device, advance_extension_stage,
+            enqueue_compile(
+                _advance_extension_stage_shader,
+                std::move(advance_extension_stage),
                 detail::coro_scheduler_shader_option(
                     _config.shader_option,
                     "wavefront_advance_extension_stage"),
@@ -1556,8 +1565,8 @@ private:
                 }
             };
         };
-        _initialize_shader = _compile_shader(
-            device, initialize_kernel,
+        enqueue_compile(
+            _initialize_shader, std::move(initialize_kernel),
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "wavefront_initialize"),
             "wavefront_initialize");
@@ -1567,8 +1576,8 @@ private:
                 auto x = dispatch_x();
                 $if (x < n) { Expr<Buffer<uint>>{*identity_buf}.write(x, x); };
             };
-            _init_identity_shader = _compile_shader(
-                device, init_identity_kernel,
+            enqueue_compile(
+                _init_identity_shader, std::move(init_identity_kernel),
                 detail::coro_scheduler_shader_option(
                     _config.shader_option, "wavefront_init_identity"),
                 "wavefront_init_identity");
@@ -1579,8 +1588,8 @@ private:
             auto x = dispatch_x();
             $if (x < n) { buffer.write(x, 0u); };
         };
-        _clear_count_shader = _compile_shader(
-            device, clear_count_kernel,
+        enqueue_compile(
+            _clear_count_shader, std::move(clear_count_kernel),
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "wavefront_clear_count"),
             "wavefront_clear_count");
@@ -1598,8 +1607,8 @@ private:
                 count.atomic(tok).fetch_add(1u);
             };
         };
-        _count_shader = _compile_shader(
-            device, count_kernel,
+        enqueue_compile(
+            _count_shader, std::move(count_kernel),
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "wavefront_count"),
             "wavefront_count");
@@ -1641,8 +1650,9 @@ private:
                         count.atomic(tok).fetch_add(1u);
                     };
                 };
-            _publish_generated_count_shader = _compile_shader(
-                device, publish_generated_count_kernel,
+            enqueue_compile(
+                _publish_generated_count_shader,
+                std::move(publish_generated_count_kernel),
                 detail::coro_scheduler_shader_option(
                     _config.shader_option,
                     "wavefront_publish_generated_count"),
@@ -1679,8 +1689,9 @@ private:
                         count.atomic(tok).fetch_add(1u);
                     };
                 };
-            _publish_resumed_count_shader = _compile_shader(
-                device, publish_resumed_count_kernel,
+            enqueue_compile(
+                _publish_resumed_count_shader,
+                std::move(publish_resumed_count_kernel),
                 detail::coro_scheduler_shader_option(
                     _config.shader_option,
                     "wavefront_publish_resumed_count"),
@@ -1701,8 +1712,8 @@ private:
                 index.write(slot, x);
             };
         };
-        _gather_shader = _compile_shader(
-            device, gather_kernel,
+        enqueue_compile(
+            _gather_shader, std::move(gather_kernel),
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "wavefront_gather"),
             "wavefront_gather");
@@ -1769,8 +1780,8 @@ private:
                         $if(active2) { index.write(base_out + warp_totals[16u + warp_id] + p2, idx2); };
                         $if(active3) { index.write(base_out + warp_totals[24u + warp_id] + p3, idx3); };
                     };
-                _gather_selected_shader = _compile_shader(
-                    device, gather_selected_kernel,
+                enqueue_compile(
+                    _gather_selected_shader, std::move(gather_selected_kernel),
                     detail::coro_scheduler_shader_option(
                         _config.shader_option, "wavefront_gather_selected"),
                     "wavefront_gather_selected");
@@ -1792,8 +1803,8 @@ private:
                             index.write(slot, x);
                         };
                     };
-                _gather_selected_shader = _compile_shader(
-                    device, gather_selected_kernel,
+                enqueue_compile(
+                    _gather_selected_shader, std::move(gather_selected_kernel),
                     detail::coro_scheduler_shader_option(
                         _config.shader_option, "wavefront_gather_selected"),
                     "wavefront_gather_selected");
@@ -1929,11 +1940,14 @@ private:
                     };
                 }
             };
-        _compact_shader = _compile_shader(
-            device, compact_kernel,
+        enqueue_compile(
+            _compact_shader, std::move(compact_kernel),
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "wavefront_compact"),
             "wavefront_compact");
+
+        detail::coro_scheduler_compile_shaders(
+            pending_compilations, _config.shader_compile_threads);
 
         if (std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
             for (auto &&info : _shader_infos) {
@@ -3243,8 +3257,8 @@ private:
                 resume(continuation, static_cast<uint>(q), indices, count);
             } else {
                 auto indices = use_identity_selected ?
-                                   _identity_index.view().subview(0u, count) :
-                                   _resume_index.view().subview(0u, count);
+                                   _identity_index.view() :
+                                   _resume_index.view();
                 resume(continuation, static_cast<uint>(q), indices, count);
             }
             return continuation < deterministic_sink_continuation.size() &&
@@ -4684,7 +4698,7 @@ private:
                                 gather_scan_count += scan_count;
                                 pending_commands << _resume_kernels[cont](
                                                         _config.thread_count,
-                                                        _resume_index.view(0u, active_count),
+                                                        _resume_index.view(),
                                                         0u, 0x80000000u | count_slot,
                                                         static_cast<uint>(q), args...)
                                                         .dispatch(active_count);

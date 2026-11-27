@@ -42,6 +42,7 @@
 #include "raster_shader.h"
 #include "native_shader_ext.h"
 #include "native_raster_shader.h"
+#include "../../common/env_flag.h"
 #include <algorithm>
 #include <bit>
 #include <limits>
@@ -1155,6 +1156,7 @@ struct BindPropVisitor {
     // Each sets
     CommandBuffer *cmdbuffer;
     VkDescriptorSet desc_set;
+    CommandBufferState::CachedDescriptorSetEntry *cached_desc_entry{nullptr};
     uint desc_index;
     vstd::vector<VkImageView> *img_views;
     SavedArgumentCursor arguments;
@@ -1922,6 +1924,7 @@ void CommandBufferState::init(Device &device, StreamTag tag,
     // conservative path (pool reset) and every later one can reuse.
     desc_set_cache.clear();
     cached_layout_generation = device.shader_layout_destroy_generation();
+    cached_resource_generation = device.resource_destroy_generation();
     has_uncached_desc_allocs = false;
     orphaned_desc_sets = 0u;
     desc_pool = stream_state_detail::create_descriptor_pool_with_sizes(
@@ -2031,7 +2034,11 @@ CommandBufferState::~CommandBufferState() {
     }
 }
 VkDescriptorSet CommandBufferState::allocate_descriptor_set(
-    uint64_t layout_id, VkDescriptorSetLayout layout) {
+    uint64_t layout_id, VkDescriptorSetLayout layout,
+    uint64_t shader_id, CachedDescriptorSetEntry **out_entry) {
+    if (out_entry != nullptr) {
+        *out_entry = nullptr;
+    }
     // Phase 3B (opt A): a set this state already owns for exactly this interned
     // layout is handed out again. It can only be taken from a pool that was not
     // reset since the set was created (see `reset`), and within one recording the
@@ -2042,9 +2049,26 @@ VkDescriptorSet CommandBufferState::allocate_descriptor_set(
         if (iter) {
             auto &bucket = iter.value();
             if (bucket.cursor < bucket.sets.size()) {
+                if (shader_id != 0u &&
+                    bucket.sets[bucket.cursor].last_shader_id != shader_id) {
+                    auto const limit = std::min(bucket.sets.size(), bucket.cursor + 8u);
+                    for (size_t k = bucket.cursor + 1u; k < limit; ++k) {
+                        if (bucket.sets[k].last_shader_id == shader_id) {
+                            std::swap(bucket.sets[bucket.cursor], bucket.sets[k]);
+                            break;
+                        }
+                    }
+                }
                 // Counter-only: a reuse is not a native allocation, so
                 // `descriptor_set_allocations` keeps describing the real calls.
-                return bucket.sets[bucket.cursor++];
+                auto &entry = bucket.sets[bucket.cursor++];
+                if (shader_id != 0u) {
+                    entry.last_shader_id = shader_id;
+                }
+                if (out_entry != nullptr) {
+                    *out_entry = &entry;
+                }
+                return entry.set;
             }
         }
     } else {
@@ -2076,8 +2100,13 @@ VkDescriptorSet CommandBufferState::allocate_descriptor_set(
                     "Vulkan descriptor-set cache cursor {} does not match its "
                     "{}-entry bucket.",
                     bucket.cursor, bucket.sets.size());
-                bucket.sets.emplace_back(set);
+                bucket.sets.emplace_back(CachedDescriptorSetEntry{
+                    .set = set,
+                    .last_shader_id = shader_id});
                 bucket.cursor = bucket.sets.size();
+                if (out_entry != nullptr) {
+                    *out_entry = &bucket.sets.back();
+                }
             }
             return set;
         }
@@ -2278,14 +2307,24 @@ void CommandBufferState::reset_native(
             orphaned_desc_sets);
     }
     if (!need_pool_reset) {
+        auto const resource_generation = device.resource_destroy_generation();
+        bool const clear_cached_bindings =
+            resource_generation != cached_resource_generation;
         for (auto &entry : desc_set_cache) {
             entry.second.cursor = 0u;
+            if (clear_cached_bindings) {
+                for (auto &item : entry.second.sets) {
+                    item.bindings.clear();
+                }
+            }
         }
+        cached_resource_generation = resource_generation;
     } else {
         desc_set_cache.clear();
         has_uncached_desc_allocs = false;
         orphaned_desc_sets = 0u;
         cached_layout_generation = layout_generation;
+        cached_resource_generation = device.resource_destroy_generation();
         VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), desc_pool, 0));
         for (size_t i = 0u; i < touched_overflow; ++i) {
             VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), overflow_desc_pools[i], 0));
@@ -5230,11 +5269,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             // Phase 3B (opt A): the interning id of this shader's set-0 layout is what
             // lets the state reuse the set it allocated for the batch before this one
             // instead of calling vkAllocateDescriptorSets again.
+            visitor.cached_desc_entry = nullptr;
             visitor.desc_set = shader->uses_push_descriptors() ?
                                    VK_NULL_HANDLE :
                                    _state->allocate_descriptor_set(
                                        shader->desc_set_layout_id(0u),
-                                       shader->desc_set_layout()[0]);
+                                       shader->desc_set_layout()[0],
+                                       reinterpret_cast<uint64_t>(shader),
+                                       &visitor.cached_desc_entry);
             if (descriptor_range > 0u) {
                 LUISA_ASSERT(
                     arg_buffer.buffer != nullptr,
@@ -5437,37 +5479,123 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 desc_sets->clear();
             } else {
                 if (!write_desc_sets->empty()) {
-                    LUISA_ASSERT(
-                        write_desc_sets->size() <=
-                            std::numeric_limits<uint32_t>::max(),
-                        "Vulkan descriptor-write count is not representable.");
-                    // Plan P2.2: the one funnel for this dispatch's set-0 update.
-                    // It issues either one vkUpdateDescriptorSetWithTemplate (a
-                    // cached template created from exactly this write shape) or,
-                    // byte for byte, the pre-P2.2 vkUpdateDescriptorSets call with
-                    // the same writes - never both and never a partial write. The
-                    // decision depends on the device capability latched at creation
-                    // and on the shape, never on a counter or a measurement.
-                    detail::DescriptorSetUpdateRequest update_request{
-                        .device = device()->logic_device(),
-                        .set = visitor.desc_set,
-                        .layout = shader->desc_set_layout()[0u],
-                        .bind_point = bind_point,
-                        .api = device()->descriptor_update_template_api(),
-                        .allow_templates =
-                            device()->descriptor_update_template_capable()};
-                    auto update = detail::update_descriptor_set(
-                        update_request, shader->descriptor_update_templates(),
-                        luisa::span<const VkWriteDescriptorSet>{
-                            write_desc_sets->data(), write_desc_sets->size()});
-                    // "Active" in VulkanExtensionStatusExt means "the backend really
-                    // uses this path", so it is marked where a template is actually
-                    // created instead of on every dispatch.
-                    if (update.created_template) {
-                        device()->mark_optional_extension_active(
-                            detail::OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE);
+                    static const bool diff_desc_enabled =
+                        !luisa::compute::detail::env_flag("LUISA_VK_DISABLE_DIFF_DESC_UPDATE");
+                    if (diff_desc_enabled && visitor.cached_desc_entry != nullptr &&
+                        !device()->descriptor_update_template_capable()) {
+                        auto &cached_bindings = visitor.cached_desc_entry->bindings;
+                        if (device()->resource_destroy_generation() !=
+                            _state->cached_resource_generation) {
+                            cached_bindings.clear();
+                        }
+                        uint32_t max_binding = 0u;
+                        for (auto const &w : *write_desc_sets) {
+                            if (w.dstBinding > max_binding) {
+                                max_binding = w.dstBinding;
+                            }
+                        }
+                        if (cached_bindings.size() <= max_binding) {
+                            cached_bindings.resize(
+                                static_cast<size_t>(max_binding) + 1u);
+                        }
+                        size_t keep = 0u;
+                        for (size_t wi = 0u; wi < write_desc_sets->size(); ++wi) {
+                            auto const &w = (*write_desc_sets)[wi];
+                            bool unchanged = false;
+                            if (w.descriptorCount == 1u && w.dstArrayElement == 0u) {
+                                if ((w.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
+                                     w.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) &&
+                                    w.pNext == nullptr && w.pBufferInfo != nullptr) {
+                                    CommandBufferState::CachedDescriptorBinding cur{
+                                        w.descriptorType,
+                                        detail::handle_to_uint64(w.pBufferInfo->buffer),
+                                        w.pBufferInfo->offset,
+                                        w.pBufferInfo->range};
+                                    if (cached_bindings[w.dstBinding] == cur) {
+                                        unchanged = true;
+                                    } else {
+                                        cached_bindings[w.dstBinding] = cur;
+                                    }
+                                } else if (w.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR &&
+                                           w.pNext != nullptr) {
+                                    auto const *as_write =
+                                        reinterpret_cast<VkWriteDescriptorSetAccelerationStructureKHR const *>(w.pNext);
+                                    if (as_write->sType ==
+                                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR &&
+                                        as_write->accelerationStructureCount == 1u &&
+                                        as_write->pAccelerationStructures != nullptr) {
+                                        CommandBufferState::CachedDescriptorBinding cur{
+                                            w.descriptorType,
+                                            detail::handle_to_uint64(as_write->pAccelerationStructures[0]),
+                                            0u,
+                                            0u};
+                                        if (cached_bindings[w.dstBinding] == cur) {
+                                            unchanged = true;
+                                        } else {
+                                            cached_bindings[w.dstBinding] = cur;
+                                        }
+                                    } else {
+                                        cached_bindings[w.dstBinding] = {};
+                                    }
+                                } else {
+                                    cached_bindings[w.dstBinding] = {};
+                                }
+                            } else if (w.dstBinding < cached_bindings.size()) {
+                                cached_bindings[w.dstBinding] = {};
+                            }
+                            if (!unchanged) {
+                                if (keep != wi) {
+                                    (*write_desc_sets)[keep] = w;
+                                }
+                                ++keep;
+                            }
+                        }
+                        write_desc_sets->resize(keep);
+                        if (!write_desc_sets->empty()) {
+                            LUISA_ASSERT(
+                                write_desc_sets->size() <=
+                                    std::numeric_limits<uint32_t>::max(),
+                                "Vulkan descriptor-write count is not representable.");
+                            vkUpdateDescriptorSets(
+                                device()->logic_device(),
+                                static_cast<uint32_t>(write_desc_sets->size()),
+                                write_desc_sets->data(), 0u, nullptr);
+                            submit_profile::record_descriptor_set_update();
+                            write_desc_sets->clear();
+                        }
+                    } else {
+                        LUISA_ASSERT(
+                            write_desc_sets->size() <=
+                                std::numeric_limits<uint32_t>::max(),
+                            "Vulkan descriptor-write count is not representable.");
+                        // Plan P2.2: the one funnel for this dispatch's set-0 update.
+                        // It issues either one vkUpdateDescriptorSetWithTemplate (a
+                        // cached template created from exactly this write shape) or,
+                        // byte for byte, the pre-P2.2 vkUpdateDescriptorSets call with
+                        // the same writes - never both and never a partial write. The
+                        // decision depends on the device capability latched at creation
+                        // and on the shape, never on a counter or a measurement.
+                        detail::DescriptorSetUpdateRequest update_request{
+                            .device = device()->logic_device(),
+                            .set = visitor.desc_set,
+                            .layout = shader->desc_set_layout()[0u],
+                            .bind_point = bind_point,
+                            .api = device()->descriptor_update_template_api(),
+                            .allow_templates =
+                                device()->descriptor_update_template_capable()};
+                        auto update = detail::update_descriptor_set(
+                            update_request, shader->descriptor_update_templates(),
+                            luisa::span<const VkWriteDescriptorSet>{
+                                write_desc_sets->data(), write_desc_sets->size()});
+                        // "Active" in VulkanExtensionStatusExt means "the backend really
+                        // uses this path", so it is marked where a template is actually
+                        // created instead of on every dispatch.
+                        if (update.created_template) {
+                            device()->mark_optional_extension_active(
+                                detail::OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE);
+                        }
+                        write_desc_sets->clear();
                     }
-                    write_desc_sets->clear();
                 }
                 desc_sets->clear();
                 desc_sets->push_back(visitor.desc_set);

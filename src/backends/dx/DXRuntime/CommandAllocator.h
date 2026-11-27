@@ -1,7 +1,10 @@
 #pragma once
+#include <luisa/vstl/common.h>
 #include <luisa/vstl/functional.h>
+#include <luisa/core/stl/vector.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <luisa/vstl/stack_allocator.h>
+#include <Resource/DescriptorHeap.h>
 #include <Resource/UploadBuffer.h>
 #include <Resource/DefaultBuffer.h>
 #include <Resource/ReadbackBuffer.h>
@@ -60,10 +63,40 @@ private:
     BufferAllocator<DefaultBuffer> _default_allocator;
     BufferAllocator<ReadbackBuffer> _readback_allocator;
     vstd::unique_ptr<DefaultBuffer> _scratch_buffer;
+    void _clear_spilled_table_cache() noexcept;
     //TODO: allocate commandbuffer
     CommandAllocator(Device *device, GpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
 
 public:
+    struct SpilledDescriptorKey {
+        uint8_t kind{0u};// 0=empty, 1=srv_buffer, 2=srv_accel, 3=uav_buffer
+        bool is_raw{false};
+        uint32_t stride{0u};
+        uint64_t resource_or_addr{0u};
+        uint64_t offset{0u};
+        uint64_t size_bytes{0u};
+        [[nodiscard]] bool operator==(const SpilledDescriptorKey &) const noexcept = default;
+    };
+    struct CachedSpilledTable {
+        luisa::FirstFit::Node *node{nullptr};
+        uint32_t base{0u};
+        uint32_t total_slots{0u};
+        luisa::vector<SpilledDescriptorKey> keys;
+    };
+    struct CachedSpilledTableBucket {
+        vstd::vector<CachedSpilledTable> tables;
+        size_t cursor{0u};
+    };
+
+private:
+    vstd::HashMap<uint64_t, CachedSpilledTableBucket> _spilled_table_cache;
+    uint32_t _cached_spilled_slot_count{0u};
+    uint64_t _cached_resource_generation{0u};
+    uint64_t _cached_shader_destroy_generation{0u};
+
+public:
+    [[nodiscard]] CachedSpilledTable *acquire_spilled_table(
+        uint64_t shader_uid, uint32_t total_slots) noexcept;
     vstd::StackAllocator rtv_allocator;
     vstd::StackAllocator dsv_allocator;
 

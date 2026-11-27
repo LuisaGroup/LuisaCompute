@@ -73,6 +73,7 @@ protected:
     uint _spilled_srv_count{0u};
     uint _spilled_uav_count{0u};
     vstd::vector<RootSigBinding> _root_sig_bindings;
+    uint64_t _shader_uid{0u};
     void _init_root_sig_layout(bool append_object_id = false);
     void _save_pso(ID3D12PipelineState *pso, vstd::string_view pso_name, luisa::BinaryIO const *file_stream, Device const *device) const;
 
@@ -82,6 +83,7 @@ public:
     vstd::span<const std::pair<vstd::string, Type const *>> printers() const { return _printers; }
     uint bindless_count() const { return _bindless_count; }
     uint validation_count() const { return _validation_count; }
+    [[nodiscard]] uint64_t uid() const noexcept { return _shader_uid; }
     vstd::span<hlsl::Property const> properties() const { return _properties; }
     vstd::span<SavedArgument const> args() const { return _kernel_arguments; }
     Shader(

@@ -16,7 +16,11 @@ Buffer::Buffer(
     Device *device)
     : Resource(device) {
 }
-Buffer::~Buffer() = default;
+Buffer::~Buffer() {
+    if (device) {
+        device->note_resource_destroyed();
+    }
+}
 D3D12_SHADER_RESOURCE_VIEW_DESC Buffer::GetColorSrvDescBase(uint64 offset, uint64 byteSize, bool isRaw) {
     D3D12_SHADER_RESOURCE_VIEW_DESC res;
     res.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;

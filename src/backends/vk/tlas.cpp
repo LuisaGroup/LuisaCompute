@@ -687,6 +687,7 @@ void Tlas::pre_build(
         if (_accel) {
             cmdbuffer.states()->callbacks.emplace_back([a = _accel, device = device()]() {
                 vkDestroyAccelerationStructureKHR(device->logic_device(), a, Device::alloc_callbacks());
+                device->note_resource_destroyed();
             });
             _accel = VK_NULL_HANDLE;
         }
@@ -784,6 +785,9 @@ Tlas::~Tlas() {
             _detach_primitive(i.primitive, mesh);
     }
     vkDestroyAccelerationStructureKHR(device()->logic_device(), _accel, Device::alloc_callbacks());
+    if (device()) {
+        device()->note_resource_destroyed();
+    }
 }
 void Tlas::_set_mesh(PrimitiveBase *mesh, uint64 index, bool is_motion_instance, bool explicit_primitive) {
     auto &&inst = _all_instance[index];

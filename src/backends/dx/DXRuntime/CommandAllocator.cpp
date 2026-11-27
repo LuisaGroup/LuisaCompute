@@ -1,5 +1,8 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandQueue.h>
+#include <DXRuntime/Device.h>
+#include "../../common/env_flag.h"
+#include <algorithm>
 namespace lc::dx {
 template<typename Pack>
 uint64 CommandAllocator::Visitor<Pack>::allocate(uint64 size) {
@@ -140,6 +143,8 @@ CommandAllocator::CommandAllocator(
       _upload_allocator(TEMP_SIZE),
       _default_allocator(TEMP_SIZE),
       _readback_allocator(TEMP_SIZE),
+      _cached_resource_generation(device ? device->resource_destroy_generation() : 0u),
+      _cached_shader_destroy_generation(device ? device->shader_destroy_generation() : 0u),
       rtv_allocator(64, &_rtv_visitor),
       dsv_allocator(64, &_dsv_visitor) {
 
@@ -161,7 +166,71 @@ ID3D12CommandAllocator *CommandAllocator::allocator() {
     return _allocator.Get();
 }
 
+void CommandAllocator::_clear_spilled_table_cache() noexcept {
+    if (_device && _device->global_heap) {
+        auto *heap = _device->global_heap.get();
+        for (auto &entry : _spilled_table_cache) {
+            for (auto &table : entry.second.tables) {
+                if (table.node != nullptr) {
+                    heap->DeAllocate(table.node);
+                    table.node = nullptr;
+                }
+            }
+        }
+    }
+    _spilled_table_cache.clear();
+    _cached_spilled_slot_count = 0u;
+}
+
+CommandAllocator::CachedSpilledTable *CommandAllocator::acquire_spilled_table(
+    uint64_t shader_uid, uint32_t total_slots) noexcept {
+    static const bool cache_enabled =
+        !luisa::compute::detail::env_flag("LUISA_DX_DISABLE_SPILLED_TABLE_CACHE");
+    if (!cache_enabled || shader_uid == 0u || total_slots == 0u ||
+        !_device || !_device->global_heap) {
+        return nullptr;
+    }
+    auto const res_gen = _device->resource_destroy_generation();
+    if (res_gen != _cached_resource_generation) {
+        for (auto &entry : _spilled_table_cache) {
+            for (auto &table : entry.second.tables) {
+                table.keys.clear();
+            }
+        }
+        _cached_resource_generation = res_gen;
+    }
+    auto iter = _spilled_table_cache.find(shader_uid);
+    if (iter) {
+        auto &bucket = iter.value();
+        if (bucket.cursor < bucket.tables.size() &&
+            bucket.tables[bucket.cursor].total_slots == total_slots) {
+            return &bucket.tables[bucket.cursor++];
+        }
+    }
+    constexpr uint32_t kMaxCachedSpilledSlotsPerAllocator = 16384u;
+    if (_cached_spilled_slot_count > kMaxCachedSpilledSlotsPerAllocator ||
+        total_slots > kMaxCachedSpilledSlotsPerAllocator - _cached_spilled_slot_count) {
+        return nullptr;
+    }
+    auto *heap = _device->global_heap.get();
+    auto *node = heap->SubAllocate(total_slots);
+    if (node == nullptr) {
+        return nullptr;
+    }
+    auto try_res = _spilled_table_cache.try_emplace(shader_uid);
+    auto &bucket = try_res.first.value();
+    auto &table = bucket.tables.emplace_back(CachedSpilledTable{
+        .node = node,
+        .base = heap->GetSubAllocOffset(node),
+        .total_slots = total_slots,
+        .keys = {}});
+    bucket.cursor = bucket.tables.size();
+    _cached_spilled_slot_count += total_slots;
+    return &table;
+}
+
 CommandAllocator::~CommandAllocator() {
+    _clear_spilled_table_cache();
     _cbuffer.destroy();
 }
 void CommandAllocator::reset(CommandQueue *queue) {
@@ -170,6 +239,26 @@ void CommandAllocator::reset(CommandQueue *queue) {
     _default_allocator.clear();
     rtv_allocator.clear();
     dsv_allocator.clear();
+    if (_device) {
+        auto const sh_gen = _device->shader_destroy_generation();
+        auto const res_gen = _device->resource_destroy_generation();
+        if (sh_gen != _cached_shader_destroy_generation) {
+            _clear_spilled_table_cache();
+            _cached_shader_destroy_generation = sh_gen;
+            _cached_resource_generation = res_gen;
+        } else {
+            bool const clear_keys = (res_gen != _cached_resource_generation);
+            for (auto &entry : _spilled_table_cache) {
+                entry.second.cursor = 0u;
+                if (clear_keys) {
+                    for (auto &table : entry.second.tables) {
+                        table.keys.clear();
+                    }
+                }
+            }
+            _cached_resource_generation = res_gen;
+        }
+    }
     if (_allocator)
         ThrowIfFailed(
             _allocator->Reset());

@@ -133,8 +133,20 @@ struct CommandBufferState {
     // `has_uncached_desc_allocs` so such a state falls back to the pool reset) and
     // is dropped whenever `Device::shader_layout_destroy_generation()` moved,
     // because a destroyed layout invalidates every set created from it.
+    struct CachedDescriptorBinding {
+        VkDescriptorType type{VK_DESCRIPTOR_TYPE_MAX_ENUM};
+        uint64_t handle{0u};
+        VkDeviceSize offset{0u};
+        VkDeviceSize range{0u};
+        [[nodiscard]] bool operator==(const CachedDescriptorBinding &) const noexcept = default;
+    };
+    struct CachedDescriptorSetEntry {
+        VkDescriptorSet set{VK_NULL_HANDLE};
+        uint64_t last_shader_id{0u};
+        luisa::vector<CachedDescriptorBinding> bindings;
+    };
     struct CachedDescriptorSetBucket {
-        vstd::vector<VkDescriptorSet> sets;
+        vstd::vector<CachedDescriptorSetEntry> sets;
         size_t cursor{0u};
     };
     vstd::HashMap<uint64_t, CachedDescriptorSetBucket> desc_set_cache;
@@ -150,6 +162,7 @@ struct CommandBufferState {
     // Generation of `Device::shader_layout_destroy_generation()` the cache was
     // built under (see `reset`).
     uint64_t cached_layout_generation{0u};
+    uint64_t cached_resource_generation{0u};
     // True once anything was allocated through a path that passes a layout id of
     // 0 (indirect preparation, native/custom shaders). Such a set is not in any
     // bucket, so the pool has to be reset on retirement; the state then also drops
@@ -212,7 +225,10 @@ struct CommandBufferState {
     // an interned, device-owned one). A non-zero id enables the reuse cache of
     // this state; 0 always allocates a fresh set and marks the state so its pools
     // are reset on retirement.
-    [[nodiscard]] VkDescriptorSet allocate_descriptor_set(uint64_t layout_id, VkDescriptorSetLayout layout);
+    [[nodiscard]] VkDescriptorSet allocate_descriptor_set(
+        uint64_t layout_id, VkDescriptorSetLayout layout,
+        uint64_t shader_id = 0u,
+        CachedDescriptorSetEntry **out_entry = nullptr);
     void retain_pipeline(PipelineRef *ref);
     void reset(
         Stream *stream,

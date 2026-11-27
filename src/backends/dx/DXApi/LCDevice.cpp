@@ -567,6 +567,7 @@ Usage LCDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
 void LCDevice::destroy_shader(uint64 handle) noexcept {
     auto shader = reinterpret_cast<Shader *>(handle);
     delete shader;
+    native_device.note_shader_destroyed();
 }
 ResourceCreationInfo LCDevice::create_event() noexcept {
     ResourceCreationInfo info{};

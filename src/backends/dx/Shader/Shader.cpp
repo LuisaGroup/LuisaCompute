@@ -9,8 +9,16 @@
 #include <Resource/DefaultBuffer.h>
 #include <Shader/ShaderSerializer.h>
 #include <luisa/core/logging.h>
+#include <atomic>
 
 namespace lc::dx {
+
+namespace {
+[[nodiscard]] uint64_t next_shader_uid() noexcept {
+    static std::atomic_uint64_t counter{1u};
+    return counter.fetch_add(1u, std::memory_order_relaxed);
+}
+}// namespace
 
 void Shader::_init_root_sig_layout(bool append_object_id) {
     auto layout = build_root_sig_layout(
@@ -21,6 +29,7 @@ void Shader::_init_root_sig_layout(bool append_object_id) {
     _spilled_srv_count = layout.spilled_srv_count;
     _spilled_uav_count = layout.spilled_uav_count;
     _root_sig_bindings = std::move(layout.bindings);
+    _shader_uid = next_shader_uid();
     LUISA_ASSERT(
         layout.mapping_complete,
         "DX descriptor-table spill failed to map all shader properties "
@@ -287,6 +296,42 @@ void write_spilled_uav_descriptor(
     });
 }
 
+[[nodiscard]] CommandAllocator::SpilledDescriptorKey make_spilled_descriptor_key(
+    Shader::RootSigBinding const &binding,
+    BindProperty const &prop,
+    bool is_uav,
+    bool sm69) noexcept {
+    CommandAllocator::SpilledDescriptorKey key{};
+    prop.visit([&]<typename T>(T const &val) {
+        if constexpr (std::is_same_v<T, TopAccel const *>) {
+            if (!is_uav && val != nullptr && val->GetAccelBuffer() != nullptr) {
+                key.kind = 2u;
+                key.resource_or_addr = val->GetAccelBuffer()->GetAddress();
+            }
+        } else if constexpr (std::is_same_v<T, BufferView>) {
+            if (val.buffer != nullptr && val.buffer->GetResource() != nullptr) {
+                const uint64 total_bytes = val.buffer->GetByteSize();
+                const uint64 avail_bytes =
+                    val.offset < total_bytes ? (total_bytes - val.offset) : 0ull;
+                const uint64 view_bytes = val.byteSize > 0ull ?
+                                              std::min<uint64>(val.byteSize, avail_bytes) :
+                                              avail_bytes;
+                const bool is_raw = binding.force_raw ||
+                                    binding.element_stride == 0u ||
+                                    (binding.element_stride == 1u && !sm69);
+                key.kind = is_uav ? 3u : 1u;
+                key.is_raw = is_raw;
+                key.stride = is_raw ? 0u : binding.element_stride;
+                key.resource_or_addr =
+                    reinterpret_cast<uint64_t>(val.buffer->GetResource());
+                key.offset = val.offset;
+                key.size_bytes = view_bytes;
+            }
+        }
+    });
+    return key;
+}
+
 }// namespace
 
 void Shader::bind_compute_resources(
@@ -308,7 +353,16 @@ void Shader::bind_compute_resources(
     const bool sm69 = device->feature_check.shader_model_6_9_supported();
     const uint total_spilled = _spilled_srv_count + _spilled_uav_count;
     uint base = 0u;
-    if (total_spilled > 0u) {
+    auto *cached = total_spilled > 0u ?
+                       alloc->acquire_spilled_table(_shader_uid, total_spilled) :
+                       nullptr;
+    if (cached != nullptr) {
+        base = cached->base;
+        if (cached->keys.size() != total_spilled) {
+            cached->keys.assign(
+                total_spilled, CommandAllocator::SpilledDescriptorKey{});
+        }
+    } else if (total_spilled > 0u) {
         auto *node = heap->SubAllocate(total_spilled);
         base = heap->GetSubAllocOffset(node);
         alloc->execute_after_complete([heap, node]() {
@@ -344,12 +398,30 @@ void Shader::bind_compute_resources(
                     }
                 });
             } break;
-            case RootSigBinding::Kind::SpilledSRV:
+            case RootSigBinding::Kind::SpilledSRV: {
+                if (cached != nullptr) {
+                    auto const key = make_spilled_descriptor_key(
+                        binding, resources[i], false, sm69);
+                    auto &slot_key = cached->keys[binding.index];
+                    if (key.kind != 0u && slot_key == key) {
+                        break;
+                    }
+                    slot_key = key;
+                }
                 write_spilled_srv_descriptor(heap, base + binding.index, binding, resources[i], sm69);
-                break;
-            case RootSigBinding::Kind::SpilledUAV:
+            } break;
+            case RootSigBinding::Kind::SpilledUAV: {
+                if (cached != nullptr) {
+                    auto const key = make_spilled_descriptor_key(
+                        binding, resources[i], true, sm69);
+                    auto &slot_key = cached->keys[_spilled_srv_count + binding.index];
+                    if (key.kind != 0u && slot_key == key) {
+                        break;
+                    }
+                    slot_key = key;
+                }
                 write_spilled_uav_descriptor(heap, base + _spilled_srv_count + binding.index, binding, resources[i], sm69);
-                break;
+            } break;
         }
     }
     if (_spilled_srv_count > 0u) {

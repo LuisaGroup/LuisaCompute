@@ -206,6 +206,9 @@ UploadBuffer::UploadBuffer(Device *device, size_t size_bytes, AccessType access)
         &_mapped_ptr));
 }
 UploadBuffer::~UploadBuffer() {
+    if (device()) {
+        device()->note_resource_destroyed();
+    }
     if (_mapped_ptr) {
         vmaUnmapMemory(
             device()->allocator().allocator(),
@@ -227,6 +230,9 @@ ReadbackBuffer::ReadbackBuffer(Device *device, size_t size_bytes)
         &_mapped_ptr));
 }
 ReadbackBuffer::~ReadbackBuffer() {
+    if (device()) {
+        device()->note_resource_destroyed();
+    }
     if (_mapped_ptr) {
         vmaUnmapMemory(
             device()->allocator().allocator(),
@@ -298,6 +304,9 @@ DefaultBuffer::DefaultBuffer(Device *device, size_t size_bytes, bool used_as_acc
 }
 DefaultBuffer::~DefaultBuffer() {
     if (!_buffer) return;
+    if (device()) {
+        device()->note_resource_destroyed();
+    }
     if (_external_allocation) {
         if (_allocated_memory) {// owned
             vkDestroyBuffer(device()->logic_device(), _buffer, Device::alloc_callbacks());
@@ -386,6 +395,9 @@ SparseBuffer::SparseBuffer(SparseBuffer &&rhs) noexcept
 }
 SparseBuffer::~SparseBuffer() {
     if (_buffer) {
+        if (device()) {
+            device()->note_resource_destroyed();
+        }
         vkDestroyBuffer(device()->logic_device(), _buffer, Device::alloc_callbacks());
     }
 }

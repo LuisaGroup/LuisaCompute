@@ -1,5 +1,6 @@
 #pragma once
 #include <d3dx12.h>
+#include <atomic>
 #include <Resource/BufferView.h>
 #include <luisa/vstl/v_guid.h>
 #include <luisa/vstl/md5.h>
@@ -130,8 +131,22 @@ public:
     [[nodiscard]] luisa::compute::CommandReorderSwitch &command_reorder_switch() noexcept {
         return _command_reorder;
     }
+    void note_resource_destroyed() noexcept {
+        _resource_destroy_generation.fetch_add(1u, std::memory_order_release);
+    }
+    [[nodiscard]] uint64_t resource_destroy_generation() const noexcept {
+        return _resource_destroy_generation.load(std::memory_order_acquire);
+    }
+    void note_shader_destroyed() noexcept {
+        _shader_destroy_generation.fetch_add(1u, std::memory_order_release);
+    }
+    [[nodiscard]] uint64_t shader_destroy_generation() const noexcept {
+        return _shader_destroy_generation.load(std::memory_order_acquire);
+    }
 
 private:
     luisa::compute::CommandReorderSwitch _command_reorder;
+    std::atomic_uint64_t _resource_destroy_generation{0u};
+    std::atomic_uint64_t _shader_destroy_generation{0u};
 };
 }// namespace lc::dx
