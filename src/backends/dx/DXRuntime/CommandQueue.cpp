@@ -56,6 +56,9 @@ CommandQueue::AllocatorPtr CommandQueue::create_allocator(size_t maxAllocCount) 
 void CommandQueue::add_event(LCEvent const *evt, uint64_t fenceIdx) {
     ++_last_frame;
     {
+        // Hold the event until this callback has published into it: the frontend may
+        // destroy the event right after queuing the signal (see `LCEvent::_ref_count`).
+        evt->retain();
         std::lock_guard lck{_mtx};
         _executed_allocators.enqueue(evt, fenceIdx, true);
         _work_epoch.fetch_add(1u, std::memory_order_release);
@@ -117,6 +120,9 @@ void CommandQueue::_execute_thread() {
                 _executed_frame.fetch_add(1u, std::memory_order_release);
                 _executed_frame.notify_all();
             }
+            // Last touch of `evt`: give back the reference `add_event` took. It may
+            // destroy the event, which is exactly the retirement the frontend relies on.
+            evt->release();
         };
         auto ExecuteHandle = [&](WaitFence) {
             _device->wait_fence(_cmd_fence.Get(), fence);
@@ -187,6 +193,21 @@ CommandQueue::~CommandQueue() {
     }
     _work_epoch.notify_one();
     _thd.join();
+    // Callbacks that were queued but never executed still hold the event reference
+    // `add_event` took; give it back, or the event (and its fence) would leak.
+    for (;;) {
+        vstd::optional<CallbackEvent> pending;
+        {
+            std::lock_guard lck(_mtx);
+            pending = _executed_allocators.dequeue();
+        }
+        if (!pending) { break; }
+        pending->evt.multi_visit(
+            [](AllocatorPtr &) {},
+            [](vstd::vector<vstd::function<void()>> &) {},
+            [](LCEvent const *evt) { evt->release(); },
+            [](WaitFence) {});
+    }
 }
 void CommandQueue::wait_allocator_frame(uint64_t fence) const noexcept {
     for (;;) {

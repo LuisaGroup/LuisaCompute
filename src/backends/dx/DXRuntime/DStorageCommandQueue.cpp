@@ -113,6 +113,9 @@ void DStorageCommandQueue::ExecuteThread() {
             if (wakeupThread) {
                 executedFrame++;
             }
+            // Last touch of `evt`: give back the reference `AddEvent` took. It may
+            // destroy the event, which is the retirement the frontend relies on.
+            evt->release();
         };
         while (true) {
             vstd::optional<CallbackEvent> b;
@@ -135,6 +138,9 @@ void DStorageCommandQueue::ExecuteThread() {
 }
 void DStorageCommandQueue::AddEvent(LCEvent const *evt, uint64_t fenceIdx) {
     ++lastFrame;
+    // Hold the event until this callback has published into it: the frontend may
+    // destroy the event right after queuing the signal (see `LCEvent::_ref_count`).
+    evt->retain();
     mtx.lock();
     executedAllocators.enqueue(evt, fenceIdx, true);
     mtx.unlock();
@@ -491,5 +497,18 @@ DStorageCommandQueue::~DStorageCommandQueue() {
         enabled = false;
     }
     thd.join();
+    // Callbacks queued but never executed still hold the reference `AddEvent` took.
+    for (;;) {
+        vstd::optional<CallbackEvent> pending;
+        {
+            std::lock_guard lck{mtx};
+            pending = executedAllocators.dequeue();
+        }
+        if (!pending) { break; }
+        pending->evt.multi_visit(
+            [](WaitQueueHandle &) {},
+            [](vstd::vector<vstd::function<void()>> &) {},
+            [](LCEvent const *evt) { evt->release(); });
+    }
 }
 }// namespace lc::dx

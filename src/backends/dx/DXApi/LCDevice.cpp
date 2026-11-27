@@ -576,7 +576,10 @@ ResourceCreationInfo LCDevice::create_event() noexcept {
     return info;
 }
 void LCDevice::destroy_event(uint64 handle) noexcept {
-    delete reinterpret_cast<LCEvent *>(handle);
+    // The queue callbacks that publish into this event take their own reference, so
+    // the handle gives up *its* reference here instead of deleting the event: an event
+    // may retire with signals/waits that are still queued (see `LCEvent::_ref_count`).
+    reinterpret_cast<LCEvent *>(handle)->release();
 }
 void LCDevice::signal_event(uint64 handle, uint64 stream_handle, uint64_t fence) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
