@@ -300,6 +300,25 @@ bool link_shader_group(
     luisa::vector<ValidatedConn> validated_conns;
     validated_conns.reserve(group.connections().size());
 
+    // A destination parameter cannot be both connected and a dynamic input: the
+    // connection copy is emitted after the dynamic-input store, so the host value
+    // would be silently discarded. Struct parameters are matched through their
+    // dotted field names ("<parent>.<field>"), which is how the .oso parser links
+    // fields to parents.
+    auto conflicts_with_dynamic_input = [](const ShaderLayer &layer, luisa::string_view param) noexcept {
+        for (const auto &entry : layer.dynamic_inputs) {
+            luisa::string_view dyn{entry.first};
+            if (dyn == param) { return true; }
+            if (dyn.size() > param.size() && dyn.starts_with(param) && dyn[param.size()] == '.') {
+                return true;
+            }
+            if (param.size() > dyn.size() && param.starts_with(dyn) && param[dyn.size()] == '.') {
+                return true;
+            }
+        }
+        return false;
+    };
+
     for (const auto &conn : group.connections()) {
         if (conn.src_layer >= num_layers || conn.dst_layer >= num_layers) {
             add_error({}, luisa::format("Connection layer index out of range ({} -> {}).",
@@ -331,6 +350,13 @@ bool link_shader_group(
         if (!is_param_symbol(dst_sym) || is_output_param_symbol(dst_sym)) {
             add_error(dst_layer.name, luisa::format("Destination symbol '{}' in connection must be an input parameter (param).",
                                                     conn.dst_param));
+            return false;
+        }
+        if (conflicts_with_dynamic_input(dst_layer, conn.dst_param)) {
+            add_error(dst_layer.name, luisa::format(
+                "Parameter '{}' in shader '{}' is both connected and marked as a dynamic input; "
+                "the incoming connection would silently discard the dynamic value.",
+                conn.dst_param, dst_layer.shader->identifier()));
             return false;
         }
         if (src_sym->is_array() != dst_sym->is_array()) {

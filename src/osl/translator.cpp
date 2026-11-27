@@ -1048,6 +1048,17 @@ void OSLTranslator::Impl::allocate_group_storage() noexcept {
 
             if (sym->is_array() && stor.array_length <= 0) {
                 // Empty unbounded array: no XIR array alloca (arraylength=0)
+                if (ll.dynamic_inputs.contains(sym)) {
+                    // A dynamic input must be delivered by emit_dynamic_input(); with no
+                    // storage at all the supplied value would be silently discarded and the
+                    // shader would observe a zero-length array. Fail closed instead.
+                    report_error(luisa::format(
+                        "Dynamic input '{}' is an array whose length could not be resolved "
+                        "(arraylength={}); give it a length with a parameter override or a "
+                        "connection before marking it dynamic.",
+                        sym->identifier(), stor.array_length));
+                    return;
+                }
                 rt.storage.emplace(sym, stor);
                 continue;
             }

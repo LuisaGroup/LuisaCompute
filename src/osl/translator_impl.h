@@ -89,6 +89,13 @@ struct LinkedGroup {
     LinkedGroup &out_group,
     luisa::vector<TranslationError> &errors) noexcept;
 
+// Dynamic inputs are registered per leaf symbol: link_shader_group() fans a struct
+// parameter out to its fields, so `layer.dynamic_inputs` never holds a struct root.
+// A query therefore matches on the symbol itself or on any of its descendants, and
+// matching on the *root* alone would wrongly report a dynamic input for sibling
+// fields that were never marked.
+[[nodiscard]] bool is_dynamic_input_symbol(const LinkedLayer &layer, const Symbol *sym) noexcept;
+
 // --- String & scalar constant propagation ---
 
 struct StringLattice {

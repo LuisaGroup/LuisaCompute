@@ -526,6 +526,15 @@ void build_layer_ranges(LinkedLayer &ll, luisa::vector<TranslationError> &errors
 
 }// namespace
 
+bool is_dynamic_input_symbol(const LinkedLayer &layer, const Symbol *sym) noexcept {
+    if (sym == nullptr || layer.dynamic_inputs.empty()) { return false; }
+    if (layer.dynamic_inputs.contains(sym)) { return true; }
+    for (const Symbol *child : sym->children()) {
+        if (is_dynamic_input_symbol(layer, child)) { return true; }
+    }
+    return false;
+}
+
 void analyze_group_strings_and_constants(
     const LinkedGroup &group,
     StringTable &strings,
@@ -1245,12 +1254,7 @@ void analyze_group_strings_and_constants(
                     }
                 }
                 if (!conn) {
-                    for (const auto &[dyn_sym, _] : ll.dynamic_inputs) {
-                        if (dyn_sym == sym || dyn_sym->root() == root) {
-                            conn = true;
-                            break;
-                        }
-                    }
+                    conn = is_dynamic_input_symbol(ll, sym);
                 }
                 set_int(args[0], conn ? 1 : 0);
                 return;

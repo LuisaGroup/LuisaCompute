@@ -2362,7 +2362,8 @@ if (TARGET luisa-compute-osl AND TARGET luisa-compute-xir)
              test_osl_control_flow
              test_osl_strings_and_hooks
              test_osl_derivatives
-             test_osl_shader_group_and_closures)
+             test_osl_shader_group_and_closures
+        test_osl_dynamic_inputs)
         if (_osl_test_default_backend)
             luisa_compute_add_test(${_osl_exec_test} unit/osl/${_osl_exec_test}.cpp
                     LABELS "unit;unit_osl;unit_xir"

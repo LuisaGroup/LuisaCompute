@@ -901,6 +901,7 @@ if has_config("lc_enable_osl") then
             "test_osl_strings_and_hooks",
             "test_osl_derivatives",
             "test_osl_shader_group_and_closures",
+            "test_osl_dynamic_inputs",
             "test_osl_diagnostics_fail_closed",
         }) do
             test_proj(name, "unit/osl/" .. name .. ".cpp", false, function()
