@@ -2779,6 +2779,8 @@ private:
             std::getenv("LUISA_CORO_WAVEFRONT_VERIFY_QUEUES") != nullptr;
         const bool batch_queues_enabled = parse_bool_env(
             "LUISA_CORO_WAVEFRONT_BATCH_QUEUES", true);
+        const bool post_batch_chain_enabled = parse_bool_env(
+            "LUISA_CORO_WAVEFRONT_POST_BATCH_CHAIN", true);
         auto parse_uint_env = [](const char *name, uint default_val) noexcept -> uint {
             const char *v = std::getenv(name);
             if (v == nullptr || *v == '\0') { return default_val; }
@@ -3046,10 +3048,10 @@ private:
             }
         }
         luisa::vector<uint8_t> tail_queue_used(nq, 0u);
-        luisa::vector<luisa::vector<size_t>> tail_cont_dst_queues(nc);
+        luisa::vector<luisa::vector<size_t>> cont_dst_queues(nc);
         luisa::vector<size_t> tail_queues;
         luisa::vector<uint> tail_aux_bound_per_round(_auxiliary_work.size(), 0u);
-        if (tail_unroll_graph_eligible) {
+        if (_tail_unroll_supported) {
             for (size_t s = 0u; s < nc; ++s) {
                 if (s >= _continuation_targets.size()) { continue; }
                 for (const uint target : _continuation_targets[s]) {
@@ -3074,12 +3076,18 @@ private:
                         }
                     }
                     if (dst_q >= 1u && dst_q < nq) {
-                        tail_queue_used[dst_q] = 1u;
-                        auto &dsts = tail_cont_dst_queues[s];
+                        auto &dsts = cont_dst_queues[s];
                         if (std::find(dsts.begin(), dsts.end(), dst_q) == dsts.end()) {
                             dsts.emplace_back(dst_q);
                         }
                     }
+                }
+            }
+        }
+        if (tail_unroll_graph_eligible) {
+            for (size_t s = 0u; s < nc; ++s) {
+                for (const size_t dst_q : cont_dst_queues[s]) {
+                    tail_queue_used[dst_q] = 1u;
                 }
             }
             for (size_t q = 1u; q < nq; ++q) {
@@ -4707,7 +4715,7 @@ private:
                                     _last_dispatch_stats.continuations[cont].dispatch_count++;
                                 }
                                 may_be_nonempty[q] = 0u;
-                                for (const size_t dst_q : tail_cont_dst_queues[cont]) {
+                                for (const size_t dst_q : cont_dst_queues[cont]) {
                                     may_be_nonempty[dst_q] = 1u;
                                 }
                             }
@@ -5098,7 +5106,6 @@ private:
                         }
                     }
                     luisa::vector<size_t> batch{selected};
-                    luisa::vector<size_t> blocked{selected};
                     const bool selected_is_collect_or_refill =
                         (selected < _collect_at.size() && _collect_at[selected]) ||
                         (dispatch_counter < N && selected < _refill_at.size() && _refill_at[selected]);
@@ -5127,6 +5134,7 @@ private:
                                       }
                                       return queue_owner(a) < queue_owner(b);
                                   });
+                        luisa::vector<size_t> blocked{selected};
                         for (size_t q : main_cands) {
                             const auto cont_q = _queue_continuation[q];
                             bool is_blocked = false;
@@ -5212,11 +5220,154 @@ private:
                         }
                         counts_known_on_host = true;
                         main_counts_dirty = false;
-                    } else if (selected_auxiliary < num_aux &&
-                               selected_auxiliary_count != 0u &&
-                               batch_req[selected_auxiliary] == 0u) {
-                        static_cast<void>(encode_aux_stage(
-                            selected_auxiliary, selected_auxiliary_stage, scheduler_snapshot));
+                    } else {
+                        const bool can_post_batch_chain =
+                            post_batch_chain_enabled &&
+                            _tail_unroll_supported &&
+                            !verify_queues &&
+                            in_flight_async_count == 0u &&
+                            !online_timing_active &&
+                            (dispatch_counter == N || !should_refill);
+                        if (can_post_batch_chain) {
+                            luisa::vector<uint8_t> in_batch(nq, 0u);
+                            for (const size_t bq : batch) {
+                                if (bq < nq) {
+                                    in_batch[bq] = 1u;
+                                }
+                            }
+                            struct FollowupCandidate {
+                                size_t queue;
+                                uint bound;
+                            };
+                            luisa::vector<FollowupCandidate> followup_cands;
+                            for (size_t fq = 1u; fq < nc; ++fq) {
+                                if (in_batch[fq] != 0u) { continue; }
+                                if (!_resume_kernels[fq]) { continue; }
+                                if (fq < _queue_deferred.size() && _queue_deferred[fq] != 0u) {
+                                    continue;
+                                }
+                                if (_has_hint_sort && fq < _have_hint.size() && _have_hint[fq]) {
+                                    continue;
+                                }
+                                const bool is_hub =
+                                    (fq < _refill_at.size() && _refill_at[fq]) ||
+                                    (fq < _collect_at.size() && _collect_at[fq]);
+                                const bool is_term =
+                                    fq < _is_terminal_continuation.size() &&
+                                    _is_terminal_continuation[fq];
+                                if (!is_hub && !is_term) { continue; }
+                                if (!((logical_members[fq] == 0u) ||
+                                      (logical_members[fq] == 1u && _host_count[fq] != 0u))) {
+                                    continue;
+                                }
+                                bool fq_emits_aux = false;
+                                for (size_t a = 0u; a < num_aux; ++a) {
+                                    const auto &reg = _auxiliary_work[a];
+                                    if (fq < reg.max_emitted_per_continuation.size() &&
+                                        reg.max_emitted_per_continuation[fq] != 0u) {
+                                        fq_emits_aux = true;
+                                        break;
+                                    }
+                                }
+                                if (fq_emits_aux) { continue; }
+                                if (fq < _collect_at.size() && _collect_at[fq]) {
+                                    bool blocked_by_unbatched = false;
+                                    for (size_t uq = 1u; uq < nq; ++uq) {
+                                        if (_host_count[uq] == 0u || in_batch[uq] != 0u) {
+                                            continue;
+                                        }
+                                        if (uq < _collect_at.size() && _collect_at[uq]) {
+                                            continue;
+                                        }
+                                        const size_t ucont = _queue_continuation[uq];
+                                        if (ucont < nc && can_produce_into(ucont, fq)) {
+                                            blocked_by_unbatched = true;
+                                            break;
+                                        }
+                                    }
+                                    if (blocked_by_unbatched) { continue; }
+                                }
+                                uint64_t produced_bound = 0ull;
+                                for (const size_t bq : batch) {
+                                    const size_t bcont = _queue_continuation[bq];
+                                    if (bcont < cont_dst_queues.size()) {
+                                        const auto &dsts = cont_dst_queues[bcont];
+                                        if (std::find(dsts.begin(), dsts.end(), fq) != dsts.end()) {
+                                            produced_bound += _host_count[bq];
+                                        }
+                                    }
+                                }
+                                if (produced_bound == 0ull) { continue; }
+                                const uint fq_bound = static_cast<uint>(std::min<uint64_t>({
+                                    static_cast<uint64_t>(scan_count),
+                                    static_cast<uint64_t>(active_count),
+                                    static_cast<uint64_t>(_host_count[fq]) + produced_bound}));
+                                if (is_hub) {
+                                    if (fq_bound < 2048u) { continue; }
+                                } else {
+                                    if (produced_bound < std::max<uint64_t>(
+                                                             4096u,
+                                                             static_cast<uint64_t>(scan_count) / 16u) ||
+                                        fq_bound < 4096u) {
+                                        continue;
+                                    }
+                                }
+                                followup_cands.push_back(FollowupCandidate{fq, fq_bound});
+                            }
+                            std::sort(followup_cands.begin(), followup_cands.end(),
+                                      [](const FollowupCandidate &a, const FollowupCandidate &b) noexcept {
+                                          if (a.bound != b.bound) {
+                                              return a.bound > b.bound;
+                                          }
+                                          return a.queue < b.queue;
+                                      });
+                            luisa::vector<FollowupCandidate> followup_queues;
+                            for (const auto &cand : followup_cands) {
+                                bool conflicts = false;
+                                for (const auto &kept : followup_queues) {
+                                    if (can_produce_into(kept.queue, cand.queue) ||
+                                        can_produce_into(cand.queue, kept.queue)) {
+                                        conflicts = true;
+                                        break;
+                                    }
+                                }
+                                if (!conflicts) {
+                                    followup_queues.push_back(cand);
+                                }
+                            }
+                            if (!followup_queues.empty()) {
+                                const auto gather_threads =
+                                    _gather_selected_4x ?
+                                        ((scan_count + 1023u) / 1024u) * 256u :
+                                        scan_count;
+                                for (const auto &f : followup_queues) {
+                                    const auto count_slot = global_count_slot;
+                                    global_count_slot ^= 1u;
+                                    pending_commands << _gather_selected_shader(
+                                                            _config.thread_count, _resume_index,
+                                                            _global_buffer, count_slot,
+                                                            static_cast<uint>(f.queue), scan_count)
+                                                            .dispatch(gather_threads);
+                                    gather_scan_count += scan_count;
+                                    pending_commands << _resume_kernels[f.queue](
+                                                            _config.thread_count,
+                                                            _resume_index.view(),
+                                                            0u, 0x80000000u | count_slot,
+                                                            static_cast<uint>(f.queue), args...)
+                                                            .dispatch(f.bound);
+                                    ++continuation_dispatch_seq;
+                                    if (report_stats) {
+                                        _last_dispatch_stats.continuations[f.queue].dispatch_count++;
+                                    }
+                                }
+                            }
+                        }
+                        if (selected_auxiliary < num_aux &&
+                            selected_auxiliary_count != 0u &&
+                            batch_req[selected_auxiliary] == 0u) {
+                            static_cast<void>(encode_aux_stage(
+                                selected_auxiliary, selected_auxiliary_stage, scheduler_snapshot));
+                        }
                     }
                     continue;
                 }

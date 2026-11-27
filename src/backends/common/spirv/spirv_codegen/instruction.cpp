@@ -2814,15 +2814,59 @@ case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
                 auto c = static_cast<const xir::Constant *>(base_value);
                 if (auto ubo_it = _ubo_constant_member_indices.find(c);
                     ubo_it != _ubo_constant_member_indices.end()) {
-                    std::vector<spv::Id> indices;
-                    indices.reserve(inst->operand_count());
-                    indices.push_back(_builder.makeUintConstant(ubo_it->second));
-                    auto aggregate_indices =
-                        _emit_aggregate_access_indices(index_plan);
-                    indices.insert(indices.end(), aggregate_indices.begin(),
-                                   aggregate_indices.end());
-                    auto ptr = _create_access_chain(spv::StorageClass::Uniform, _constant_ubo_var, indices);
-                    id = _builder.createLoad(ptr, spv::NoPrecision);
+                    if (ubo_it->second.packed_scalar_vec4) {
+                        auto uint_type = _builder.makeUintType(32);
+                        spv::Id vec_idx = spv::NoResult;
+                        spv::Id lane_idx = spv::NoResult;
+                        if (index_plan.all_constant()) {
+                            LUISA_ASSERT(
+                                index_plan.steps.size() == 1u &&
+                                    index_plan.steps[0].constant_index <=
+                                        std::numeric_limits<uint32_t>::max(),
+                                "SPIR-V packed UBO scalar extract literal index is out of range.");
+                            auto flat_idx = static_cast<uint32_t>(
+                                index_plan.steps[0].constant_index);
+                            vec_idx = _builder.makeUintConstant(flat_idx >> 2u);
+                            lane_idx = _builder.makeUintConstant(flat_idx & 3u);
+                        } else {
+                            auto aggregate_indices =
+                                _emit_aggregate_access_indices(index_plan);
+                            LUISA_ASSERT(
+                                aggregate_indices.size() == 1u,
+                                "SPIR-V packed UBO scalar extract should have one index.");
+                            auto elem_idx =
+                                _ensure_type(aggregate_indices[0], uint_type);
+                            vec_idx = _builder.createBinOp(
+                                spv::Op::OpShiftRightLogical, uint_type,
+                                elem_idx, _builder.makeUintConstant(2u));
+                            lane_idx = _builder.createBinOp(
+                                spv::Op::OpBitwiseAnd, uint_type,
+                                elem_idx, _builder.makeUintConstant(3u));
+                        }
+                        std::vector<spv::Id> indices{
+                            _builder.makeUintConstant(ubo_it->second.member_index),
+                            vec_idx,
+                            lane_idx};
+                        auto ptr = _create_access_chain(
+                            spv::StorageClass::Uniform, _constant_ubo_var, indices);
+                        auto raw_u32 = _builder.createLoad(ptr, spv::NoPrecision);
+                        id = (type == uint_type) ?
+                                 raw_u32 :
+                                 _builder.createUnaryOp(
+                                     spv::Op::OpBitcast, type, raw_u32);
+                    } else {
+                        std::vector<spv::Id> indices;
+                        indices.reserve(inst->operand_count());
+                        indices.push_back(
+                            _builder.makeUintConstant(ubo_it->second.member_index));
+                        auto aggregate_indices =
+                            _emit_aggregate_access_indices(index_plan);
+                        indices.insert(indices.end(), aggregate_indices.begin(),
+                                       aggregate_indices.end());
+                        auto ptr = _create_access_chain(
+                            spv::StorageClass::Uniform, _constant_ubo_var, indices);
+                        id = _builder.createLoad(ptr, spv::NoPrecision);
+                    }
                     break;
                 }
             }

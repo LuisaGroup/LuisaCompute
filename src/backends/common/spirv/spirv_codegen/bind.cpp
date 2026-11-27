@@ -95,6 +95,13 @@ struct ConstantUBOElementLayout {
     }
 }
 
+[[nodiscard]] bool is_packed_scalar_32_ubo_array(
+    const Type *element_type, size_t element_count) noexcept {
+    return element_count > 1u && element_type != nullptr &&
+           (element_type->is_uint32() || element_type->is_int32() ||
+            element_type->is_float32());
+}
+
 }// namespace
 
 void SpirvCodegenEntry::generate_binding(
@@ -322,6 +329,8 @@ void SpirvCodegenEntry::generate_binding(
         const Type *element_type;
         ConstantUBOElementLayout element_layout;
         ConstantUBOMemberLayout member_layout;
+        bool packed_scalar_vec4{false};
+        size_t storage_element_count{0u};
     };
     luisa::vector<PlannedConstantUBOMember> planned_ubo_members;
     planned_ubo_members.reserve(_ubo_array_constants.size());
@@ -336,17 +345,32 @@ void SpirvCodegenEntry::generate_binding(
                 element_type, _target_features)) {
             continue;
         }
-        auto element_layout = constant_ubo_element_layout(element_type);
+        auto element_count = constant->type()->dimension();
+        bool packed_scalar_vec4 = is_packed_scalar_32_ubo_array(
+            element_type, element_count);
+        auto element_layout =
+            packed_scalar_vec4 ?
+                ConstantUBOElementLayout{
+                    .base_alignment = 16u,
+                    .occupied_size = 16u,
+                    .matrix_stride = 0u} :
+                constant_ubo_element_layout(element_type);
+        auto storage_element_count =
+            packed_scalar_vec4 ?
+                (element_count + 3u) / 4u :
+                element_count;
         auto member_layout = ubo_layout_planner.try_append(
             element_layout.base_alignment,
             element_layout.occupied_size,
-            constant->type()->dimension());
+            storage_element_count);
         if (!member_layout) { continue; }
         planned_ubo_members.emplace_back(PlannedConstantUBOMember{
             .constant = constant,
             .element_type = element_type,
             .element_layout = element_layout,
-            .member_layout = member_layout});
+            .member_layout = member_layout,
+            .packed_scalar_vec4 = packed_scalar_vec4,
+            .storage_element_count = storage_element_count});
     }
     auto planned_ubo_size = ubo_layout_planner.size_bytes();
 
@@ -369,7 +393,7 @@ void SpirvCodegenEntry::generate_binding(
         member_types.reserve(planned_ubo_members.size());
         member_offsets.reserve(planned_ubo_members.size());
         member_matrices.reserve(planned_ubo_members.size());
-        _constant_ubo_data.resize(planned_ubo_size);
+        _constant_ubo_data.assign(planned_ubo_size, std::byte{0u});
         for (uint32_t member_idx = 0u;
              auto &&member : planned_ubo_members) {
             auto constant = member.constant;
@@ -379,50 +403,72 @@ void SpirvCodegenEntry::generate_binding(
             auto member_offset = member.member_layout.member_offset;
             member_offsets.push_back(member_offset);
 
-            spv::Id spv_elem_type;
-            if (element_type->is_structure() || element_type->is_array()) {
-                spv_elem_type = _convert_laid_out_type(element_type);
+            if (member.packed_scalar_vec4) {
+                auto uint4_type = _builder.makeVectorType(
+                    _builder.makeUintType(32), 4);
+                auto array_size_id = _builder.makeUintConstant(
+                    static_cast<uint32_t>(member.storage_element_count));
+                auto array_type = _builder.makeArrayType(
+                    uint4_type, array_size_id, 1);
+                add_u32_decoration(
+                    _builder, array_type, spv::Decoration::ArrayStride,
+                    static_cast<uint32_t>(array_stride));
+                member_types.push_back(array_type);
+                member_matrices.push_back(nullptr);
+
+                _ubo_constant_member_indices.emplace(
+                    constant, ConstantUBOMemberInfo{member_idx, true});
+                std::memcpy(
+                    _constant_ubo_data.data() + member_offset,
+                    constant->data(),
+                    element_count * sizeof(uint32_t));
             } else {
-                spv_elem_type = _convert_type(element_type, Usage::READ);
-            }
-            auto array_size_id = _builder.makeUintConstant(element_count);
-            // The third-party builder uses a signed stride only to distinguish
-            // explicitly laid-out array types while SPIR-V stores the literal
-            // as uint32_t. Avoid routing an ABI value through that signed API.
-            auto array_type = _builder.makeArrayType(
-                spv_elem_type, array_size_id, 1);
-            // makeArrayType marks the type "explicitly laid out" but does not emit the
-            // ArrayStride decoration; SPIR-V validation requires it on Block-decorated arrays.
-            add_u32_decoration(
-                _builder, array_type, spv::Decoration::ArrayStride,
-                static_cast<uint32_t>(array_stride));
-            member_types.push_back(array_type);
-            member_matrices.push_back(
-                spirv_bind_detail::matrix_after_array_layers(element_type));
-
-            _ubo_constant_member_indices.emplace(constant, member_idx);
-
-            auto src = static_cast<const std::byte *>(constant->data());
-            for (uint32_t i = 0u; i < element_count; ++i) {
-                auto dst_element = _constant_ubo_data.data() +
-                                   member_offset + i * array_stride;
-                auto src_element = src + i * element_type->size();
-                if (element_type->is_matrix()) {
-                    auto column = Type::vector(
-                        element_type->element(), element_type->dimension());
-                    for (auto column_index = 0u;
-                         column_index < element_type->dimension();
-                         ++column_index) {
-                        std::memcpy(
-                            dst_element +
-                                column_index *
-                                    member.element_layout.matrix_stride,
-                            src_element + column_index * column->size(),
-                            column->size());
-                    }
+                spv::Id spv_elem_type;
+                if (element_type->is_structure() || element_type->is_array()) {
+                    spv_elem_type = _convert_laid_out_type(element_type);
                 } else {
-                    std::memcpy(dst_element, src_element,
-                                element_type->size());
+                    spv_elem_type = _convert_type(element_type, Usage::READ);
+                }
+                auto array_size_id = _builder.makeUintConstant(element_count);
+                // The third-party builder uses a signed stride only to distinguish
+                // explicitly laid-out array types while SPIR-V stores the literal
+                // as uint32_t. Avoid routing an ABI value through that signed API.
+                auto array_type = _builder.makeArrayType(
+                    spv_elem_type, array_size_id, 1);
+                // makeArrayType marks the type "explicitly laid out" but does not emit the
+                // ArrayStride decoration; SPIR-V validation requires it on Block-decorated arrays.
+                add_u32_decoration(
+                    _builder, array_type, spv::Decoration::ArrayStride,
+                    static_cast<uint32_t>(array_stride));
+                member_types.push_back(array_type);
+                member_matrices.push_back(
+                    spirv_bind_detail::matrix_after_array_layers(element_type));
+
+                _ubo_constant_member_indices.emplace(
+                    constant, ConstantUBOMemberInfo{member_idx, false});
+
+                auto src = static_cast<const std::byte *>(constant->data());
+                for (uint32_t i = 0u; i < element_count; ++i) {
+                    auto dst_element = _constant_ubo_data.data() +
+                                       member_offset + i * array_stride;
+                    auto src_element = src + i * element_type->size();
+                    if (element_type->is_matrix()) {
+                        auto column = Type::vector(
+                            element_type->element(), element_type->dimension());
+                        for (auto column_index = 0u;
+                             column_index < element_type->dimension();
+                             ++column_index) {
+                            std::memcpy(
+                                dst_element +
+                                    column_index *
+                                        member.element_layout.matrix_stride,
+                                src_element + column_index * column->size(),
+                                column->size());
+                        }
+                    } else {
+                        std::memcpy(dst_element, src_element,
+                                    element_type->size());
+                    }
                 }
             }
             ++member_idx;

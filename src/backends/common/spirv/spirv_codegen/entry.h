@@ -237,10 +237,14 @@ private:
     luisa::compute::xir::UniformityAnalysis _uniformity;
 
     spv::Id _constant_ubo_var{spv::NoResult};
+    struct ConstantUBOMemberInfo {
+        uint32_t member_index{0u};
+        bool packed_scalar_vec4{false};
+    };
     // Constant identity, rather than a 64-bit content hash, owns the mapping.
     // Hash collisions must never redirect one XIR constant to another UBO
     // member with different bytes.
-    luisa::unordered_map<const xir::Constant *, uint32_t>
+    luisa::unordered_map<const xir::Constant *, ConstantUBOMemberInfo>
         _ubo_constant_member_indices;
     luisa::vector<std::byte> _constant_ubo_data;
     luisa::vector<const xir::Constant *> _ubo_array_constants;

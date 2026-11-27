@@ -441,10 +441,11 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
 spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
     if (auto it = _value_map.find(c); it != _value_map.end()) { return it->second; }
     if (auto ubo_it = _ubo_constant_member_indices.find(c);
-        ubo_it != _ubo_constant_member_indices.end()) {
+        ubo_it != _ubo_constant_member_indices.end() &&
+        !ubo_it->second.packed_scalar_vec4) {
         auto ptr = _create_access_chain(
             spv::StorageClass::Uniform, _constant_ubo_var,
-            std::vector<spv::Id>{_builder.makeUintConstant(ubo_it->second)});
+            std::vector<spv::Id>{_builder.makeUintConstant(ubo_it->second.member_index)});
         auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
         auto logical_type = _convert_type(c->type(), Usage::READ);
         return _builder.getTypeId(loaded) == logical_type ?
