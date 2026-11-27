@@ -704,12 +704,67 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_VULKAN)
 # SPIRV-Tools
+#
+# NOTE: src/ext/spirv-headers and src/ext/SPIRV-Tools are a pinned PAIR.
+# SPIRV-Tools synthesises its operand tables from the SPIR-V grammar in
+# spirv-headers (source/CMakeLists.txt runs utils/ggt.py over
+# spirv.core.grammar.json), and ggt.py maps every operand "kind" in that JSON
+# to an SPV_OPERAND_TYPE_<KIND> enumerant of spv_operand_type_t. A
+# spirv-headers checkout newer than the revision SPIRV-Tools was written
+# against therefore emits enumerants that do not exist and SPIRV-Tools fails
+# to compile: SPIR-V 1.6 revision 8 (spirv-headers f6f78c7) added the
+# "AccessShape" operand of SPV_QCOM_image_vector_read_write, which only
+# becomes SPV_OPERAND_TYPE_ACCESS_SHAPE from SPIRV-Tools #7062 on. Move both
+# submodules together, keeping the spirv-headers revision equal to the
+# spirv_headers_revision pinned by src/ext/SPIRV-Tools/DEPS.
 set(SPIRV-Headers_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers CACHE PATH "" FORCE)
 set(SPIRV_HEADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers/include CACHE PATH "" FORCE)
 set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
 set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
 set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
 set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
+# Enforce the pair before the mismatch degenerates into an unreadable C++
+# error inside a generated *_tables_body.inc. Skipped when the sources are
+# not a git checkout (release tarballs, SDK exports).
+find_package(Git QUIET)
+if (GIT_EXECUTABLE
+        AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers/.git"
+        AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/SPIRV-Tools/DEPS")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/SPIRV-Tools/DEPS"
+            LUISA_SPIRV_TOOLS_DEPS_HEADERS_PIN REGEX "'spirv_headers_revision'[ \t]*:")
+    if (LUISA_SPIRV_TOOLS_DEPS_HEADERS_PIN MATCHES
+            "spirv_headers_revision'[ \t]*:[ \t]*'([0-9a-f]+)'")
+        set(LUISA_SPIRV_HEADERS_EXPECTED_PIN "${CMAKE_MATCH_1}")
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers"
+                rev-parse --verify HEAD
+                RESULT_VARIABLE LUISA_SPIRV_HEADERS_HEAD_RESULT
+                OUTPUT_VARIABLE LUISA_SPIRV_HEADERS_HEAD
+                ERROR_VARIABLE LUISA_SPIRV_HEADERS_HEAD_ERROR
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (NOT LUISA_SPIRV_HEADERS_HEAD_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "Failed to inspect the spirv-headers submodule revision.\n"
+                    "${LUISA_SPIRV_HEADERS_HEAD_ERROR}")
+        endif ()
+        if (NOT LUISA_SPIRV_HEADERS_HEAD STREQUAL LUISA_SPIRV_HEADERS_EXPECTED_PIN)
+            message(FATAL_ERROR
+                    "src/ext/spirv-headers is at ${LUISA_SPIRV_HEADERS_HEAD}, but the "
+                    "bundled SPIRV-Tools pins spirv-headers "
+                    "${LUISA_SPIRV_HEADERS_EXPECTED_PIN} (src/ext/SPIRV-Tools/DEPS).\n"
+                    "SPIRV-Tools generates its operand tables from the SPIR-V grammar "
+                    "in spirv-headers, so the two submodules must be bumped together; "
+                    "a newer spirv-headers breaks the build with an unknown "
+                    "SPV_OPERAND_TYPE_* enumerant.\n"
+                    "Run: git submodule update src/ext/spirv-headers")
+        endif ()
+        unset(LUISA_SPIRV_HEADERS_HEAD)
+        unset(LUISA_SPIRV_HEADERS_EXPECTED_PIN)
+    endif ()
+    unset(LUISA_SPIRV_TOOLS_DEPS_HEADERS_PIN)
+endif ()
 add_subdirectory(SPIRV-Tools)
 # SPIRV-Tools adds /WX to its base MSVC warning list even when SPIRV_WERROR is
 # disabled. Append /WX- so warnings in the bundled dependency stay non-fatal.

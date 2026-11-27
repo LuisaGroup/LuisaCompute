@@ -58,6 +58,10 @@ local need_spv_tools = need_vulkan_spirv_tools or
                         (has_config("lc_vk_backend") or
                          has_config("lc_dx_backend")))
 if need_spv_tools then
+    -- NOTE: spirv-headers and SPIRV-Tools are a pinned pair: SPIRV-Tools turns
+    -- every operand kind in spirv.core.grammar.json into an SPV_OPERAND_TYPE_*
+    -- enumerant, so a spirv-headers revision newer than SPIRV-Tools/DEPS fails
+    -- to compile. See the note in src/ext/CMakeLists.txt.
     target('spirv-headers')
     set_kind('headeronly')
     add_includedirs("spirv-headers/include", "spirv-headers/include/spirv/unified1", {
