@@ -71,26 +71,28 @@ ComputeShader *ComputeShader::load_preset_compute(
     }
     return result;
 }
-ComputeShader *ComputeShader::compile_compute(
+ComputeShader *ComputeShader::_compile_compute_impl(
     BinaryIO const *file_io,
     luisa::compute::Profiler *profiler,
     Device *device,
     Function kernel,
     vstd::function<hlsl::CodegenResult()> const &codegen,
+    vstd::function<uint(hlsl::CodegenResult const &)> const &choose_shader_model,
     vstd::optional<vstd::MD5> const &checkMD5,
     vstd::vector<luisa::compute::Argument> &&bindings,
     uint3 blockSize,
-    uint shaderModel,
     vstd::string_view fileName,
     CacheType cacheType,
     bool enableUnsafeMath,
     bool debug,
-    uint validation_count) {
-
+    vstd::optional<uint> explicit_validation_count) {
     const bool profile_compile =
         luisa::compute::detail::env_flag("LUISA_DX_PROFILE_COMPILATION");
     auto compile_new_compute = [&](bool WriteCache, vstd::string_view pso_name) {
         auto str = codegen();
+        const uint shader_model = choose_shader_model(str);
+        const uint effective_validation_count =
+            explicit_validation_count.value_or(str.validation_count);
         vstd::MD5 md5;
         if (WriteCache) {
             if (checkMD5) {
@@ -119,7 +121,7 @@ ComputeShader *ComputeShader::compile_compute(
         auto comp_result = Device::compiler()->compile_compute(
             str.result.view(),
             true,
-            shaderModel,
+            shader_model,
             enableUnsafeMath,
             false, debug);
         if (profile_compile) {
@@ -127,7 +129,7 @@ ComputeShader *ComputeShader::compile_compute(
                              luisa::string{kernel.name()} :
                              luisa::string{fileName};
             LUISA_INFO("DX DXC compile '{}' (sm={}, hlsl={} B): {:.3f} ms",
-                       label, shaderModel, str.result.size(), phase_clock.toc());
+                       label, shader_model, str.result.size(), phase_clock.toc());
         }
         if (profiler) [[unlikely]] {
             profiler->after_compile_shader_bytecode(fileName);
@@ -169,7 +171,7 @@ ComputeShader *ComputeShader::compile_compute(
                      buffer->GetBufferSize()},
                     std::move(bindings),
                     std::move(str.printers),
-                    validation_count,
+                    effective_validation_count,
                     device);
                 if (profile_compile) {
                     auto label = (kernel.builder() != nullptr && !kernel.name().empty()) ?
@@ -192,6 +194,7 @@ ComputeShader *ComputeShader::compile_compute(
     if (!fileName.empty()) {
         vstd::string pso_name = Shader::pso_name(device, fileName);
         bool old_deleted = false;
+        Clock deser_clock;
         //Cached
         auto result = ShaderSerializer::DeSerialize(
             fileName,
@@ -205,6 +208,13 @@ ComputeShader *ComputeShader::compile_compute(
             std::move(bindings),
             old_deleted);
         if (result) {
+            if (profile_compile) {
+                auto label = (kernel.builder() != nullptr && !kernel.name().empty()) ?
+                                 luisa::string{kernel.name()} :
+                                 luisa::string{fileName};
+                LUISA_INFO("DX cache hit '{}' ({}): {:.3f} ms",
+                           label, fileName, deser_clock.toc());
+            }
             if (old_deleted) {
                 result->_save_pso(result->pso(), pso_name, file_io, device);
             }
@@ -223,6 +233,68 @@ ComputeShader *ComputeShader::compile_compute(
     } else {
         return compile_new_compute(false, {});
     }
+}
+
+ComputeShader *ComputeShader::compile_compute(
+    BinaryIO const *file_io,
+    luisa::compute::Profiler *profiler,
+    Device *device,
+    Function kernel,
+    vstd::function<hlsl::CodegenResult()> const &codegen,
+    vstd::optional<vstd::MD5> const &checkMD5,
+    vstd::vector<luisa::compute::Argument> &&bindings,
+    uint3 blockSize,
+    uint shaderModel,
+    vstd::string_view fileName,
+    CacheType cacheType,
+    bool enableUnsafeMath,
+    bool debug,
+    uint validation_count) {
+    return _compile_compute_impl(
+        file_io,
+        profiler,
+        device,
+        kernel,
+        codegen,
+        [shaderModel](hlsl::CodegenResult const &) { return shaderModel; },
+        checkMD5,
+        std::move(bindings),
+        blockSize,
+        fileName,
+        cacheType,
+        enableUnsafeMath,
+        debug,
+        validation_count);
+}
+ComputeShader *ComputeShader::compile_compute(
+    BinaryIO const *file_io,
+    luisa::compute::Profiler *profiler,
+    Device *device,
+    Function kernel,
+    vstd::function<hlsl::CodegenResult()> const &codegen,
+    vstd::function<uint(hlsl::CodegenResult const &)> const &choose_shader_model,
+    vstd::optional<vstd::MD5> const &checkMD5,
+    vstd::vector<luisa::compute::Argument> &&bindings,
+    uint3 blockSize,
+    vstd::string_view fileName,
+    CacheType cacheType,
+    bool enableUnsafeMath,
+    bool debug) {
+    return _compile_compute_impl(
+        file_io,
+        profiler,
+        device,
+        kernel,
+        codegen,
+        choose_shader_model,
+        checkMD5,
+        std::move(bindings),
+        blockSize,
+        fileName,
+        cacheType,
+        enableUnsafeMath,
+        debug,
+        {});
 }
 bool ComputeShader::save_compute(
     BinaryIO const *file_io,

@@ -22,8 +22,10 @@
 #include <luisa/ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
 #include <luisa/core/clock.h>
+#include "../../common/backend_print_code.h"
 #include "../../common/env_flag.h"
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/hash.h>
 #include <Resource/ExternalBuffer.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/runtime/rtx/aabb.h>
@@ -405,6 +407,61 @@ void LCDevice::set_stream_log_callback(uint64_t stream_handle,
     queue->log_callback = callback;
 }
 
+namespace {
+
+[[nodiscard]] vstd::MD5 compute_dx_ast_cache_md5(
+    Function kernel,
+    ShaderOption const &option,
+    uint mask,
+    bool use_fallback_rtx,
+    bool emulate_bfloat16,
+    luisa::optional<uint8_t> default_warp_size,
+    FeatureCheck const &feature_check,
+    bool no_compiler) noexcept {
+    using namespace std::string_view_literals;
+    auto block_size = kernel.block_size();
+    uint64_t flags =
+        (static_cast<uint64_t>(use_fallback_rtx) << 0u) |
+        (static_cast<uint64_t>(emulate_bfloat16) << 1u) |
+        (static_cast<uint64_t>(feature_check.shader_model_6_6_supported()) << 2u) |
+        (static_cast<uint64_t>(feature_check.shader_model_6_9_supported()) << 3u) |
+        (static_cast<uint64_t>(kernel.use_cooperative_operations()) << 4u) |
+        (static_cast<uint64_t>(kernel.requires_printing()) << 5u) |
+        (static_cast<uint64_t>(luisa::compute::detail::env_flag("LUISA_HLSL_DISABLE_LOCAL_OPT")) << 6u) |
+        (static_cast<uint64_t>(luisa::compute::detail::env_flag("LUISA_DX_DISABLE_FAST_OPT")) << 7u) |
+        (static_cast<uint64_t>(no_compiler) << 8u);
+    static const uint64_t hlsl_header_hash = []() noexcept {
+        auto h1 = hlsl::CodegenUtility::ReadInternalHLSLFile("hlsl_header.bytes");
+        auto h2 = hlsl::CodegenUtility::ReadInternalHLSLFile("hlsl_header_fallback.bytes");
+        return luisa::hash_combine({
+            luisa::hash_value(std::string_view{h1.data(), h1.size()}),
+            luisa::hash_value(std::string_view{h2.data(), h2.size()}),
+        });
+    }();
+    uint64_t data[] = {
+        luisa::hash_value("luisa-dx-ast-cache-v2"sv),
+        hlsl_header_hash,
+        kernel.hash(),
+        kernel.body()->hash(),
+        luisa::hash_value(kernel.name()),
+        luisa::hash_value(block_size),
+        static_cast<uint64_t>(block_size.x) |
+            (static_cast<uint64_t>(block_size.y) << 21u) |
+            (static_cast<uint64_t>(block_size.z) << 42u),
+        static_cast<uint64_t>(kernel.allowed_warp_size().value_or(0u)),
+        static_cast<uint64_t>(default_warp_size.value_or(0u)),
+        static_cast<uint64_t>(mask),
+        luisa::hash_value(option.native_include),
+        static_cast<uint64_t>(option.native_include.size()),
+        static_cast<uint64_t>(feature_check.highest_shader_model()),
+        flags,
+    };
+    return vstd::MD5{vstd::span<const uint8_t>{
+        reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
+}
+
+}// namespace
+
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     LUISA_ASSERT(Device::compiler(), "Shader compiler not loaded.");
     if (kernel.requires_autodiff()) {
@@ -442,18 +499,25 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             luisa::nullopt;
     const bool profile_compile =
         luisa::compute::detail::env_flag("LUISA_DX_PROFILE_COMPILATION");
-    Clock codegen_clock;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx, kEmulateBfloat16, {}, emulate_8bit, default_warp_size);
-    if (profile_compile) {
-        LUISA_INFO("DX HLSL codegen '{}' (sm={}, wave32={}): {:.3f} ms, {} bytes",
-                   kernel.name().empty() ? luisa::format("{:x}", kernel.hash()) : luisa::string{kernel.name()},
-                   (native_device.feature_check.shader_model_6_6_supported() ? kHighShaderModel : kShaderModel),
-                   default_warp_size.value_or(kernel.allowed_warp_size().value_or(0u)),
-                   codegen_clock.toc(),
-                   code.result.size());
-    }
-    // TODO get result from codegen
-    auto choose_shader_model = [&]() -> uint {
+    const bool no_compiler = Device::compiler() == nullptr;
+    auto run_codegen = [&]() -> hlsl::CodegenResult {
+        Clock codegen_clock;
+        auto code = hlsl::CodegenUtility{}.Codegen(
+            kernel, option.native_include, mask, false, no_compiler,
+            option.enable_debug_info, option.enable_fast_math,
+            _use_fallback_rtx, kEmulateBfloat16, {}, emulate_8bit,
+            default_warp_size);
+        if (profile_compile) {
+            LUISA_INFO("DX HLSL codegen '{}' (sm={}, wave32={}): {:.3f} ms, {} bytes",
+                       kernel.name().empty() ? luisa::format("{:x}", kernel.hash()) : luisa::string{kernel.name()},
+                       (native_device.feature_check.shader_model_6_6_supported() ? kHighShaderModel : kShaderModel),
+                       default_warp_size.value_or(kernel.allowed_warp_size().value_or(0u)),
+                       codegen_clock.toc(),
+                       code.result.size());
+        }
+        return code;
+    };
+    auto choose_shader_model = [&](hlsl::CodegenResult const &code) -> uint {
         if (kernel.use_cooperative_operations() || (code.use_8bit && !emulate_8bit)) {
             // Cooperative-vector kernels are always compiled to SM 6.9 because
             // the long-vector types they use require it.  When the runtime does
@@ -483,6 +547,38 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         }
         return kShaderModel;
     };
+    const bool use_ast_cache =
+        !option.compile_only &&
+        option.enable_cache &&
+        option.name.empty() &&
+        !luisa::compute::backend_print_code_enabled() &&
+        !luisa::compute::detail::env_flag("LUISA_DX_DISABLE_AST_CACHE_KEY");
+    if (use_ast_cache) {
+        const auto ast_md5 = compute_dx_ast_cache_md5(
+            kernel, option, mask, _use_fallback_rtx, kEmulateBfloat16,
+            default_warp_size, native_device.feature_check, no_compiler);
+        vstd::string str_cache;
+        str_cache << ast_md5.to_string(false) << ".dxil"sv;
+        auto res = ComputeShader::compile_compute(
+            native_device.file_io,
+            native_device.profiler,
+            &native_device,
+            kernel,
+            run_codegen,
+            choose_shader_model,
+            ast_md5,
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            kernel.block_size(),
+            str_cache,
+            CacheType::Cache,
+            option.enable_fast_math,
+            option.enable_debug_info);
+        info.block_size = kernel.block_size();
+        info.handle = reinterpret_cast<uint64>(res);
+        info.native_handle = res->pso();
+        return info;
+    }
+    auto code = run_codegen();
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
         bool ok = ComputeShader::save_compute(
@@ -491,7 +587,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel,
             code,
             kernel.block_size(),
-            choose_shader_model(),
+            choose_shader_model(code),
             option.name,
             option.enable_fast_math,
             option.enable_debug_info);
@@ -527,7 +623,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             check_md5,
             hlsl::binding_to_arg(kernel.bound_arguments()),
             kernel.block_size(),
-            choose_shader_model(),
+            choose_shader_model(code),
             file_name,
             cache_type,
             option.enable_fast_math,

@@ -166,34 +166,27 @@ return select(x<(T)0.0,negative_result,positive_result);
 float _lc_fmod_scalar(float x,float y){
 uint xb=asuint(x),yb=asuint(y);
 uint ax=xb&0x7fffffffu,ay=yb&0x7fffffffu;
+[branch] if(ax<ay&&ay<=0x7f800000u){return x;}
+if(ax>=0x7f800000u||ay>0x7f800000u||ay==0u){return asfloat(0x7fc00000u);}
 uint xe=(ax>>23)&0xffu,ye=(ay>>23)&0xffu;
 uint sx=(ax&0x007fffffu)|(xe!=0u?0x00800000u:0u);
 uint sy=(ay&0x007fffffu)|(ye!=0u?0x00800000u:0u);
 uint xs=xe!=0u?xe-1u:0u,ys=ye!=0u?ye-1u:0u;
-uint delta=xs>=ys?xs-ys:0u;
-uint safe_sy=sy!=0u?sy:1u;
-uint64_t wide_sy=(uint64_t)safe_sy;
-uint64_t remainder=(uint64_t)sx%wide_sy;
-uint64_t factor=(uint64_t)2%wide_sy;
-[unroll] for(uint bit=0u;bit<8u;++bit){
-uint64_t reduced=(remainder*factor)%wide_sy;
-remainder=(delta&(1u<<bit))!=0u?reduced:remainder;
-if(bit+1u<8u){factor=(factor*factor)%wide_sy;}
+uint delta=xs-ys;
+uint rem=sx%sy;
+[loop] while(delta>0u&&rem!=0u){
+uint step=min(delta,8u);
+rem=(rem<<step)%sy;
+delta-=step;
 }
-uint rb=(uint)remainder;
-uint msb=rb!=0u?(uint)firstbithigh(rb):0u;
+if(rem==0u){return asfloat(xb&0x80000000u);}
+uint msb=(uint)firstbithigh(rem);
 uint exponent_sum=msb+ye;
-bool normal=rb!=0u&&exponent_sum>=24u;
-uint normalized=rb<<(23u-msb);
+uint normalized=rem<<(23u-msb);
 uint normal_bits=((exponent_sum-23u)<<23)|(normalized&0x007fffffu);
 uint subnormal_shift=ye!=0u?ye-1u:0u;
-subnormal_shift=min(subnormal_shift,23u);
-uint magnitude=normal?normal_bits:rb<<subnormal_shift;
-uint signed_remainder=magnitude|(xb&0x80000000u);
-bool invalid=ax>=0x7f800000u||ay>0x7f800000u||ay==0u;
-bool compute=!invalid&&ay<0x7f800000u&&ax>=ay;
-uint result=invalid?0x7fc00000u:(compute?signed_remainder:xb);
-return asfloat(result);
+uint magnitude=exponent_sum>=24u?normal_bits:(rem<<subnormal_shift);
+return asfloat(magnitude|(xb&0x80000000u));
 }
 float _lc_fmod(float x,float y){return _lc_fmod_scalar(x,y);}
 float2 _lc_fmod(float2 x,float2 y){return float2(_lc_fmod_scalar(x.x,y.x),_lc_fmod_scalar(x.y,y.y));}

@@ -27,6 +27,21 @@ private:
 
     mutable ComPtr<ID3D12CommandSignature> _cmd_sig;
     mutable std::mutex _cmd_sig_mtx;
+    static ComputeShader *_compile_compute_impl(
+        luisa::BinaryIO const *file_io,
+        luisa::compute::Profiler *profiler,
+        Device *device,
+        Function kernel,
+        vstd::function<hlsl::CodegenResult()> const &codegen,
+        vstd::function<uint(hlsl::CodegenResult const &)> const &choose_shader_model,
+        vstd::optional<vstd::MD5> const &md5,
+        vstd::vector<luisa::compute::Argument> &&bindings,
+        uint3 blockSize,
+        vstd::string_view fileName,
+        CacheType cacheType,
+        bool enableUnsafeMath,
+        bool debug,
+        vstd::optional<uint> explicit_validation_count);
 
 public:
     static constexpr uint64_t kDispatchIndirectStride = 28;
@@ -51,6 +66,20 @@ public:
         bool enableUnsafeMath,
         bool debug,
         uint validation_count);
+    static ComputeShader *compile_compute(
+        luisa::BinaryIO const *file_io,
+        luisa::compute::Profiler *profiler,
+        Device *device,
+        Function kernel,
+        vstd::function<hlsl::CodegenResult()> const &codegen,
+        vstd::function<uint(hlsl::CodegenResult const &)> const &choose_shader_model,
+        vstd::optional<vstd::MD5> const &md5,
+        vstd::vector<luisa::compute::Argument> &&bindings,
+        uint3 blockSize,
+        vstd::string_view fileName,
+        CacheType cacheType,
+        bool enableUnsafeMath,
+        bool debug);
     // Returns true if the bytecode file was written (or cache hit).
     // Returns false if DXC compilation failed — the caller can continue
     // instead of being killed by std::abort (which LUISA_ERROR does).
