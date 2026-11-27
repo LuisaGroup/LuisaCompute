@@ -93,6 +93,7 @@ private:
     void _update_state(BufferStates &states);
     void _update_state(TextureStates &states);
     void _resolve_texture_descriptor_layouts();
+    void _flush_layer_bindless_accesses();
     // Folds the per-mip VkImageMemoryBarrier2 structs recorded by
     // `_update_state(TextureStates &)` into one struct per contiguous mip run.
     // Called from `update_states` only, after every mip state has been written

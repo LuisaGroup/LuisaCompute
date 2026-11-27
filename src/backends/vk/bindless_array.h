@@ -128,6 +128,9 @@ public:
     [[nodiscard]] bool has_pending_buffers() const noexcept {
         return !_pending_canonical_buffers.empty();
     }
+    [[nodiscard]] bool has_pending_textures() const noexcept {
+        return !_pending_canonical_textures.empty();
+    }
     [[nodiscard]] bool has_encoded_buffers() const noexcept {
         return !_encoded_canonical_buffers.empty();
     }

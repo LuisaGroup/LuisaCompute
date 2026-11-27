@@ -333,6 +333,18 @@ struct ReorderFuncTable {
             return bindless->contains_pending_canonical(canonical_handle, is_buffer);
         });
     }
+    template<typename F>
+    void with_bindless_pending_state(
+        uint64_t bindless_handle, F &&fn) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        std::lock_guard lock{bindless->mtx};
+        fn(bindless->pending_resource_count(),
+           bindless->has_pending_buffers(),
+           bindless->has_pending_textures(),
+           [bindless](uint64_t canonical_handle, bool is_buffer) noexcept {
+               return bindless->contains_pending_canonical(canonical_handle, is_buffer);
+           });
+    }
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {
         auto cs = reinterpret_cast<Shader *>(shader_handle);
         auto arguments = cs->saved_arguments();

@@ -248,14 +248,16 @@ public:
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             vstd::fixed_vector<vstd::HashMap<Resource const *, size_t>::Index, 16> writeMap;
             auto &write_state_map = self->state_tracker->WriteStateMap();
-            arr->Lock();
-            for (auto iter = write_state_map.begin(); iter != write_state_map.end(); ++iter) {
-                auto &i = *iter;
-                if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i.first))) {
-                    writeMap.emplace_back(write_state_map.get_index(iter));
+            if (!write_state_map.empty()) {
+                arr->Lock();
+                for (auto iter = write_state_map.begin(); iter != write_state_map.end(); ++iter) {
+                    auto &i = *iter;
+                    if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i.first))) {
+                        writeMap.emplace_back(write_state_map.get_index(iter));
+                    }
                 }
+                arr->Unlock();
             }
-            arr->Unlock();
 
             for (auto &&iter : writeMap) {
                 self->state_tracker->Record(

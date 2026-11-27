@@ -84,6 +84,12 @@ struct ReorderBindlessPendingLookupProbe {
         [[maybe_unused]] bool found = contains(uint64_t{0u}, true);
     }
 };
+struct ReorderBindlessPendingStateProbe {
+    template<typename Contains>
+    void operator()(size_t, bool, bool, Contains &&contains) const noexcept {
+        [[maybe_unused]] bool found = contains(uint64_t{0u}, true);
+    }
+};
 }// namespace detail
 
 // Optional fast-path interface for backends whose BindlessArray maintains an
@@ -100,6 +106,14 @@ concept ReorderFastBindlessFuncTable =
         requires(std::is_same_v<bool, decltype(t.bindless_has_pending_buffers(bindless_handle))>);
         t.with_bindless_pending_lookup(
             bindless_handle, detail::ReorderBindlessPendingLookupProbe{});
+    };
+
+template<typename T>
+concept ReorderSingleLockBindlessFuncTable =
+    ReorderFastBindlessFuncTable<T> &&
+    requires(const T t, uint64_t bindless_handle) {
+        t.with_bindless_pending_state(
+            bindless_handle, detail::ReorderBindlessPendingStateProbe{});
     };
 
 template<ReorderFuncTable FuncTable, bool supportConcurrentCopy, size_t fixedVectorSize = 2>
@@ -374,13 +388,21 @@ private:
         uint64_t bindless_handle;
         int64_t read_layer = -1;
         int64_t write_layer = -1;
+        bool has_buffers{true};
+        bool has_textures{true};
     };
     struct DispatchBindlessAccess {
         uint64_t bindless_handle;
         bool is_write;
+        bool active{false};
+        bool has_buffers{false};
+        bool has_textures{false};
     };
     vstd::vector<ActiveBindlessState> _active_bindless_states;
     vstd::vector<DispatchBindlessAccess> _dispatch_bindless_accesses;
+    vstd::vector<std::pair<RangeHandle *, bool>> _dispatch_bindless_matched_handles;
+    size_t _resolved_bindless_buffer_count{0u};
+    size_t _resolved_bindless_texture_count{0u};
     // Reordering switch (see set_enabled()). When it is off, add_command()
     // ignores the hazard-derived layer and appends the command to a fresh
     // layer of its own, so the emitted layer lists degenerate into the
@@ -423,6 +445,9 @@ private:
                         int64_t max_read_layer = -1;
                         int64_t max_write_layer = -1;
                         for (auto const &state : _active_bindless_states) {
+                            if (is_buffer ? !state.has_buffers : !state.has_textures) {
+                                continue;
+                            }
                             auto matched = false;
                             _func_table.with_bindless_pending_lookup(
                                 state.bindless_handle,
@@ -956,35 +981,135 @@ private:
         }
     }
 
+    void resolve_dispatch_bindless_accesses() noexcept {
+        if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            _resolved_bindless_buffer_count = _buffer_map.size();
+            _resolved_bindless_texture_count = _texture_map.size();
+            if (_dispatch_bindless_accesses.empty()) {
+                return;
+            }
+            for (auto &access : _dispatch_bindless_accesses) {
+                auto resolve_locked = [&](size_t pending_count,
+                                          bool has_buffers,
+                                          bool has_textures,
+                                          auto &&contains) noexcept {
+                    if (pending_count == 0u) {
+                        access.active = false;
+                        return;
+                    }
+                    access.active = true;
+                    access.has_buffers = has_buffers;
+                    access.has_textures = has_textures;
+                    if (access.is_write) {
+                        _dispatch_layer = std::max<int64_t>(
+                            _dispatch_layer, _cluster_build_read_level + 1);
+                    }
+                    auto scan_map = [&](auto const &map, bool is_buffer) noexcept {
+                        for (auto &&[canonical, handle] : map) {
+                            if (contains(canonical, is_buffer)) {
+                                auto layer = access.is_write ?
+                                                 get_last_layer_write(handle, whole_range()) :
+                                                 get_last_layer_read(handle, whole_range());
+                                _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
+                                _dispatch_bindless_matched_handles.emplace_back(
+                                    handle, access.is_write);
+                            }
+                        }
+                    };
+                    if (has_buffers && !_buffer_map.empty()) {
+                        scan_map(_buffer_map, true);
+                    }
+                    if (has_textures && !_texture_map.empty()) {
+                        scan_map(_texture_map, false);
+                    }
+                };
+                if constexpr (ReorderSingleLockBindlessFuncTable<FuncTable>) {
+                    _func_table.with_bindless_pending_state(
+                        access.bindless_handle, resolve_locked);
+                } else {
+                    auto pending_count =
+                        _func_table.bindless_pending_count(access.bindless_handle);
+                    if (pending_count == 0u) {
+                        access.active = false;
+                    } else {
+                        const bool has_buffers =
+                            _func_table.bindless_has_pending_buffers(access.bindless_handle);
+                        _func_table.with_bindless_pending_lookup(
+                            access.bindless_handle,
+                            [&](auto &&contains) noexcept {
+                                resolve_locked(
+                                    pending_count, has_buffers, true, contains);
+                            });
+                    }
+                }
+                if (!access.active) {
+                    continue;
+                }
+                for (auto const &state : _active_bindless_states) {
+                    if (!(access.has_buffers && state.has_buffers) &&
+                        !(access.has_textures && state.has_textures)) {
+                        continue;
+                    }
+                    auto candidate_layer = access.is_write ?
+                                               std::max<int64_t>(state.read_layer, state.write_layer) + 1 :
+                                               (state.write_layer >= 0 ? state.write_layer + 1 : -1);
+                    if (candidate_layer <= _dispatch_layer) {
+                        continue;
+                    }
+                    if (bindless_arrays_overlap(state.bindless_handle, access.bindless_handle)) {
+                        _dispatch_layer = candidate_layer;
+                    }
+                }
+            }
+        }
+    }
+
     void finalize_dispatch_bindless_accesses() noexcept {
         if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            for (auto [handle, is_write] : _dispatch_bindless_matched_handles) {
+                if (is_write) {
+                    handle->emplace_write_layer(whole_range(), _dispatch_layer);
+                } else {
+                    handle->emplace_read_layer(whole_range(), _dispatch_layer);
+                }
+            }
+            const bool maps_grew =
+                _buffer_map.size() > _resolved_bindless_buffer_count ||
+                _texture_map.size() > _resolved_bindless_texture_count;
             for (auto const &access : _dispatch_bindless_accesses) {
-                const bool check_buffers =
-                    !_buffer_map.empty() &&
-                    _func_table.bindless_has_pending_buffers(access.bindless_handle);
-                const bool check_textures = !_texture_map.empty();
-                if (check_buffers || check_textures) {
-                    _func_table.with_bindless_pending_lookup(
-                        access.bindless_handle,
-                        [&](auto &&contains) noexcept {
-                            auto apply_map = [&](auto const &map, bool is_buffer) noexcept {
-                                for (auto &&[canonical, handle] : map) {
-                                    if (contains(canonical, is_buffer)) {
-                                        if (access.is_write) {
-                                            handle->emplace_write_layer(whole_range(), _dispatch_layer);
-                                        } else {
-                                            handle->emplace_read_layer(whole_range(), _dispatch_layer);
+                if (!access.active) {
+                    continue;
+                }
+                if (maps_grew) {
+                    const bool check_buffers =
+                        access.has_buffers &&
+                        _buffer_map.size() > _resolved_bindless_buffer_count;
+                    const bool check_textures =
+                        access.has_textures &&
+                        _texture_map.size() > _resolved_bindless_texture_count;
+                    if (check_buffers || check_textures) {
+                        _func_table.with_bindless_pending_lookup(
+                            access.bindless_handle,
+                            [&](auto &&contains) noexcept {
+                                auto apply_map = [&](auto const &map, bool is_buffer) noexcept {
+                                    for (auto &&[canonical, handle] : map) {
+                                        if (contains(canonical, is_buffer)) {
+                                            if (access.is_write) {
+                                                handle->emplace_write_layer(whole_range(), _dispatch_layer);
+                                            } else {
+                                                handle->emplace_read_layer(whole_range(), _dispatch_layer);
+                                            }
                                         }
                                     }
+                                };
+                                if (check_buffers) {
+                                    apply_map(_buffer_map, true);
                                 }
-                            };
-                            if (check_buffers) {
-                                apply_map(_buffer_map, true);
-                            }
-                            if (check_textures) {
-                                apply_map(_texture_map, false);
-                            }
-                        });
+                                if (check_textures) {
+                                    apply_map(_texture_map, false);
+                                }
+                            });
+                    }
                 }
                 ActiveBindlessState *found = nullptr;
                 for (auto &state : _active_bindless_states) {
@@ -997,12 +1122,16 @@ private:
                     _active_bindless_states.emplace_back(ActiveBindlessState{
                         .bindless_handle = access.bindless_handle,
                         .read_layer = _dispatch_layer,
-                        .write_layer = access.is_write ? _dispatch_layer : -1});
+                        .write_layer = access.is_write ? _dispatch_layer : -1,
+                        .has_buffers = access.has_buffers,
+                        .has_textures = access.has_textures});
                 } else {
                     found->read_layer = std::max<int64_t>(found->read_layer, _dispatch_layer);
                     if (access.is_write) {
                         found->write_layer = std::max<int64_t>(found->write_layer, _dispatch_layer);
                     }
+                    found->has_buffers |= access.has_buffers;
+                    found->has_textures |= access.has_textures;
                 }
             }
         }
@@ -1014,49 +1143,15 @@ private:
         bool isolate_resource_states = false) {
         if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
             auto is_write = isolate_resource_states || may_write;
-            auto pending_count = _func_table.bindless_pending_count(bindless_handle);
-            if (pending_count > 0u) {
-                if (is_write) {
-                    _dispatch_layer = std::max<int64_t>(
-                        _dispatch_layer, _cluster_build_read_level + 1);
+            bool found = false;
+            for (auto &existing : _dispatch_bindless_accesses) {
+                if (existing.bindless_handle == bindless_handle) {
+                    existing.is_write |= is_write;
+                    found = true;
+                    break;
                 }
-                const bool check_buffers =
-                    !_buffer_map.empty() &&
-                    _func_table.bindless_has_pending_buffers(bindless_handle);
-                const bool check_textures = !_texture_map.empty();
-                if (check_buffers || check_textures) {
-                    _func_table.with_bindless_pending_lookup(
-                        bindless_handle,
-                        [&](auto &&contains) noexcept {
-                            auto scan_map = [&](auto const &map, bool is_buffer) noexcept {
-                                for (auto &&[canonical, handle] : map) {
-                                    if (contains(canonical, is_buffer)) {
-                                        auto layer = is_write ?
-                                                         get_last_layer_write(handle, whole_range()) :
-                                                         get_last_layer_read(handle, whole_range());
-                                        _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
-                                    }
-                                }
-                            };
-                            if (check_buffers) {
-                                scan_map(_buffer_map, true);
-                            }
-                            if (check_textures) {
-                                scan_map(_texture_map, false);
-                            }
-                        });
-                }
-                for (auto const &state : _active_bindless_states) {
-                    auto candidate_layer = is_write ?
-                                               std::max<int64_t>(state.read_layer, state.write_layer) + 1 :
-                                               (state.write_layer >= 0 ? state.write_layer + 1 : -1);
-                    if (candidate_layer <= _dispatch_layer) {
-                        continue;
-                    }
-                    if (bindless_arrays_overlap(state.bindless_handle, bindless_handle)) {
-                        _dispatch_layer = candidate_layer;
-                    }
-                }
+            }
+            if (!found) {
                 _dispatch_bindless_accesses.emplace_back(
                     DispatchBindlessAccess{bindless_handle, is_write});
             }
@@ -1105,6 +1200,7 @@ private:
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
         _dispatch_bindless_accesses.clear();
+        _dispatch_bindless_matched_handles.clear();
         _use_accel_in_pass = false;
         _write_accel_in_pass = false;
         _dispatch_layer = 0;
@@ -1146,6 +1242,7 @@ private:
             }
         };
         command->traverse_arguments(f);
+        resolve_dispatch_bindless_accesses();
         auto max_disp_size_vec = command->max_dispatch_size();
         auto max_disp_size = std::max<size_t>(max_disp_size_vec.x, std::max(max_disp_size_vec.y, max_disp_size_vec.z));
         if (_dispatch_layer >= static_cast<int64_t>(_max_dispatch_blocks.size())) {
@@ -1191,6 +1288,7 @@ private:
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
         _dispatch_bindless_accesses.clear();
+        _dispatch_bindless_matched_handles.clear();
         _use_accel_in_pass = false;
         _write_accel_in_pass = false;
         _dispatch_layer = 0;
@@ -1273,6 +1371,7 @@ private:
         for (auto &&i : command->arguments()) {
             ite_arg(i);
         }
+        resolve_dispatch_bindless_accesses();
         callback();
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
@@ -1326,6 +1425,9 @@ public:
         _dispatch_write_handle.clear();
         _active_bindless_states.clear();
         _dispatch_bindless_accesses.clear();
+        _dispatch_bindless_matched_handles.clear();
+        _resolved_bindless_buffer_count = 0u;
+        _resolved_bindless_texture_count = 0u;
         _host_memory_handle.clear();
         destroy_map(_buffer_map);
         destroy_map(_texture_map);

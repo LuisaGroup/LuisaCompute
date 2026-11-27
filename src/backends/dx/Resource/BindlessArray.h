@@ -84,6 +84,9 @@ public:
     [[nodiscard]] bool HasPendingBuffers() const noexcept {
         return !_canonical_buffer_map.empty();
     }
+    [[nodiscard]] bool HasPendingTextures() const noexcept {
+        return !_canonical_texture_map.empty();
+    }
     // Caller must hold the bindless lock. Bind() updates this map in command
     // order, so it is the dispatch-time resource snapshot for reordering.
     template<typename F>

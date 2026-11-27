@@ -3086,7 +3086,7 @@ private:
                           });
                 if (!tail_unroll_threshold_set) {
                     effective_tail_threshold =
-                        tail_queues.size() <= 5u ? 2048u : 1024u;
+                        tail_queues.size() <= 6u ? 16384u : 8192u;
                 }
                 for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
                     const auto &reg = _auxiliary_work[a];
@@ -4619,9 +4619,9 @@ private:
                         target_rounds = std::clamp<uint>(
                             tail_unroll_rounds_override, 1u, 16u);
                     } else if (tail_queues.size() <= 5u) {
-                        target_rounds = (active_count <= 512u) ? 6u : 3u;
+                        target_rounds = (active_count <= 1024u) ? 6u : (active_count <= 4096u ? 4u : 3u);
                     } else {
-                        target_rounds = (active_count <= 256u) ? 3u : 2u;
+                        target_rounds = (active_count <= 512u) ? 3u : 2u;
                     }
                     uint admissible_rounds = target_rounds;
                     for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
