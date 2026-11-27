@@ -124,7 +124,7 @@ public:
 };
 
 template<typename T>
-    requires std::same_as<T, float>
+    requires std::same_as<T, float> || std::same_as<T, double>
 class AtomicRef<T> : private AtomicRefBase {
 
 public:

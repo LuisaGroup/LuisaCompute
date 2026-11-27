@@ -386,17 +386,19 @@ uint4 v;
         varData << CodegenUtility::ReadInternalHLSLFile("fallback_rtx_header");
     }
     finalResult << varData << incrementalFunc << codegenData;
-    return {
-        std::move(finalResult),
-        std::move(opt->printer),
-        std::move(properties),
-        opt->useTex2DBindless,
-        opt->useTex3DBindless,
-        opt->useBufferBindless,
-        opt->use_8bit,
-        validation_count,
-        immutableHeaderSize,
-        GetTypeMD5(kernel)};
+    CodegenResult result{
+            std::move(finalResult),
+            std::move(opt->printer),
+            std::move(properties),
+            opt->useTex2DBindless,
+            opt->useTex3DBindless,
+            opt->useBufferBindless,
+            opt->use_8bit,
+            validation_count,
+            immutableHeaderSize,
+            GetTypeMD5(kernel)};
+    result.use_atomic64 = opt->use_atomic64;
+    return result;
 }
 
 // Ray tracing pipeline codegen for motion blur

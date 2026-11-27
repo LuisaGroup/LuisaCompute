@@ -932,10 +932,9 @@ instruction 6 4 return "void" -1 1 -1 0
             R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 3 argument 2 resource "buffer<struct<4,int,uint>>" argument 3 value "uint" argument 4 value "uint" blocks 1 block 5 body 5 instructions 2 instruction 6 5 atomic "uint" fetch_add 4 2 3 0 4 0 instruction 7 5 return "void" -1 1 -1 0 } })",
             // Local allocas are not shared-memory atomic roots.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 2 argument 1 value "uint" argument 2 value "int" blocks 1 block 3 body 3 instructions 3 instruction 4 3 alloca "array<int,4>" local 0 0 instruction 5 3 atomic "int" exchange 3 4 1 2 0 instruction 6 3 return "void" -1 1 -1 0 } })",
-            // XIR atomics do not admit 8-bit, 16-bit, or float64 leaves.
+            // XIR atomics do not admit 8-bit or 16-bit leaves.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<byte>" argument 2 value "uint" argument 3 value "byte" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "byte" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<short>" argument 2 value "uint" argument 3 value "short" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "short" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
-            R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<double>" argument 2 value "uint" argument 3 value "double" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "double" fetch_add 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })",
             // Bitwise atomics cannot target floating-point leaves.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 3 argument 1 resource "buffer<float>" argument 2 value "uint" argument 3 value "float" blocks 1 block 4 body 4 instructions 2 instruction 5 4 atomic "float" fetch_and 3 1 2 3 0 instruction 6 4 return "void" -1 1 -1 0 } })"};
         for (auto text : malformed) {

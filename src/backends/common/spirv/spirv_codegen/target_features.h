@@ -72,6 +72,12 @@ struct SpirvTargetFeatures {
     bool subgroup_extended_types{false};
     bool shader_buffer_int64_atomics{false};
     bool shader_shared_int64_atomics{false};
+    // Float64 atomics: SPIR-V has no float compare-exchange at any width, and
+    // Vulkan logical addressing forbids the pointer bit-cast a 64-bit integer
+    // alias would need, so a typed float64 element can only be updated through
+    // these native forms. Each is a separate device feature.
+    bool shader_buffer_float64_atomics{false};
+    bool shader_buffer_float64_atomic_add{false};
     bool descriptor_indexing{false};
     bool runtime_descriptor_array{false};
     bool descriptor_binding_partially_bound{false};
@@ -183,6 +189,10 @@ struct SpirvTargetFeatures {
                target_feature::shader_buffer_int64_atomics);
         enable(shader_shared_int64_atomics,
                target_feature::shader_shared_int64_atomics);
+        enable(shader_buffer_float64_atomics,
+               target_feature::shader_buffer_float64_atomics);
+        enable(shader_buffer_float64_atomic_add,
+               target_feature::shader_buffer_float64_atomic_add);
         enable(descriptor_indexing, target_feature::descriptor_indexing);
         enable(runtime_descriptor_array,
                target_feature::runtime_descriptor_array);
@@ -296,6 +306,10 @@ struct SpirvTargetFeatures {
                 has(target_feature::shader_buffer_int64_atomics),
             .shader_shared_int64_atomics =
                 has(target_feature::shader_shared_int64_atomics),
+            .shader_buffer_float64_atomics =
+                has(target_feature::shader_buffer_float64_atomics),
+            .shader_buffer_float64_atomic_add =
+                has(target_feature::shader_buffer_float64_atomic_add),
             .descriptor_indexing = has(target_feature::descriptor_indexing),
             .runtime_descriptor_array =
                 has(target_feature::runtime_descriptor_array),
@@ -358,6 +372,10 @@ enum class SpirvFloatAtomicStorage : uint8_t {
 };
 
 enum class SpirvFloatAtomicImplementation : uint8_t {
+    // Integer-proxy lowerings: the atomic is issued against an integer view of
+    // the same storage. For a uint32 word-ABI Buffer that view is the buffer
+    // itself; for typed float64 storage it is one bit-cast uint64 alias of the
+    // 8-byte element. Both are exact because the proxy has the element's width.
     WORD_EXCHANGE,
     WORD_COMPARE_EXCHANGE,
     WORD_CAS,
@@ -368,6 +386,9 @@ enum class SpirvFloatAtomicImplementation : uint8_t {
     UNSUPPORTED_OPERATION,
     UNSUPPORTED_REPRESENTATION,
     UNSUPPORTED_FEATURE,
+    // No negotiated target feature can make this form legal (the SPIR-V or
+    // Vulkan contract itself has no such operation for the element type).
+    UNSUPPORTED_EXTENSION,
 };
 
 [[nodiscard]] constexpr SpirvFloatAtomicImplementation plan_spirv_float_atomic(
@@ -375,6 +396,43 @@ enum class SpirvFloatAtomicImplementation : uint8_t {
     SpirvFloatAtomicStorage storage,
     SpirvTargetFeatures features) noexcept {
     namespace xir = luisa::compute::xir;
+    if (bit_width == 64u) {
+        // SPIR-V has no float compare-exchange at any width, and Vulkan's
+        // logical addressing forbids the pointer bit-cast that a 64-bit integer
+        // alias would need ("Instruction may not have a logical pointer
+        // operand"), so a typed float64 element can only be updated through the
+        // native float64 forms of VK_EXT_shader_atomic_float. This backend
+        // negotiates the buffer features only; shared float64 atomics have no
+        // capable device in the supported set and fail closed.
+        if (storage != SpirvFloatAtomicStorage::BUFFER) {
+            // No shared float64 atomic feature is negotiated by this backend.
+            return SpirvFloatAtomicImplementation::UNSUPPORTED_EXTENSION;
+        }
+        auto native_exchange = features.shader_buffer_float64_atomics;
+        auto native_add = features.shader_buffer_float64_atomic_add;
+
+        switch (op) {
+            case xir::AtomicOp::EXCHANGE:
+                return native_exchange ?
+                           SpirvFloatAtomicImplementation::NATIVE_EXCHANGE :
+                           SpirvFloatAtomicImplementation::UNSUPPORTED_FEATURE;
+            case xir::AtomicOp::FETCH_ADD:
+            case xir::AtomicOp::FETCH_SUB:
+                return native_add ?
+                           SpirvFloatAtomicImplementation::NATIVE_ADD :
+                           SpirvFloatAtomicImplementation::UNSUPPORTED_FEATURE;
+            case xir::AtomicOp::COMPARE_EXCHANGE:
+            case xir::AtomicOp::FETCH_MIN:
+            case xir::AtomicOp::FETCH_MAX:
+                // Compare-exchange has no float SPIR-V form, and the float64
+                // min/max form of SPV_EXT_shader_atomic_float_min_max is not
+                // negotiable through a target feature here (no driver in the
+                // supported set exposes it).
+                return SpirvFloatAtomicImplementation::UNSUPPORTED_EXTENSION;
+            default:
+                return SpirvFloatAtomicImplementation::UNSUPPORTED_OPERATION;
+        }
+    }
     if (bit_width != 32u) {
         return SpirvFloatAtomicImplementation::UNSUPPORTED_WIDTH;
     }
@@ -460,8 +518,10 @@ struct SpirvAtomicBufferStorageRequirements {
     bool contains_bool{false};
     bool requires_word_storage_layout{false};
     bool has_float32_word_fallback{false};
-    bool prefers_float32_word_fallback{false};
-    bool has_int64_atomic{false};
+      bool prefers_float32_word_fallback{false};
+      // A 64-bit atomic leaf: int64/uint64, and also float64, which lowers
+      // through a 64-bit integer view of the same storage.
+      bool has_int64_atomic{false};
 };
 
 [[nodiscard]] constexpr SpirvAtomicBufferStoragePlan

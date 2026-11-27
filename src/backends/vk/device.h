@@ -322,6 +322,8 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         bool shader_shared_float32_atomics{false};
         bool shader_shared_float32_atomic_add{false};
         bool shader_shared_float32_atomic_min_max{false};
+        bool shader_buffer_float64_atomics{false};
+        bool shader_buffer_float64_atomic_add{false};
     } _float_atomic_features;
     struct Int64AtomicFeatures {
         bool shader_buffer_int64_atomics{false};

@@ -3625,7 +3625,7 @@ public:
     return type != nullptr &&
            (type->is_int32() || type->is_uint32() ||
             type->is_int64() || type->is_uint64() ||
-            type->is_float32());
+            type->is_float32() || type->is_float64());
 }
 
 [[nodiscard]] bool typed_value_operand_valid(const Value *value) noexcept {

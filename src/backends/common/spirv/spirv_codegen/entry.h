@@ -353,9 +353,13 @@ private:
     void _emit_conditional_branch_inst(const xir::ConditionalBranchInst *inst) noexcept;
     void _emit_arithmetic_inst(const xir::ArithmeticInst *inst) noexcept;
     void _emit_atomic_inst(const xir::AtomicInst *inst) noexcept;
+    // `ptr` must address `integer_type`, the same-width integer view of the
+    // float storage (`float_type`). 32-bit word-storage buffers pass their
+    // uint32 pointer directly; a typed float64 buffer passes a bit-cast uint64
+    // pointer, because SPIR-V compare-exchange only accepts integer pointers.
     spv::Id _emit_float_atomic_cas_loop(
-        spv::Id ptr, spv::Id val, spv::Id float_type, xir::AtomicOp op,
-        spv::Id scope, spv::Id load_semantics,
+        spv::Id ptr, spv::Id val, spv::Id float_type, spv::Id integer_type,
+        xir::AtomicOp op, spv::Id scope, spv::Id load_semantics,
         spv::Id equal_semantics, spv::Id unequal_semantics) noexcept;
     void _emit_ray_query_traversal_to_completion(
         spv::Id ray_query) noexcept;

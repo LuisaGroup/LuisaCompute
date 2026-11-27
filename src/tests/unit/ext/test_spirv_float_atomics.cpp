@@ -529,7 +529,8 @@ int main(int argc, char *argv[]) {
         expect(plan_spirv_float_atomic(
                    xir::AtomicOp::FETCH_ADD, 64u,
                    SpirvFloatAtomicStorage::BUFFER, native_buffer) ==
-               SpirvFloatAtomicImplementation::UNSUPPORTED_WIDTH);
+               SpirvFloatAtomicImplementation::UNSUPPORTED_FEATURE)
+            << "float32 features must not authorize float64 atomics";
     };
 
     "spirv_atomic_buffer_storage_planner_rejects_incompatible_requirements"_test = [] {
@@ -787,6 +788,98 @@ int main(int argc, char *argv[]) {
             compiled.required_features,
             lc::spirv::target_feature::shader_int64 |
                 lc::spirv::target_feature::shader_buffer_int64_atomics));
+    };
+
+    "spirv_float64_atomics_use_the_native_float64_forms"_test = [] {
+        // SPIR-V has no float compare-exchange at any width, and Vulkan logical
+        // addressing forbids the pointer bit-cast a 64-bit integer alias of a
+        // typed float64 element would need, so float64 atomics can only use the
+        // native float64 forms and each one is its own device feature.
+        Kernel1D exchange_kernel =
+            [](BufferVar<double> values, BufferVar<double> old_values) noexcept {
+                old_values.write(0u, values.atomic(0u).exchange(2.5));
+            };
+        auto exchange = compile_spirv_fixture(
+            exchange_kernel,
+            {.shader_float64 = true,
+             .shader_buffer_float64_atomics = true});
+        expect(contains(exchange.text, "OpAtomicExchange"));
+        expect(contains(exchange.text, "OpTypeFloat 64"))
+            << "float64 exchange must keep the typed float64 element pointer";
+        expect(!contains(exchange.text, "FAdd"))
+            << "float64 exchange must stay one OpAtomicExchange";
+        expect(!contains(exchange.text, "Int64Atomics"))
+            << "float64 atomics must not depend on the integer atomic features";
+        expect(eq(
+            exchange.required_features,
+            lc::spirv::target_feature::shader_float64 |
+                lc::spirv::target_feature::shader_buffer_float64_atomics));
+
+        Kernel1D add_kernel =
+            [](BufferVar<double> values, BufferVar<double> old_values) noexcept {
+                old_values.write(0u, values.atomic(0u).fetch_sub(0.25));
+            };
+        auto add = compile_spirv_fixture(
+            add_kernel,
+            {.shader_float64 = true,
+             .shader_buffer_float64_atomic_add = true});
+        expect(contains(add.text, "OpAtomicFAddEXT"));
+        expect(contains(add.text, "AtomicFloat64AddEXT"));
+        expect(contains(add.text, "SPV_EXT_shader_atomic_float_add"));
+        expect(contains(add.text, "OpFNegate"))
+            << "float64 fetch-sub must negate the operand in float64";
+        expect(eq(
+            add.required_features,
+            lc::spirv::target_feature::shader_float64 |
+                lc::spirv::target_feature::shader_buffer_float64_atomic_add));
+        auto add_memory = inspect_atomic_memory_semantics(add.words);
+        expect(eq(add_memory.operand_count, 1u));
+        expect(add_memory.all_relaxed)
+            << "native float64 atomics must keep the relaxed XIR memory contract";
+    };
+
+    "spirv_float64_atomic_planner_is_feature_exact"_test = [] {
+        using lc::spirv::plan_spirv_float_atomic;
+        using lc::spirv::SpirvFloatAtomicImplementation;
+        using lc::spirv::SpirvFloatAtomicStorage;
+        using lc::spirv::SpirvTargetFeatures;
+        constexpr auto buffer = SpirvFloatAtomicStorage::BUFFER;
+        constexpr auto shared = SpirvFloatAtomicStorage::SHARED;
+        expect(plan_spirv_float_atomic(
+                   xir::AtomicOp::EXCHANGE, 64u, buffer,
+                   SpirvTargetFeatures{.shader_buffer_float64_atomics = true}) ==
+               SpirvFloatAtomicImplementation::NATIVE_EXCHANGE)
+            << "buffer float64 exchange needs shaderBufferFloat64Atomics";
+        expect(plan_spirv_float_atomic(
+                   xir::AtomicOp::EXCHANGE, 64u, buffer,
+                   SpirvTargetFeatures{.shader_buffer_float64_atomic_add = true}) ==
+               SpirvFloatAtomicImplementation::UNSUPPORTED_FEATURE)
+            << "the add feature must not enable exchange";
+        expect(plan_spirv_float_atomic(
+                   xir::AtomicOp::FETCH_ADD, 64u, buffer,
+                   SpirvTargetFeatures{.shader_buffer_float64_atomic_add = true}) ==
+               SpirvFloatAtomicImplementation::NATIVE_ADD)
+            << "buffer float64 add needs shaderBufferFloat64AtomicAdd";
+        expect(plan_spirv_float_atomic(
+                   xir::AtomicOp::FETCH_ADD, 64u, shared,
+                   SpirvTargetFeatures{.shader_buffer_float64_atomic_add = true}) ==
+               SpirvFloatAtomicImplementation::UNSUPPORTED_EXTENSION)
+            << "shared float64 atomics are not negotiated by this backend";
+        // These have no negotiable SPIR-V/Vulkan form for a typed float64
+        // element: no feature can enable them, so they are not reported as a
+        // missing feature.
+        for (auto op : {xir::AtomicOp::COMPARE_EXCHANGE,
+                        xir::AtomicOp::FETCH_MIN,
+                        xir::AtomicOp::FETCH_MAX}) {
+            expect(plan_spirv_float_atomic(
+                       op, 64u, buffer,
+                       SpirvTargetFeatures{
+                           .shader_buffer_float64_atomics = true,
+                           .shader_buffer_float64_atomic_add = true}) ==
+                   SpirvFloatAtomicImplementation::UNSUPPORTED_EXTENSION)
+                << "float64 compare-exchange/min/max must fail closed as an "
+                   "unavailable operation, not as a missing feature";
+        }
     };
 
     "spirv_native_float_and_int64_aggregate_share_typed_storage"_test = [] {

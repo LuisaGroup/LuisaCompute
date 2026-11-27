@@ -345,7 +345,7 @@ int main(int argc, char *argv[]) {
         // Float compare-exchange remains outside this buffer-view contract.
         expect(
             lc::hlsl::plan_hlsl_atomic_lowering(
-                CallOp::ATOMIC_COMPARE_EXCHANGE, true, true) ==
+                CallOp::ATOMIC_COMPARE_EXCHANGE, true, false, false, true) ==
             lc::hlsl::HlslAtomicLowering::UNSUPPORTED);
         constexpr CallOp native_float_ops[]{
             CallOp::ATOMIC_EXCHANGE,
@@ -356,13 +356,37 @@ int main(int argc, char *argv[]) {
         };
         for (auto op : native_float_ops) {
             expect(
-                lc::hlsl::plan_hlsl_atomic_lowering(op, true, true) ==
+                lc::hlsl::plan_hlsl_atomic_lowering(op, true, false, false, true) ==
                 lc::hlsl::HlslAtomicLowering::NATIVE);
         }
         expect(
             lc::hlsl::plan_hlsl_atomic_lowering(
-                CallOp::ATOMIC_FETCH_ADD, false, true) ==
+                CallOp::ATOMIC_FETCH_ADD, false, false, false, true) ==
             lc::hlsl::HlslAtomicLowering::NATIVE);
+                // float64 atomics are only lowerable on the DX route, and only when
+                // the atomic addresses exactly one scalar float64 buffer element (the
+                // uint64_t word the HLSL backend declares for it).
+                expect(lc::hlsl::plan_hlsl_atomic_lowering(
+                           CallOp::ATOMIC_FETCH_ADD, false, true, true, false) ==
+                       lc::hlsl::HlslAtomicLowering::FLOAT64_WORD_CAS_LOOP);
+                expect(lc::hlsl::plan_hlsl_atomic_lowering(
+                           CallOp::ATOMIC_COMPARE_EXCHANGE, false, true, true, false) ==
+                       lc::hlsl::HlslAtomicLowering::FLOAT64_WORD_COMPARE_EXCHANGE);
+                expect(lc::hlsl::plan_hlsl_atomic_lowering(
+                           CallOp::ATOMIC_EXCHANGE, false, true, true, false) ==
+                       lc::hlsl::HlslAtomicLowering::FLOAT64_WORD_EXCHANGE);
+                expect(lc::hlsl::plan_hlsl_atomic_lowering(
+                           CallOp::ATOMIC_FETCH_ADD, false, true, false, false) ==
+                       lc::hlsl::HlslAtomicLowering::UNSUPPORTED)
+                    << "a float64 atomic without a 64-bit word alias must fail closed";
+                expect(lc::hlsl::plan_hlsl_atomic_lowering(
+                           CallOp::ATOMIC_FETCH_ADD, false, true, true, true) ==
+                       lc::hlsl::HlslAtomicLowering::UNSUPPORTED)
+                    << "the HLSL-to-SPIR-V route must reject float64 atomics";
+                expect(lc::hlsl::plan_hlsl_atomic_lowering(
+                           CallOp::ATOMIC_FETCH_AND, false, true, true, false) ==
+                       lc::hlsl::HlslAtomicLowering::UNSUPPORTED)
+                    << "bitwise float64 atomics have no meaning";
 
         Kernel1D buffer_kernel = [](BufferFloat values,
                                     BufferFloat old_values) noexcept {

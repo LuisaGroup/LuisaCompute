@@ -89,6 +89,10 @@ public:
     [[nodiscard]] bool shader_model_6_9_supported() const noexcept {
         return static_cast<uint>(_highest_shader_model) >= 0x69u;
     }
+    /// Whether Shader Model 6.6 (64-bit integer atomics) is supported
+    bool shader_model_6_6_supported() const noexcept {
+        return static_cast<uint>(_highest_shader_model) >= 0x66u;
+    }
 
     /// Get minimum wave lane count
     [[nodiscard]] uint wave_lane_count_min() const noexcept {

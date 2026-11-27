@@ -55,6 +55,11 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool enable_debug_info : 1 = false;
     bool enable_fast_math : 1 = false;
     bool use_8bit : 1 = false;
+    // A 64-bit atomic was emitted (int64/uint64, or float64, which lowers
+    // through a 64-bit integer view). DXIL only has these from Shader
+    // Model 6.6 on, so the DirectX backend selects its shader model
+    // from this flag.
+    bool use_atomic64 : 1 = false;
     bool emulate_8bit : 1 = false;
     luisa::optional<uint8_t> default_warp_size{luisa::nullopt};
     // Software BF16 emulation: the immutable header carries

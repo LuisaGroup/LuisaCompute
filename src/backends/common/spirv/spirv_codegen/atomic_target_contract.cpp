@@ -94,10 +94,41 @@ validate_spirv_atomic_target_contract(
                     return;
                 }
 
-                if (!leaf_type->is_int64() &&
-                    !leaf_type->is_uint64()) {
-                    return;
-                }
+                  if (leaf_type->is_float64()) {
+                      // A typed float64 element can only be updated by the
+                      // native float64 forms: SPIR-V has no float
+                      // compare-exchange, and Vulkan logical addressing forbids
+                      // the pointer bit-cast that a 64-bit integer alias would
+                      // need.
+                      auto storage = shared ?
+                                         SpirvFloatAtomicStorage::SHARED :
+                                         SpirvFloatAtomicStorage::BUFFER;
+                      if (plan_spirv_float_atomic(
+                              atomic->op(), 64u, storage, features) ==
+                          SpirvFloatAtomicImplementation::UNSUPPORTED_FEATURE) {
+                          auto is_add =
+                              atomic->op() == xir::AtomicOp::FETCH_ADD ||
+                              atomic->op() == xir::AtomicOp::FETCH_SUB;
+                          result.diagnostics.emplace_back(
+                              SpirvAtomicTargetContractDiagnostic{
+                                  .function = function,
+                                  .instruction = atomic,
+                                  .message = luisa::format(
+                                      "Native XIR-to-SPIR-V {} float64 atomic '{}' requires the enabled '{}' feature of VK_EXT_shader_atomic_float.",
+                                      shared ? "shared" : "buffer",
+                                      xir::to_string(atomic->op()),
+                                      shared ?
+                                          (is_add ? "shaderSharedFloat64AtomicAdd" :
+                                                    "shaderSharedFloat64Atomics") :
+                                          (is_add ? "shaderBufferFloat64AtomicAdd" :
+                                                    "shaderBufferFloat64Atomics"))});
+                      }
+                      return;
+                  }
+                  if (!leaf_type->is_int64() &&
+                      !leaf_type->is_uint64()) {
+                      return;
+                  }
                 auto supported = shared ?
                                      features.shader_shared_int64_atomics :
                                      features.shader_buffer_int64_atomics;

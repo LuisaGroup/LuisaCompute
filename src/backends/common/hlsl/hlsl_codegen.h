@@ -28,6 +28,7 @@ struct CodegenResult {
     bool useTex3DBindless{false};
     bool useBufferBindless{false};
     bool use_8bit{false};
+    bool use_atomic64{false};
     uint32_t validation_count{0u};// resource size count when debug mode enabled
     uint64 immutableHeaderSize{0u};
     vstd::MD5 typeMD5;
@@ -266,12 +267,23 @@ public:
     /// emitted as an ordinary HLSL member (see `PackedStructMember`).
     [[nodiscard]] PackedStructMember const *GetPackedStructMember(
         Type const *type, uint member_index);
-    /// Whether `type` holds a BF16 scalar or vector payload.
-    [[nodiscard]] static bool IsBf16(Type const *type) noexcept {
-        return type != nullptr &&
-               (type->is_bfloat16() ||
-                (type->is_vector() && type->element()->is_bfloat16()));
-    }
+      /// Whether `type` holds a BF16 scalar or vector payload.
+      [[nodiscard]] static bool IsBf16(Type const *type) noexcept {
+          return type != nullptr &&
+                 (type->is_bfloat16() ||
+                  (type->is_vector() && type->element()->is_bfloat16()));
+      }
+      /// Whether a scalar `float64` buffer element is stored as one 64-bit
+      /// integer word. DXC defines no `float64` `Interlocked*` overload at any
+      /// shader model, so the DirectX route declares such an element as
+      /// `uint64_t` and bit-casts every non-atomic access. That keeps the raw
+      /// 8-byte stride binding identical and gives the atomic lowering a 64-bit
+      /// integer lvalue, which SM 6.6 `Interlocked*` accepts. The
+      /// HLSL-to-SPIR-V route keeps `double` (and rejects float64 atomics).
+      [[nodiscard]] static bool IsFloat64WordElement(
+          Type const *type, bool is_spirv) noexcept {
+          return !is_spirv && type != nullptr && type->is_float64();
+      }
     uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType);
     vstd::StringBuilder GetNewTempVarName();
     bool TypeIsAliased(luisa::compute::Type const *t) const;

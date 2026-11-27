@@ -154,7 +154,14 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                         str << '4';
                     } else if (aliasStruct) {
                         str << opt->CreateAliasedStruct(ele).first;
-                    } else if (ele->is_bool()) {
+                    } else if (IsFloat64WordElement(ele, opt->isSpirv)) {
+                    // DXC has no float64 Interlocked* overload, so a scalar
+                    // float64 element is declared as one 64-bit integer word
+                    // and every non-atomic access bit-casts (see
+                    // IsFloat64WordElement). The structured-buffer stride stays
+                    // 8 bytes, so the host binding is unchanged.
+                    str << "uint64_t"sv;
+                } else if (ele->is_bool()) {
                         // A scalar bool stored as a typed-buffer element must use the
                         // runtime 1-byte representation (uint8_t).  A DXIL `bool`
                         // structured-buffer element is 4 bytes while the host binds

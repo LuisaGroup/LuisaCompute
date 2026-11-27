@@ -1711,6 +1711,8 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     bool enable_shared_float32_atomics = false;
     bool enable_shared_float32_atomic_add = false;
     bool enable_shared_float32_atomic_min_max = false;
+    bool enable_buffer_float64_atomics = false;
+    bool enable_buffer_float64_atomic_add = false;
     bool enable_subgroup_size_control = false;
     bool enable_subgroup_extended_types = false;
     bool enable_shader_device_clock = false;
@@ -1969,6 +1971,10 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             supported_float_atomics.shaderSharedFloat32Atomics == VK_TRUE;
         enable_shared_float32_atomic_add =
             supported_float_atomics.shaderSharedFloat32AtomicAdd == VK_TRUE;
+        enable_buffer_float64_atomics =
+            supported_float_atomics.shaderBufferFloat64Atomics == VK_TRUE;
+        enable_buffer_float64_atomic_add =
+            supported_float_atomics.shaderBufferFloat64AtomicAdd == VK_TRUE;
     }
     if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end() &&
         supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME) != supported_ext.end()) {
@@ -1990,7 +1996,9 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         enable_shared_float32_atomics ||
         enable_shared_float32_atomic_add ||
         enable_buffer_float32_atomic_min_max ||
-        enable_shared_float32_atomic_min_max;
+        enable_shared_float32_atomic_min_max ||
+        enable_buffer_float64_atomics ||
+        enable_buffer_float64_atomic_add;
     if (enable_float_atomic_ext) {
         enable_device_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
     }
@@ -2631,6 +2639,8 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         enable_shared_float32_atomics = false;
         enable_shared_float32_atomic_add = false;
         enable_shared_float32_atomic_min_max = false;
+        enable_buffer_float64_atomics = false;
+        enable_buffer_float64_atomic_add = false;
         enable_subgroup_size_control = false;
         subgroup_size_control_enabled = false;
         _subgroup_size_control_properties = {};
@@ -2996,6 +3006,10 @@ if (_optional_extensions.requested(
             enable_buffer_float32_atomics ? VK_TRUE : VK_FALSE,
         .shaderBufferFloat32AtomicAdd =
             enable_buffer_float32_atomic_add ? VK_TRUE : VK_FALSE,
+        .shaderBufferFloat64Atomics =
+            enable_buffer_float64_atomics ? VK_TRUE : VK_FALSE,
+        .shaderBufferFloat64AtomicAdd =
+            enable_buffer_float64_atomic_add ? VK_TRUE : VK_FALSE,
         .shaderSharedFloat32Atomics =
             enable_shared_float32_atomics ? VK_TRUE : VK_FALSE,
         .shaderSharedFloat32AtomicAdd =
@@ -3003,7 +3017,9 @@ if (_optional_extensions.requested(
     if (enable_buffer_float32_atomics ||
         enable_buffer_float32_atomic_add ||
         enable_shared_float32_atomics ||
-        enable_shared_float32_atomic_add) {
+        enable_shared_float32_atomic_add ||
+    enable_buffer_float64_atomics ||
+    enable_buffer_float64_atomic_add) {
         feature_next = &float_atomic_features;
     }
     VkPhysicalDeviceShaderAtomicFloat2FeaturesEXT float_atomic2_features{
@@ -3295,7 +3311,11 @@ if (_optional_extensions.requested(
             .shader_shared_float32_atomic_add =
                 enable_shared_float32_atomic_add,
             .shader_shared_float32_atomic_min_max =
-                enable_shared_float32_atomic_min_max};
+                enable_shared_float32_atomic_min_max,
+            .shader_buffer_float64_atomics =
+                enable_buffer_float64_atomics,
+            .shader_buffer_float64_atomic_add =
+                enable_buffer_float64_atomic_add};
         _int64_atomic_features = {
             .shader_buffer_int64_atomics =
                 enable_buffer_int64_atomics,
@@ -4543,6 +4563,10 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_shared_float32_atomic_add);
     enable(_float_atomic_features.shader_shared_float32_atomic_min_max,
            target_feature::shader_shared_float32_atomic_min_max);
+    enable(_float_atomic_features.shader_buffer_float64_atomics,
+           target_feature::shader_buffer_float64_atomics);
+    enable(_float_atomic_features.shader_buffer_float64_atomic_add,
+           target_feature::shader_buffer_float64_atomic_add);
 
     VkPhysicalDeviceSubgroupProperties subgroup_properties{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};

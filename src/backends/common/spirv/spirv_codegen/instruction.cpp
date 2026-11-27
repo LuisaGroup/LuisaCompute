@@ -3108,13 +3108,17 @@ spv::Id SpirvCodegenEntry::_resolve_accel_instance_buffer(
 }
 
 spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(
-    spv::Id ptr, spv::Id val, spv::Id float_type, xir::AtomicOp op,
-    spv::Id scope, spv::Id load_semantics,
+    spv::Id ptr, spv::Id val, spv::Id float_type, spv::Id integer_type,
+    xir::AtomicOp op, spv::Id scope, spv::Id load_semantics,
     spv::Id equal_semantics, spv::Id unequal_semantics) noexcept {
-    auto uint_type = _builder.makeUintType(32);
+    auto uint_type = integer_type;
     auto bool_type = _builder.makeBoolType();
-    LUISA_ASSERT(float_type == _builder.makeFloatType(32),
-                 "SPIR-V CAS loop only supports float32 for non-scalar buffer atomics.");
+    LUISA_ASSERT((float_type == _builder.makeFloatType(32) &&
+                  uint_type == _builder.makeUintType(32)) ||
+                     (float_type == _builder.makeFloatType(64) &&
+                      uint_type == _builder.makeUintType(64)),
+                 "SPIR-V CAS loop requires a same-width integer view of the "
+                 "float storage it updates.");
 
     auto *preheader = _builder.getBuildPoint();
     LUISA_ASSERT(preheader != nullptr && !preheader->isTerminated(),
@@ -3198,12 +3202,11 @@ spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(
 void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept {
     auto type = _convert_type(inst->type(), Usage::READ);
     auto t = inst->type();
-    if (t->is_float() && !t->is_float32()) {
+    if (t->is_float() && !t->is_float32() && !t->is_float64()) {
         LUISA_ERROR_WITH_LOCATION(
-            "Vulkan XIR-to-SPIR-V float atomics currently support float32 "
+            "Vulkan XIR-to-SPIR-V float atomics support float32 and float64 "
             "only; {} is unsupported. Sub-32-bit floats (including float16) "
-            "require packed-word or exact native storage lowering, and "
-            "float64 requires a 64-bit atomic representation.",
+            "require packed-word or exact native storage lowering.",
             t->description());
     }
 
@@ -3420,7 +3423,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         }();
         auto implementation = plan_spirv_float_atomic(
             inst->op(), bit_width, storage, _target_features);
-        if (!uses_word_storage_buffer &&
+        if (bit_width == 32u && !uses_word_storage_buffer &&
             storage == SpirvFloatAtomicStorage::BUFFER &&
             implementation == SpirvFloatAtomicImplementation::WORD_CAS) {
             // A vendor preference may request word CAS, but the module-wide
@@ -3434,6 +3437,18 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                     capability_implementation)) {
                 implementation = capability_implementation;
             }
+        }
+        if (uses_word_storage_buffer && bit_width != 32u) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Vulkan XIR-to-SPIR-V cannot implement a {}-bit {} on a "
+                "Buffer<{}> that uses the uint32 word ABI: a {}-bit float atomic "
+                "needs a pointer to the element type, and the word ABI only exposes "
+                "uint32 words. Split the atomic leaf into a separate buffer.",
+                bit_width, xir::to_string(inst->op()),
+                base_xir_type == nullptr || base_xir_type->element() == nullptr ?
+                    "<null>" :
+                    luisa::string_view{base_xir_type->element()->description()},
+                bit_width);
         }
         if (uses_word_storage_buffer && bit_width == 32u) {
             switch (inst->op()) {
@@ -3485,35 +3500,50 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                              "SPIR-V float atomic representation planner "
                              "selected a word CAS loop for typed storage.");
                 id = _emit_float_atomic_cas_loop(
-                    ptr, _emit_value(values[0]->value()), type, inst->op(),
-                    scope, semantics, semantics, semantics);
+                    ptr, _emit_value(values[0]->value()), type, uint_type,
+                    inst->op(), scope, semantics, semantics, semantics);
                 break;
             }
-            case SpirvFloatAtomicImplementation::NATIVE_EXCHANGE:
+            case SpirvFloatAtomicImplementation::NATIVE_EXCHANGE: {
                 LUISA_ASSERT(!uses_word_storage_buffer,
                              "SPIR-V native float exchange requires typed storage.");
+                auto is_float64 = bit_width == 64u;
+                // Float64 exchange is negotiated only for buffers; the planner already
+                // rejected shared float64 atomics as an unavailable operation.
                 _require_target_feature(
-                    storage == SpirvFloatAtomicStorage::BUFFER ?
-                        target_feature::shader_buffer_float32_atomics :
-                        target_feature::shader_shared_float32_atomics,
-                    storage == SpirvFloatAtomicStorage::BUFFER ?
-                        _target_features.shader_buffer_float32_atomics :
-                        _target_features.shader_shared_float32_atomics);
+                    is_float64 ?
+                        target_feature::shader_buffer_float64_atomics :
+                        storage == SpirvFloatAtomicStorage::BUFFER ?
+                            target_feature::shader_buffer_float32_atomics :
+                            target_feature::shader_shared_float32_atomics,
+                    is_float64 ?
+                        _target_features.shader_buffer_float64_atomics :
+                        storage == SpirvFloatAtomicStorage::BUFFER ?
+                            _target_features.shader_buffer_float32_atomics :
+                            _target_features.shader_shared_float32_atomics);
                 id = _builder.createOp(
                     spv::Op::OpAtomicExchange, type,
                     {ptr, scope, semantics,
                      _emit_value(values[0]->value())});
                 break;
+            }
             case SpirvFloatAtomicImplementation::NATIVE_ADD: {
                 LUISA_ASSERT(!uses_word_storage_buffer,
                              "SPIR-V native float add requires typed storage.");
+                auto is_float64 = bit_width == 64u;
+                // Float64 add is negotiated only for buffers (shared float64 atomics are
+                // rejected by the planner as an unavailable operation).
                 _require_target_feature(
-                    storage == SpirvFloatAtomicStorage::BUFFER ?
-                        target_feature::shader_buffer_float32_atomic_add :
-                        target_feature::shader_shared_float32_atomic_add,
-                    storage == SpirvFloatAtomicStorage::BUFFER ?
-                        _target_features.shader_buffer_float32_atomic_add :
-                        _target_features.shader_shared_float32_atomic_add);
+                    is_float64 ?
+                        target_feature::shader_buffer_float64_atomic_add :
+                        storage == SpirvFloatAtomicStorage::BUFFER ?
+                            target_feature::shader_buffer_float32_atomic_add :
+                            target_feature::shader_shared_float32_atomic_add,
+                    is_float64 ?
+                        _target_features.shader_buffer_float64_atomic_add :
+                        storage == SpirvFloatAtomicStorage::BUFFER ?
+                            _target_features.shader_buffer_float32_atomic_add :
+                            _target_features.shader_shared_float32_atomic_add);
                 auto value = _emit_value(values[0]->value());
                 if (inst->op() == xir::AtomicOp::FETCH_SUB) {
                     value = _builder.createUnaryOp(
@@ -3522,7 +3552,9 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                 _builder.addExtension(
                     spv::E_SPV_EXT_shader_atomic_float_add);
                 _builder.addCapability(
-                    spv::Capability::AtomicFloat32AddEXT);
+                    is_float64 ?
+                        spv::Capability::AtomicFloat64AddEXT :
+                        spv::Capability::AtomicFloat32AddEXT);
                 id = _builder.createOp(
                     spv::Op::OpAtomicFAddEXT, type,
                     {ptr, scope, semantics, value});
@@ -3553,8 +3585,8 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
             }
             case SpirvFloatAtomicImplementation::UNSUPPORTED_WIDTH:
                 LUISA_ERROR_WITH_LOCATION(
-                    "Vulkan XIR-to-SPIR-V float atomics currently support "
-                    "float32 only; {}-bit {} is unsupported.",
+                    "Vulkan XIR-to-SPIR-V float atomics support float32 and "
+                    "float64 only; {}-bit {} is unsupported.",
                     bit_width, xir::to_string(inst->op()));
             case SpirvFloatAtomicImplementation::UNSUPPORTED_OPERATION:
                 LUISA_ERROR_WITH_LOCATION(
@@ -3562,12 +3594,35 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                     xir::to_string(inst->op()));
             case SpirvFloatAtomicImplementation::UNSUPPORTED_REPRESENTATION:
                 LUISA_ERROR_WITH_LOCATION(
-                    "Vulkan XIR-to-SPIR-V cannot implement shared float32 "
-                    "compare-exchange: OpAtomicCompareExchange accepts "
-                    "integer values, and this shared allocation is not "
-                    "represented as integer words.");
+                    "Vulkan XIR-to-SPIR-V cannot implement shared {}-bit "
+                    "compare-exchange: OpAtomicCompareExchange accepts integer "
+                    "values, and this shared allocation is not represented as "
+                    "integer words.",
+                    bit_width);
+            case SpirvFloatAtomicImplementation::UNSUPPORTED_EXTENSION:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Vulkan XIR-to-SPIR-V cannot lower float64 atomic {}: "
+                    "SPIR-V has no float compare-exchange at any width, and "
+                    "Vulkan logical addressing forbids the pointer bit-cast "
+                    "that a 64-bit integer alias of a typed float64 element "
+                    "would need. The float64 min/max form of "
+                    "SPV_EXT_shader_atomic_float_min_max is not negotiated by "
+                    "this backend. Use Buffer<uint64_t> with explicit double "
+                    "bit-casts, or restructure the reduction.",
+                    xir::to_string(inst->op()));
             case SpirvFloatAtomicImplementation::UNSUPPORTED_FEATURE: {
                 auto feature = [&]() noexcept -> luisa::string_view {
+                    if (bit_width == 64u) {
+                        auto buffer_storage =
+                            storage == SpirvFloatAtomicStorage::BUFFER;
+                        auto add = inst->op() == xir::AtomicOp::FETCH_ADD ||
+                                   inst->op() == xir::AtomicOp::FETCH_SUB;
+                        return buffer_storage ?
+                                   (add ? "shaderBufferFloat64AtomicAdd" :
+                                          "shaderBufferFloat64Atomics") :
+                                   (add ? "shaderSharedFloat64AtomicAdd" :
+                                          "shaderSharedFloat64Atomics");
+                    }
                     switch (inst->op()) {
                         case xir::AtomicOp::EXCHANGE:
                             return "shaderSharedFloat32Atomics";
@@ -3581,9 +3636,10 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                     }
                 }();
                 LUISA_ERROR_WITH_LOCATION(
-                    "Vulkan shared float32 atomic {} requires the enabled "
+                    "Vulkan {} float{}-bit atomic {} requires the enabled "
                     "{} feature.",
-                    xir::to_string(inst->op()), feature);
+                    storage == SpirvFloatAtomicStorage::BUFFER ? "buffer" : "shared",
+                    bit_width, xir::to_string(inst->op()), feature);
             }
         }
         LUISA_ASSERT(id != spv::NoResult,

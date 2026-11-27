@@ -1120,9 +1120,13 @@ void reg_xir_verifier() {
         }
     };
 
-    "xir_verifier_accepts_integer_64_bit_atomics"_test = [] {
+    "xir_verifier_accepts_64_bit_atomics"_test = [] {
+    // float64 is part of the XIR atomic surface; whether a backend can
+    // lower it, and through which representation, is a codegen-boundary
+    // question.
         for (auto type : {Type::of<luisa::slong>(),
-                          Type::of<luisa::ulong>()}) {
+                          Type::of<luisa::ulong>(),
+                          Type::of<double>()}) {
             Module module;
             auto *index = module.create_constant_zero(Type::of<uint>());
             auto *value = module.create_constant_one(type);
@@ -1148,8 +1152,7 @@ void reg_xir_verifier() {
     "xir_verifier_rejects_unsupported_atomic_scalar_types"_test = [] {
         for (auto type : {
                  Type::of<int8_t>(), Type::of<uint8_t>(),
-                 Type::of<int16_t>(), Type::of<uint16_t>(),
-                 Type::of<double>()}) {
+                 Type::of<int16_t>(), Type::of<uint16_t>()}) {
             Module module;
             auto *index = module.create_constant_zero(Type::of<uint>());
             auto *value = module.create_constant_one(type);

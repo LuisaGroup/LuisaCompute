@@ -447,7 +447,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     if (profile_compile) {
         LUISA_INFO("DX HLSL codegen '{}' (sm={}, wave32={}): {:.3f} ms, {} bytes",
                    kernel.name().empty() ? luisa::format("{:x}", kernel.hash()) : luisa::string{kernel.name()},
-                   (kernel.allowed_warp_size().has_value() || default_warp_size.has_value()) ? kHighShaderModel : kShaderModel,
+                   (native_device.feature_check.shader_model_6_6_supported() ? kHighShaderModel : kShaderModel),
                    default_warp_size.value_or(kernel.allowed_warp_size().value_or(0u)),
                    codegen_clock.toc(),
                    code.result.size());
@@ -461,9 +461,27 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             // lets callers skip device execution instead of failing here.
             return kTensorShaderModel;
         }
-        return (kernel.allowed_warp_size().has_value() || default_warp_size.has_value()) ?
-                   kHighShaderModel :
-                   kShaderModel;
+        const auto supports_sm66 =
+            native_device.feature_check.shader_model_6_6_supported();
+        if (code.use_atomic64 && !supports_sm66) {
+            // DXIL gained 64-bit integer atomics in SM 6.6, and LC lowers every
+            // float64 atomic through a 64-bit integer view of the element because
+            // DXC defines no float64 Interlocked* overload. Neither form can be
+            // compiled below 6.6, and the device cannot run a 6.6 shader.
+            LUISA_ERROR_WITH_LOCATION(
+                "The kernel needs 64-bit atomics (int64/uint64, or float64, which "
+                "is lowered through a 64-bit integer view), but this DirectX "
+                "runtime and driver expose at most Shader Model 0x{:x}. DXIL has "
+                "no 64-bit atomic before Shader Model 6.6.",
+                static_cast<uint>(native_device.feature_check.highest_shader_model()));
+        }
+        if (supports_sm66) {
+            // SM 6.6 is the default whenever the runtime and driver expose it: it
+            // adds the 64-bit atomics above plus wave-size and helper-lane
+            // intrinsics, and the generated source never relies on 6.5-only rules.
+            return kHighShaderModel;
+        }
+        return kShaderModel;
     };
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());

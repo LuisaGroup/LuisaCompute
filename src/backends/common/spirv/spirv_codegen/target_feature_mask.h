@@ -137,6 +137,16 @@ inline constexpr SpirvTargetFeatureMask shader_integer_dot_product = 0x040000000
 // cooperative-matrix capability may only load on a logical device that really
 // negotiated one of the two extensions.
 inline constexpr SpirvTargetFeatureMask cooperative_matrix = 0x0800000000000000ull;
+// Float64 atomics. SPIR-V has no float compare-exchange at any width, and
+// Vulkan logical addressing forbids the pointer bit-cast a 64-bit integer
+// alias would need, so a typed float64 element can only be updated through
+// the native float64 forms of VK_EXT_shader_atomic_float. Each device
+// feature is its own bit: OpAtomicExchange needs <storage>Float64Atomics,
+// and OpAtomicFAddEXT needs <storage>Float64AtomicAdd. Float64
+// compare-exchange and min/max have no negotiable form here and fail
+// closed at emission.
+inline constexpr SpirvTargetFeatureMask shader_buffer_float64_atomics = 0x1000000000000000ull;
+inline constexpr SpirvTargetFeatureMask shader_buffer_float64_atomic_add = 0x2000000000000000ull;
 
 inline constexpr SpirvTargetFeatureMask known_mask =
     0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector |
@@ -148,8 +158,9 @@ inline constexpr SpirvTargetFeatureMask known_mask =
     shader_mixed_float_dot_product_float16_acc_float32 |
     shader_replicated_composites | shader_expect_assume |
   denorm_preserve_float32 | denorm_flush_float32 |
-  shader_integer_dot_product | cooperative_matrix;
-
+  shader_integer_dot_product | cooperative_matrix |
+  shader_buffer_float64_atomics |
+  shader_buffer_float64_atomic_add;
 }// namespace target_feature
 
 struct SpirvTargetFeatureDescription {
@@ -217,7 +228,9 @@ inline constexpr std::array spirv_target_feature_descriptions{
       SpirvTargetFeatureDescription{target_feature::denorm_preserve_float32, "shaderDenormPreserveFloat32"},
       SpirvTargetFeatureDescription{target_feature::denorm_flush_float32, "shaderDenormFlushToZeroFloat32"},
       SpirvTargetFeatureDescription{target_feature::shader_integer_dot_product, "shaderIntegerDotProduct"},
-      SpirvTargetFeatureDescription{target_feature::cooperative_matrix, "cooperativeMatrix"}};
+      SpirvTargetFeatureDescription{target_feature::cooperative_matrix, "cooperativeMatrix"},
+ SpirvTargetFeatureDescription{target_feature::shader_buffer_float64_atomics, "shaderBufferFloat64Atomics"},
+ SpirvTargetFeatureDescription{target_feature::shader_buffer_float64_atomic_add, "shaderBufferFloat64AtomicAdd"},};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

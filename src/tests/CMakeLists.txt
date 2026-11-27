@@ -1291,6 +1291,7 @@ endforeach ()
 luisa_compute_add_test(test_hip_float_atomic_memory_model unit/runtime/test_hip_float_atomic_memory_model.cpp)
 luisa_compute_add_test(test_counted_local_array unit/runtime/test_counted_local_array.cpp)
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
+luisa_compute_add_test(test_atomic_float64 unit/runtime/test_atomic_float64.cpp)
 foreach (backend metal metal4)
     if (TARGET luisa-compute-backend-${backend})
         add_test(NAME test_atomic_divergent_address_${backend}

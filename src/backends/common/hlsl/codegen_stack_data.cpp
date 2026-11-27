@@ -51,6 +51,7 @@ void CodegenStackData::Clear() {
     useBufferBindless = false;
     enable_fast_math = false;
     use_8bit = false;
+    use_atomic64 = false;
     emulate_8bit = false;
     default_warp_size.reset();
     pixelUseBarycentric = false;
@@ -229,6 +230,51 @@ old=r;
 })"sv;
 static vstd::string_view _atomic_max =
     R"(# r;InterlockedMax($,@,r);return r;)"sv;
+// Float64 word forms: `$` is the uint64_t element the DX route declares for a
+// scalar float64 buffer element, `@` the float64 operand, `#` a uint64_t temp.
+static vstd::string_view _atomic_exchange_f64_word =
+    R"(# r;InterlockedExchange($,_lc_f64_to_word(@),r);return _lc_f64_from_word(r);)"sv;
+// The two operands need one conversion each, and the placeholder expansion
+// cannot wrap them separately, so this body names the generated
+// parameters directly: the access chain is a0 plus exactly one element
+// index (a1), so the expected/desired operands are a2 and a3 (see the
+// `float64_word_alias` shape check in GetAtomicFunc).
+static vstd::string_view _atomic_compare_exchange_f64_word =
+    R"(# r;InterlockedCompareExchange($,_lc_f64_to_word(a2),_lc_f64_to_word(a3),r);return _lc_f64_from_word(r);)"sv;
+static vstd::string_view _atomic_add_f64_word =
+    R"(# old=$;
+while(true){
+# r;
+InterlockedCompareExchange($,old,_lc_f64_to_word(_lc_f64_from_word(old)+@),r);
+if(old==r)return _lc_f64_from_word(old);
+old=r;
+})"sv;
+static vstd::string_view _atomic_sub_f64_word =
+    R"(# old=$;
+while(true){
+# r;
+InterlockedCompareExchange($,old,_lc_f64_to_word(_lc_f64_from_word(old)-@),r);
+if(old==r)return _lc_f64_from_word(old);
+old=r;
+})"sv;
+static vstd::string_view _atomic_min_f64_word =
+    R"(# old=$;
+while(true){
+if(_lc_f64_from_word(old)<=@) return _lc_f64_from_word(old);
+# r;
+InterlockedCompareExchange($,old,_lc_f64_to_word(@),r);
+if(r==old) return _lc_f64_from_word(old);
+old=r;
+})"sv;
+static vstd::string_view _atomic_max_f64_word =
+    R"(# old=$;
+while(true){
+if(_lc_f64_from_word(old)>=@) return _lc_f64_from_word(old);
+# r;
+InterlockedCompareExchange($,old,_lc_f64_to_word(@),r);
+if(r==old) return _lc_f64_from_word(old);
+old=r;
+})"sv;
 static vstd::string_view _atomic_max_float =
     R"(# old=$;
 while(true){
@@ -263,6 +309,11 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
     Type const *retType,
     luisa::span<Expression const *const> exprs) {
     util->CheckPackedAtomicTarget(exprs);
+    if (retType->is_int64() || retType->is_uint64() || retType->is_float64()) {
+        // Every 64-bit atomic needs DXIL 1.6: float64 is lowered through a
+        // 64-bit integer view, so it needs the same SM 6.6 opcodes.
+        use_atomic64 = true;
+    }
     size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
     vstd::StringBuilder retTypeName;
     util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
@@ -272,11 +323,48 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
         .access_place = '$',
         .args_place = '@',
         .temp_type_place = '#'};
+    // A float64 atomic needs a 64-bit integer lvalue. The DX route declares a
+    // scalar float64 buffer element as uint64_t (CodegenUtility::
+    // IsFloat64WordElement), so only an atomic that addresses exactly one such
+    // element has a word to update. Groupshared float64 storage and float64
+    // members of a larger aggregate element have none.
+    auto float64_word_alias =
+        retType->is_float64() && !rootVar.is_shared() &&
+        rootVar.type() != nullptr && rootVar.type()->is_buffer() &&
+        rootVar.type()->element() != nullptr &&
+        rootVar.type()->element()->is_float64() &&
+        exprs.size() == extra_arg_size + 2u;// buffer + one element index
     // SPIR-V uses explicit atomic opcodes; HLSL float Interlocked overloads
     // are not consistently supported by the bundled Windows/Linux DXC builds.
     auto lowering = plan_hlsl_atomic_lowering(
-        op, retType->is_float32(), isSpirv);
+        op, retType->is_float32(), retType->is_float64(),
+        float64_word_alias, isSpirv);
     if (lowering == HlslAtomicLowering::UNSUPPORTED) [[unlikely]] {
+        if (retType->is_float64()) {
+            if (isSpirv) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Float64 atomic {} is unavailable in the HLSL-to-SPIR-V "
+                    "route: DXC defines no float64 Interlocked* overload at "
+                    "any shader model. Use native XIR-to-SPIR-V codegen for "
+                    "this kernel.",
+                    luisa::to_underlying(op));
+            }
+            if (rootVar.is_shared()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Groupshared float64 atomic {} is not supported by the "
+                    "HLSL backend: a groupshared allocation is not a 64-bit "
+                    "integer word, and DXIL has no float64 Interlocked* "
+                    "overload. Use a Buffer<double> atomic instead.",
+                    luisa::to_underlying(op));
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "Float64 atomic {} requires a scalar Buffer<double> element: "
+                "the element is stored as one 64-bit integer word so SM 6.6 "
+                "Interlocked* can update it, and a float64 member of a larger "
+                "aggregate element has no such word. Split the float64 leaf "
+                "into its own Buffer<double>.",
+                luisa::to_underlying(op));
+        }
         LUISA_ERROR_WITH_LOCATION(
             "Float atomic compare-exchange is unavailable in the "
             "HLSL-to-SPIR-V fallback because the bundled DXC only accepts "
@@ -285,20 +373,38 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
     }
     auto use_software_float_rmw =
         lowering == HlslAtomicLowering::FLOAT_CAS_LOOP;
+    auto use_float64_word_cas =
+        lowering == HlslAtomicLowering::FLOAT64_WORD_CAS_LOOP;
+    if (retType->is_float64()) {
+        // The word forms receive and return the uint64_t element.
+        tmp.tmp_type_name = "uint64_t"sv;
+    }
     switch (op) {
         case CallOp::ATOMIC_EXCHANGE:
-            tmp.body = codegen_stack_data_detail::_atomic_exchange;
+            tmp.body = lowering == HlslAtomicLowering::FLOAT64_WORD_EXCHANGE ?
+                           codegen_stack_data_detail::_atomic_exchange_f64_word :
+                           codegen_stack_data_detail::_atomic_exchange;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            tmp.body = lowering == HlslAtomicLowering::FLOAT_COMPARE_EXCHANGE ?
+            tmp.body = lowering == HlslAtomicLowering::FLOAT64_WORD_COMPARE_EXCHANGE ?
+                           codegen_stack_data_detail::_atomic_compare_exchange_f64_word :
+                       lowering == HlslAtomicLowering::FLOAT_COMPARE_EXCHANGE ?
                            codegen_stack_data_detail::_atomic_compare_exchange_float :
                            codegen_stack_data_detail::_atomic_compare_exchange;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
-            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_add_float : codegen_stack_data_detail::_atomic_add;
+            tmp.body = use_float64_word_cas ?
+                           codegen_stack_data_detail::_atomic_add_f64_word :
+                       use_software_float_rmw ?
+                           codegen_stack_data_detail::_atomic_add_float :
+                           codegen_stack_data_detail::_atomic_add;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_sub_float : codegen_stack_data_detail::_atomic_sub;
+            tmp.body = use_float64_word_cas ?
+                           codegen_stack_data_detail::_atomic_sub_f64_word :
+                       use_software_float_rmw ?
+                           codegen_stack_data_detail::_atomic_sub_float :
+                           codegen_stack_data_detail::_atomic_sub;
             break;
         case CallOp::ATOMIC_FETCH_AND:
             tmp.body = codegen_stack_data_detail::_atomic_and;
@@ -310,10 +416,18 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = codegen_stack_data_detail::_atomic_xor;
             break;
         case CallOp::ATOMIC_FETCH_MIN:
-            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_min_float : codegen_stack_data_detail::_atomic_min;
+            tmp.body = use_float64_word_cas ?
+                           codegen_stack_data_detail::_atomic_min_f64_word :
+                       use_software_float_rmw ?
+                           codegen_stack_data_detail::_atomic_min_float :
+                           codegen_stack_data_detail::_atomic_min;
             break;
         case CallOp::ATOMIC_FETCH_MAX:
-            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_max_float : codegen_stack_data_detail::_atomic_max;
+            tmp.body = use_float64_word_cas ?
+                           codegen_stack_data_detail::_atomic_max_f64_word :
+                       use_software_float_rmw ?
+                           codegen_stack_data_detail::_atomic_max_float :
+                           codegen_stack_data_detail::_atomic_max;
             break;
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid atomic operator.");

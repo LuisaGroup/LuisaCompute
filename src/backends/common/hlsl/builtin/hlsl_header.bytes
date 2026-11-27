@@ -311,6 +311,19 @@ float4x4 m;
 #define _bfwrite(bf,idx,value) bf[idx]=value
 #define _bfwriteVec3(bf,idx,value,type) bf[idx]=type##4(value,0)
 #endif
+// A scalar float64 buffer element is stored as one 64-bit integer word:
+// DXC defines no float64 Interlocked* overload at any shader model, so the
+// element is declared uint64_t and every non-atomic access bit-casts. The
+// structured-buffer stride stays 8 bytes, so the binding is unchanged.
+double _lc_f64_from_word(uint64_t v){
+	return asdouble((uint)v,(uint)(v>>32));
+}
+uint64_t _lc_f64_to_word(double v){
+	uint lo,hi;
+	asuint(v,lo,hi);
+	return ((uint64_t)hi<<32)|(uint64_t)lo;
+}
+
 template<typename T,typename BufferType>
 T _volatile_bfread(BufferType b,uint idx){
 DeviceMemoryBarrier();

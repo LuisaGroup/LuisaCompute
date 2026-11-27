@@ -1007,6 +1007,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             // Scalar bool is stored as a 1-byte uint8_t (see GetTypeName BUFFER path);
             // convert the loaded byte back into a shader bool.
             bool elem_is_bool = !aliasStruct && elem->is_bool();
+            bool elem_is_f64_word =
+                !aliasStruct && IsFloat64WordElement(elem, opt->isSpirv);
+            if (elem_is_f64_word) { str << "_lc_f64_from_word("sv; }
             if (elem_is_bool) {
                 str << '(';
             }
@@ -1032,6 +1035,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             if (elem_is_bool) {
                 str << " != 0)"sv;
+            } else if (elem_is_f64_word) {
+                str << ')';
             }
             return;
         }
@@ -1049,6 +1054,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             bool aliasStruct = TypeIsAliased(expr->type());
             bool elem_is_bool = !aliasStruct && elem->is_bool();
+            bool elem_is_f64_word =
+                !aliasStruct && IsFloat64WordElement(elem, opt->isSpirv);
+            if (elem_is_f64_word) { str << "_lc_f64_from_word("sv; }
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
@@ -1067,6 +1075,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             // a shader bool; the buffer element itself is uint8_t, not bool.
             if (elem_is_bool) {
                 str << "uint8_t"sv;
+            } else if (elem_is_f64_word) {
+                str << "uint64_t"sv;
             } else {
                 GetTypeName(*expr->type(), str, Usage::NONE);
             }
@@ -1079,6 +1089,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else if (aliasStruct) {
                 str << ')';
             }
+            if (elem_is_f64_word) { str << ')'; }
             return;
         }
         case CallOp::BUFFER_WRITE:
@@ -1138,6 +1149,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (aliasStruct) {
                 OriginToAliased(args.back()->type(), str);
                 str << '(';
+                args.back()->accept(vis);
+                str << ')';
+            } else if (IsFloat64WordElement(elem, opt->isSpirv)) {
+                str << "_lc_f64_to_word("sv;
                 args.back()->accept(vis);
                 str << ')';
             } else if (elem->is_bool()) {

@@ -109,11 +109,16 @@ SpirvAtomicBufferModulePlan plan_spirv_atomic_buffers(
                                     buffer_type->element()->description())});
                     return;
                 }
-                if (leaf_type->is_int64() || leaf_type->is_uint64()) {
-                    state.requirements.has_int64_atomic = true;
-                    state.int64_function = function;
-                    state.int64_atomic = atomic;
-                } else if (leaf_type->is_float32()) {
+                  if (leaf_type->is_int64() || leaf_type->is_uint64() ||
+                      // A float64 atomic is issued against a double-typed
+                      // element pointer, so it has the same typed-storage
+                      // requirement as an int64 atomic and cannot share the
+                      // uint32 word ABI.
+                      leaf_type->is_float64()) {
+                      state.requirements.has_int64_atomic = true;
+                      state.int64_function = function;
+                      state.int64_atomic = atomic;
+                  } else if (leaf_type->is_float32()) {
                     auto implementation = plan_spirv_float_atomic(
                         atomic->op(), 32u,
                         SpirvFloatAtomicStorage::BUFFER, features);
@@ -161,7 +166,7 @@ SpirvAtomicBufferModulePlan plan_spirv_atomic_buffers(
                     .instruction = state.float32_word_atomic,
                     .buffer_type = state.buffer_type,
                     .message = luisa::format(
-                        "Native XIR-to-SPIR-V cannot represent Buffer<{}> with one SPIR-V Logical pointer type: a 64-bit integer atomic leaf requires typed storage, while float32 {} requires the uint32 word fallback. Enable the exact native float32 atomic feature (compare-exchange has no typed float form), or split these leaves into separate buffers.",
+                        "Native XIR-to-SPIR-V cannot represent Buffer<{}> with one SPIR-V Logical pointer type: a 64-bit atomic leaf requires typed storage, while float32 {} requires the uint32 word fallback. Enable the exact native float32 atomic feature (compare-exchange has no typed float form), or split these leaves into separate buffers.",
                         element_description,
                         xir::to_string(
                             state.float32_word_atomic->op()))});
@@ -172,7 +177,7 @@ SpirvAtomicBufferModulePlan plan_spirv_atomic_buffers(
                     .instruction = state.int64_atomic,
                     .buffer_type = state.buffer_type,
                     .message = luisa::format(
-                        "Native XIR-to-SPIR-V cannot represent Buffer<{}> with one SPIR-V Logical pointer type: a 64-bit integer atomic leaf requires typed storage, while a logical-bool member requires the uint32 word ABI. Split the bool and 64-bit atomic leaves into separate buffers.",
+                        "Native XIR-to-SPIR-V cannot represent Buffer<{}> with one SPIR-V Logical pointer type: a 64-bit atomic leaf requires typed storage, while a logical-bool member requires the uint32 word ABI. Split the bool and 64-bit atomic leaves into separate buffers.",
                         element_description)});
         } else {
             result.diagnostics.emplace_back(
@@ -181,7 +186,7 @@ SpirvAtomicBufferModulePlan plan_spirv_atomic_buffers(
                     .instruction = state.int64_atomic,
                     .buffer_type = state.buffer_type,
                     .message = luisa::format(
-                        "Native XIR-to-SPIR-V cannot represent Buffer<{}> with one SPIR-V Logical pointer type: a 64-bit integer atomic leaf requires typed storage, while the host aggregate layout requires the uint32 word ABI to preserve Vulkan StorageBuffer alignment. Reorder or split the 64-bit vector member, or split the atomic leaf into a separate buffer.",
+                        "Native XIR-to-SPIR-V cannot represent Buffer<{}> with one SPIR-V Logical pointer type: a 64-bit atomic leaf requires typed storage, while the host aggregate layout requires the uint32 word ABI to preserve Vulkan StorageBuffer alignment. Reorder or split the 64-bit vector member, or split the atomic leaf into a separate buffer.",
                         element_description)});
         }
     }
