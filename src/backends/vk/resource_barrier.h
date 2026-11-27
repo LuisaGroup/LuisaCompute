@@ -73,6 +73,11 @@ private:
         VkPipelineStageFlagBits2 texture_stage{VK_PIPELINE_STAGE_2_NONE};
         VkAccessFlagBits2 texture_access{VK_ACCESS_2_NONE};
     };
+    struct VerifiedBindlessAllGeneral {
+        uint64_t instance_id{0u};
+        uint64_t encoded_texture_version{0u};
+        uint64_t non_general_epoch{0u};
+    };
     vstd::HashMap<detail::NativeBufferIdentity, BufferStates> _buffer_frame_states;
     vstd::vector<std::pair<detail::NativeBufferIdentity, BufferStates *>> _current_buffer_update_states;
     vstd::HashMap<detail::NativeImageIdentity, TextureStates> _texture_frame_states;
@@ -80,6 +85,7 @@ private:
     vstd::vector<TextureDescriptorView> _current_texture_descriptor_views;
     BindlessMemoryState _bindless_memory_state;
     vstd::fixed_vector<LayerBindlessAccess, 4> _layer_bindless_accesses;
+    vstd::HashMap<BindlessArray const *, VerifiedBindlessAllGeneral> _verified_bindless_all_general;
     vstd::vector<VkMemoryBarrier2> _memory_barriers;
     vstd::vector<VkImageMemoryBarrier2> _tex_barriers;
     vstd::vector<VkBufferMemoryBarrier2> _buffer_barriers;

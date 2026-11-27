@@ -30,6 +30,7 @@ private:
     mutable luisa::spin_mutex _layout_mtx;
     mutable vstd::fixed_vector<VkImageLayout, 1> _layouts;
     mutable std::atomic<uint32_t> _non_general_mips{0u};
+    inline static std::atomic<uint64_t> _non_general_transition_epoch{1u};
 
 public:
     NativeImageState(
@@ -41,6 +42,9 @@ public:
     void set_layout(uint level, VkImageLayout layout) const;
     [[nodiscard]] bool all_mips_general() const noexcept {
         return _non_general_mips.load(std::memory_order_acquire) == 0u;
+    }
+    [[nodiscard]] static uint64_t non_general_transition_epoch() noexcept {
+        return _non_general_transition_epoch.load(std::memory_order_acquire);
     }
 };
 

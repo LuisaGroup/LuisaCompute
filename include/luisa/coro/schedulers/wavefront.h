@@ -2749,6 +2749,22 @@ private:
             std::getenv("LUISA_CORO_WAVEFRONT_VERIFY_QUEUES") != nullptr;
         const bool batch_queues_enabled = parse_bool_env(
             "LUISA_CORO_WAVEFRONT_BATCH_QUEUES", true);
+        const uint batch_min_count_override = []() noexcept -> uint {
+            const char *v = std::getenv("LUISA_CORO_WAVEFRONT_BATCH_MIN_COUNT");
+            if (v == nullptr || *v == '\0') { return 0u; }
+            char *end = nullptr;
+            const unsigned long parsed = std::strtoul(v, &end, 10);
+            if (end == v) { return 0u; }
+            return static_cast<uint>(parsed);
+        }();
+        auto compute_batch_min_count = [&](size_t cur_scan_count) noexcept -> uint {
+            if (batch_min_count_override != 0u) {
+                return batch_min_count_override;
+            }
+            return std::min<uint>(
+                std::max<uint>(static_cast<uint>(cur_scan_count) / 64u, 4096u),
+                16384u);
+        };
         auto parse_pct_env = [](const char *name, uint default_pct) noexcept {
             if (const auto *raw = std::getenv(name)) {
                 char *end = nullptr;
@@ -3774,10 +3790,26 @@ private:
                     }
                 }
                 if (!allow_deferred && best_nc_count > 0u) {
-                    if (refill_wanted && best_c_count > 0u &&
-                        best_c_priority < _refill_at.size() &&
-                        _refill_at[best_c_priority] &&
-                        best_c_count >= best_nc_count) {
+                    const uint select_batch_min =
+                        (batch_queues_enabled &&
+                         _config.largest_continuation_first &&
+                         _config.incremental_continuation_counts &&
+                         _config.fused_continuation_counts &&
+                         !online_timing_active &&
+                         scan_count != 0u) ?
+                            compute_batch_min_count(scan_count) :
+                            1u;
+                    const bool defer_tiny_nc_for_collect =
+                        best_c_count >= select_batch_min &&
+                        best_nc_count < select_batch_min &&
+                        static_cast<uint64_t>(best_c_count) >=
+                            static_cast<uint64_t>(best_nc_count) * 4ull;
+                    if (best_c_count > 0u &&
+                        (defer_tiny_nc_for_collect ||
+                         (refill_wanted &&
+                          best_c_priority < _refill_at.size() &&
+                          _refill_at[best_c_priority] &&
+                          best_c_count >= best_nc_count))) {
                         selected_count = best_c_count;
                         selected_priority = best_c_priority;
                     } else {
@@ -4640,6 +4672,12 @@ private:
                             scan_count, scheduler_snapshot, blocking_domain);
                         continue;
                     }
+                    const uint aux_stage_count =
+                        (dispatch_auxiliary < _auxiliary_work.size() &&
+                         _auxiliary_work[dispatch_auxiliary].work != nullptr) ?
+                            _auxiliary_work[dispatch_auxiliary].work->stage_host_count(
+                                dispatch_auxiliary_stage) :
+                            0u;
                     const bool aux_predicted = encode_aux_stage(
                         dispatch_auxiliary, dispatch_auxiliary_stage, scheduler_snapshot);
                     if (aux_predicted) {
@@ -4653,6 +4691,7 @@ private:
                         in_flight_async_count == 0u &&
                         !online_timing_active &&
                         scan_count != 0u) {
+                        const uint batch_min_count = compute_batch_min_count(scan_count);
                         bool any_non_collect_nonempty = false;
                         for (size_t q = 1u; q < nq; ++q) {
                             if (_host_count[q] == 0u) { continue; }
@@ -4665,6 +4704,10 @@ private:
                         luisa::vector<size_t> piggy_cands;
                         for (size_t q = 1u; q < nq; ++q) {
                             if (!queue_is_batchable_main(q)) { continue; }
+                            if (aux_stage_count >= batch_min_count &&
+                                _host_count[q] < batch_min_count) {
+                                continue;
+                            }
                             const auto cont = _queue_continuation[q];
                             bool emits_aux = false;
                             for (const auto &reg : _auxiliary_work) {
@@ -4776,10 +4819,16 @@ private:
                         (selected < _collect_at.size() && _collect_at[selected]) ||
                         (dispatch_counter < N && selected < _refill_at.size() && _refill_at[selected]);
                     if (!selected_is_collect_or_refill) {
+                        const uint sel_count = _host_count[selected];
+                        const uint batch_min_count = compute_batch_min_count(scan_count);
                         luisa::vector<size_t> main_cands;
                         for (size_t q = 1u; q < nq; ++q) {
                             if (q == selected) { continue; }
                             if (!queue_is_batchable_main(q)) { continue; }
+                            if (sel_count >= batch_min_count &&
+                                _host_count[q] < batch_min_count) {
+                                continue;
+                            }
                             if (q < _collect_at.size() && _collect_at[q]) { continue; }
                             if (dispatch_counter < N && should_refill &&
                                 q < _refill_at.size() && _refill_at[q]) {

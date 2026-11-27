@@ -56,6 +56,8 @@ protected:
     uint32_t _push_constant_size{32u};
     uint32_t _local_descriptor_binding_count{};
     uint32_t _resource_argument_binding_offset{};
+    size_t _buffer_metadata_count{0u};
+    vstd::vector<const hlsl::Property *> _local_descriptor_properties;
     detail::ShaderCodegenDialect _codegen_dialect{
         detail::ShaderCodegenDialect::HLSL_SPIRV};
     // Plan P2.2: the descriptor-update templates of this shader's set 0, keyed
@@ -131,6 +133,15 @@ public:
     }
     uint32_t resource_argument_binding_offset() const noexcept {
         return _resource_argument_binding_offset;
+    }
+    [[nodiscard]] size_t buffer_metadata_count() const noexcept {
+        return _buffer_metadata_count;
+    }
+    [[nodiscard]] const hlsl::Property *local_descriptor_property(
+        uint32_t binding) const noexcept {
+        return binding < _local_descriptor_properties.size() ?
+                   _local_descriptor_properties[binding] :
+                   nullptr;
     }
     auto codegen_dialect() const noexcept { return _codegen_dialect; }
     bool has_constant_ubo() const { return _has_constant_ubo; }

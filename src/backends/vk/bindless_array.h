@@ -77,6 +77,8 @@ private:
     CanonicalMap _encoded_canonical_textures;
     TexturePtrMap _encoded_texture_ptrs;
     size_t _encoded_non_bda_buffer_count{0u};
+    uint64_t _instance_id{0u};
+    uint64_t _encoded_texture_version{1u};
     static void _track_canonical_add(CanonicalMap &map, uint64_t canonical) noexcept;
     static void _track_canonical_remove(CanonicalMap &map, uint64_t canonical) noexcept;
     void _on_resource_added(Map &resource_map, size_t ptr, TrackedEntry &entry) noexcept;
@@ -131,6 +133,13 @@ public:
     }
     [[nodiscard]] bool has_encoded_textures() const noexcept {
         return !_encoded_canonical_textures.empty();
+    }
+    [[nodiscard]] uint64_t instance_id() const noexcept {
+        return _instance_id;
+    }
+    // Caller must hold mtx.
+    [[nodiscard]] uint64_t encoded_texture_version() const noexcept {
+        return _encoded_texture_version;
     }
     [[nodiscard]] bool contains_encoded_canonical_buffer(
         uint64_t identity) const noexcept {

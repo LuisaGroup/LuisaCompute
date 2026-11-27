@@ -809,15 +809,15 @@ void ResourceBarrier::process_bindless(
 
     bool has_buffers = false;
     bool has_textures = false;
-    vstd::fixed_vector<std::pair<detail::NativeBufferIdentity, BufferStates *>, 16> matched_buffers;
-    vstd::fixed_vector<TextureStates *, 8> matched_tracked_textures;
+    vstd::fixed_vector<std::pair<detail::NativeBufferIdentity, BufferStates *>, 32> matched_buffers;
+    vstd::fixed_vector<TextureStates *, 16> matched_tracked_textures;
     vstd::fixed_vector<Texture const *, 8> non_general_textures;
 
     {
         std::lock_guard lock{bdls_arr->mtx};
         has_buffers = bdls_arr->has_encoded_buffers();
         has_textures = bdls_arr->has_encoded_textures();
-        if (has_buffers) {
+        if (has_buffers && !_buffer_frame_states.empty()) {
             for (auto &entry : _buffer_frame_states) {
                 if (bdls_arr->contains_encoded_canonical_buffer(entry.first)) {
                     matched_buffers.emplace_back(entry.first, &entry.second);
@@ -825,19 +825,47 @@ void ResourceBarrier::process_bindless(
             }
         }
         if (has_textures) {
-            for (auto &entry : _texture_frame_states) {
-                if (bdls_arr->contains_encoded_canonical_texture(entry.first)) {
-                    matched_tracked_textures.emplace_back(&entry.second);
-                }
-            }
-            bdls_arr->traverse_encoded_textures([&](Texture const *tex) noexcept {
-                if (!tex->native_state()->all_mips_general()) {
-                    auto identity = detail::native_image_identity(tex->vk_image());
-                    if (!_texture_frame_states.find(identity)) {
-                        non_general_textures.emplace_back(tex);
+            if (!_texture_frame_states.empty()) {
+                for (auto &entry : _texture_frame_states) {
+                    if (bdls_arr->contains_encoded_canonical_texture(entry.first)) {
+                        matched_tracked_textures.emplace_back(&entry.second);
                     }
                 }
-            });
+            }
+            const auto instance_id = bdls_arr->instance_id();
+            const auto tex_version = bdls_arr->encoded_texture_version();
+            const auto scan_epoch = NativeImageState::non_general_transition_epoch();
+            auto cached = _verified_bindless_all_general.find(bdls_arr);
+            const bool skip_non_general_scan =
+                static_cast<bool>(cached) &&
+                cached.value().instance_id == instance_id &&
+                cached.value().encoded_texture_version == tex_version &&
+                cached.value().non_general_epoch == scan_epoch;
+            if (!skip_non_general_scan) {
+                bool any_encoded_non_general = false;
+                bdls_arr->traverse_encoded_textures([&](Texture const *tex) noexcept {
+                    if (!tex->native_state()->all_mips_general()) {
+                        any_encoded_non_general = true;
+                        auto identity = detail::native_image_identity(tex->vk_image());
+                        if (!_texture_frame_states.find(identity)) {
+                            non_general_textures.emplace_back(tex);
+                        }
+                    }
+                });
+                if (!any_encoded_non_general) {
+                    if (cached) {
+                        cached.value() = VerifiedBindlessAllGeneral{
+                            instance_id, tex_version, scan_epoch};
+                    } else {
+                        _verified_bindless_all_general.emplace(
+                            bdls_arr,
+                            VerifiedBindlessAllGeneral{
+                                instance_id, tex_version, scan_epoch});
+                    }
+                } else if (cached) {
+                    cached.value() = VerifiedBindlessAllGeneral{};
+                }
+            }
         }
     }
 
@@ -911,13 +939,30 @@ void ResourceBarrier::process_bindless(
         _bindless_memory_state.after_access |= tex_access;
     }
 
-    _layer_bindless_accesses.emplace_back(LayerBindlessAccess{
-        .bdls_arr = bdls_arr,
-        .buffer_stage = has_buffers ? buf_stage : VkPipelineStageFlagBits2{0},
-        .buffer_access = has_buffers ? buf_access : VkAccessFlagBits2{0},
-        .texture_stage = has_textures ? tex_stage : VkPipelineStageFlagBits2{0},
-        .texture_access = has_textures ? tex_access : VkAccessFlagBits2{0},
-    });
+    const auto recorded_buf_stage = has_buffers ? buf_stage : VkPipelineStageFlagBits2{0};
+    const auto recorded_buf_access = has_buffers ? buf_access : VkAccessFlagBits2{0};
+    const auto recorded_tex_stage = has_textures ? tex_stage : VkPipelineStageFlagBits2{0};
+    const auto recorded_tex_access = has_textures ? tex_access : VkAccessFlagBits2{0};
+    bool already_recorded = false;
+    for (auto const &existing : _layer_bindless_accesses) {
+        if (existing.bdls_arr == bdls_arr &&
+            existing.buffer_stage == recorded_buf_stage &&
+            existing.buffer_access == recorded_buf_access &&
+            existing.texture_stage == recorded_tex_stage &&
+            existing.texture_access == recorded_tex_access) {
+            already_recorded = true;
+            break;
+        }
+    }
+    if (!already_recorded) {
+        _layer_bindless_accesses.emplace_back(LayerBindlessAccess{
+            .bdls_arr = bdls_arr,
+            .buffer_stage = recorded_buf_stage,
+            .buffer_access = recorded_buf_access,
+            .texture_stage = recorded_tex_stage,
+            .texture_access = recorded_tex_access,
+        });
+    }
 }
 
 void ResourceBarrier::process_bindless(

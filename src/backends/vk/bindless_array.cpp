@@ -8,6 +8,7 @@
 #include "sampler_anisotropy.h"
 #include "stream.h"
 #include <luisa/core/stl/unordered_map.h>
+#include <atomic>
 #include <limits>
 #include <volk.h>
 #include "log.h"
@@ -302,6 +303,8 @@ BindlessArray::BindlessArray(Device *device, BindlessSlotType type, size_t size)
       _buffer_metadata{
           bdls_detail::make_buffer_metadata(device, type, size)},
       _type(type), _slot_count(size) {
+    static std::atomic<uint64_t> next_instance_id{1u};
+    _instance_id = next_instance_id.fetch_add(1u, std::memory_order_relaxed);
     if (!device->enable_bindless()) [[unlikely]] {
         LUISA_ERROR("Bindless not enabled, Bindless-Array can not be loaded.");
     }
@@ -415,6 +418,7 @@ void BindlessArray::_on_resource_added(
             LUISA_DEBUG_ASSERT(&resource_map == &_encoded_ptr_map);
             _track_canonical_add(_encoded_canonical_textures, entry.canonical);
             _encoded_texture_ptrs.emplace(ptr, 1u);
+            ++_encoded_texture_version;
         }
     }
 }
@@ -440,6 +444,7 @@ void BindlessArray::_on_resource_removed(
             LUISA_DEBUG_ASSERT(&resource_map == &_encoded_ptr_map);
             _track_canonical_remove(_encoded_canonical_textures, entry.canonical);
             _encoded_texture_ptrs.remove(ptr);
+            ++_encoded_texture_version;
         }
     }
 }

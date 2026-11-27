@@ -952,27 +952,30 @@ private:
     void finalize_dispatch_bindless_accesses() noexcept {
         if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
             for (auto const &access : _dispatch_bindless_accesses) {
-                if (!_buffer_map.empty() || !_texture_map.empty()) {
+                const bool check_buffers =
+                    !_buffer_map.empty() &&
+                    _func_table.bindless_has_pending_buffers(access.bindless_handle);
+                const bool check_textures = !_texture_map.empty();
+                if (check_buffers || check_textures) {
                     _func_table.with_bindless_pending_lookup(
                         access.bindless_handle,
                         [&](auto &&contains) noexcept {
-                            for (auto &&[canonical, handle] : _buffer_map) {
-                                if (contains(canonical, true)) {
-                                    if (access.is_write) {
-                                        handle->emplace_write_layer(whole_range(), _dispatch_layer);
-                                    } else {
-                                        handle->emplace_read_layer(whole_range(), _dispatch_layer);
+                            auto apply_map = [&](auto const &map, bool is_buffer) noexcept {
+                                for (auto &&[canonical, handle] : map) {
+                                    if (contains(canonical, is_buffer)) {
+                                        if (access.is_write) {
+                                            handle->emplace_write_layer(whole_range(), _dispatch_layer);
+                                        } else {
+                                            handle->emplace_read_layer(whole_range(), _dispatch_layer);
+                                        }
                                     }
                                 }
+                            };
+                            if (check_buffers) {
+                                apply_map(_buffer_map, true);
                             }
-                            for (auto &&[canonical, handle] : _texture_map) {
-                                if (contains(canonical, false)) {
-                                    if (access.is_write) {
-                                        handle->emplace_write_layer(whole_range(), _dispatch_layer);
-                                    } else {
-                                        handle->emplace_read_layer(whole_range(), _dispatch_layer);
-                                    }
-                                }
+                            if (check_textures) {
+                                apply_map(_texture_map, false);
                             }
                         });
                 }
@@ -1010,25 +1013,29 @@ private:
                     _dispatch_layer = std::max<int64_t>(
                         _dispatch_layer, _cluster_build_read_level + 1);
                 }
-                if (!_buffer_map.empty() || !_texture_map.empty()) {
+                const bool check_buffers =
+                    !_buffer_map.empty() &&
+                    _func_table.bindless_has_pending_buffers(bindless_handle);
+                const bool check_textures = !_texture_map.empty();
+                if (check_buffers || check_textures) {
                     _func_table.with_bindless_pending_lookup(
                         bindless_handle,
                         [&](auto &&contains) noexcept {
-                            for (auto &&[canonical, handle] : _buffer_map) {
-                                if (contains(canonical, true)) {
-                                    auto layer = is_write ?
-                                                     get_last_layer_write(handle, whole_range()) :
-                                                     get_last_layer_read(handle, whole_range());
-                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
+                            auto scan_map = [&](auto const &map, bool is_buffer) noexcept {
+                                for (auto &&[canonical, handle] : map) {
+                                    if (contains(canonical, is_buffer)) {
+                                        auto layer = is_write ?
+                                                         get_last_layer_write(handle, whole_range()) :
+                                                         get_last_layer_read(handle, whole_range());
+                                        _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
+                                    }
                                 }
+                            };
+                            if (check_buffers) {
+                                scan_map(_buffer_map, true);
                             }
-                            for (auto &&[canonical, handle] : _texture_map) {
-                                if (contains(canonical, false)) {
-                                    auto layer = is_write ?
-                                                     get_last_layer_write(handle, whole_range()) :
-                                                     get_last_layer_read(handle, whole_range());
-                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
-                                }
+                            if (check_textures) {
+                                scan_map(_texture_map, false);
                             }
                         });
                 }

@@ -277,6 +277,30 @@ Shader::Shader(
                 interface_plan.local_binding_count,
         "Vulkan descriptor layout construction drifted from its validated plan.");
 vstd::push_back_all(_binds, binds);
+    for (auto const &argument : _saved_arguments) {
+        if (argument.has_buffer_metadata()) {
+            auto next = static_cast<size_t>(
+                            argument.buffer_metadata_index()) +
+                        1u;
+            _buffer_metadata_count = std::max(_buffer_metadata_count, next);
+        }
+    }
+    uint32_t max_local_register_plus_one = 0u;
+    for (auto const &property : _binds) {
+        if (property.type != hlsl::ShaderVariableType::ConstantValue &&
+            property.space_index == 0u) {
+            max_local_register_plus_one = std::max(
+                max_local_register_plus_one,
+                property.register_index + 1u);
+        }
+    }
+    _local_descriptor_properties.resize(max_local_register_plus_one, nullptr);
+    for (auto const &property : _binds) {
+        if (property.type != hlsl::ShaderVariableType::ConstantValue &&
+            property.space_index == 0u) {
+            _local_descriptor_properties[property.register_index] = &property;
+        }
+    }
       // ---- set-0 path: push descriptors or classic (plan P2.3) -------------
       // One decision, here, for the whole lifetime of this shader: the set-0
       // layout either is a push descriptor set for good or is a classic set for

@@ -106,7 +106,8 @@ void NativeImageState::set_layout(
     if (old_layout != layout) {
         _layouts[level] = layout;
         if (old_layout == VK_IMAGE_LAYOUT_GENERAL) {
-            _non_general_mips.fetch_add(1u, std::memory_order_release);
+            _non_general_mips.fetch_add(1u, std::memory_order_seq_cst);
+            _non_general_transition_epoch.fetch_add(1u, std::memory_order_seq_cst);
         } else if (layout == VK_IMAGE_LAYOUT_GENERAL) {
             _non_general_mips.fetch_sub(1u, std::memory_order_release);
         }
