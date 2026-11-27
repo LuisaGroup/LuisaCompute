@@ -2181,11 +2181,11 @@ llvm::Value *HIPCodegenLLVMImpl::_accel_trace_closest(
         wrapper_f = llvm::Function::Create(f_type, llvm::Function::ExternalLinkage, wrapper_name, *_llvm_module);
     }
 
-    auto alloca_inst_id = b.CreateAlloca(b.getInt32Ty());
-    auto alloca_prim_id = b.CreateAlloca(b.getInt32Ty());
-    auto alloca_u = b.CreateAlloca(b.getFloatTy());
-    auto alloca_v = b.CreateAlloca(b.getFloatTy());
-    auto alloca_t = b.CreateAlloca(b.getFloatTy());
+    auto alloca_inst_id = _create_temp_in_alloca_block(func_ctx, b.getInt32Ty(), 4u);
+    auto alloca_prim_id = _create_temp_in_alloca_block(func_ctx, b.getInt32Ty(), 4u);
+    auto alloca_u = _create_temp_in_alloca_block(func_ctx, b.getFloatTy(), 4u);
+    auto alloca_v = _create_temp_in_alloca_block(func_ctx, b.getFloatTy(), 4u);
+    auto alloca_t = _create_temp_in_alloca_block(func_ctx, b.getFloatTy(), 4u);
 
     auto generic_ptr_type = b.getPtrTy(0);
     auto cast_instances = b.CreateAddrSpaceCast(instances, generic_ptr_type);
