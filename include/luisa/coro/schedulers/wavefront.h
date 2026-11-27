@@ -5236,7 +5236,7 @@ private:
                                 }
                             }
                             struct FollowupCandidate {
-                                size_t queue;
+                                size_t queue_index;
                                 uint bound;
                             };
                             luisa::vector<FollowupCandidate> followup_cands;
@@ -5319,14 +5319,14 @@ private:
                                           if (a.bound != b.bound) {
                                               return a.bound > b.bound;
                                           }
-                                          return a.queue < b.queue;
+                                          return a.queue_index < b.queue_index;
                                       });
                             luisa::vector<FollowupCandidate> followup_queues;
                             for (const auto &cand : followup_cands) {
                                 bool conflicts = false;
                                 for (const auto &kept : followup_queues) {
-                                    if (can_produce_into(kept.queue, cand.queue) ||
-                                        can_produce_into(cand.queue, kept.queue)) {
+                                    if (can_produce_into(kept.queue_index, cand.queue_index) ||
+                                        can_produce_into(cand.queue_index, kept.queue_index)) {
                                         conflicts = true;
                                         break;
                                     }
@@ -5346,18 +5346,18 @@ private:
                                     pending_commands << _gather_selected_shader(
                                                             _config.thread_count, _resume_index,
                                                             _global_buffer, count_slot,
-                                                            static_cast<uint>(f.queue), scan_count)
+                                                            static_cast<uint>(f.queue_index), scan_count)
                                                             .dispatch(gather_threads);
                                     gather_scan_count += scan_count;
-                                    pending_commands << _resume_kernels[f.queue](
+                                    pending_commands << _resume_kernels[f.queue_index](
                                                             _config.thread_count,
                                                             _resume_index.view(),
                                                             0u, 0x80000000u | count_slot,
-                                                            static_cast<uint>(f.queue), args...)
+                                                            static_cast<uint>(f.queue_index), args...)
                                                             .dispatch(f.bound);
                                     ++continuation_dispatch_seq;
                                     if (report_stats) {
-                                        _last_dispatch_stats.continuations[f.queue].dispatch_count++;
+                                        _last_dispatch_stats.continuations[f.queue_index].dispatch_count++;
                                     }
                                 }
                             }
