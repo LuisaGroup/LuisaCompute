@@ -20,6 +20,20 @@ public:
     using CallableMap = luisa::unordered_map<luisa::string, luisa::shared_ptr<const detail::FunctionBuilder>>;
 
 private:
+    struct GraphWriteCtx;
+    struct GraphReadCtx;
+    [[nodiscard]] static bool _fg_collect(detail::FunctionBuilder const *fb, GraphWriteCtx &ctx) noexcept;
+    [[nodiscard]] static bool _fg_write_func(detail::FunctionBuilder const &fb, GraphWriteCtx &ctx) noexcept;
+    [[nodiscard]] static bool _fg_write_expr(Expression const *expr, detail::FunctionBuilder const *owner, GraphWriteCtx &ctx, uint32_t &out_id) noexcept;
+    [[nodiscard]] static bool _fg_write_stmt(Statement const &stmt, detail::FunctionBuilder const *owner, GraphWriteCtx &ctx) noexcept;
+    [[nodiscard]] static bool _fg_read_func(detail::FunctionBuilder &fb, GraphReadCtx &ctx) noexcept;
+    [[nodiscard]] static bool _fg_read_stmt_payload(Statement &stmt, Statement::Tag tag, detail::FunctionBuilder &fb, GraphReadCtx &ctx) noexcept;
+    [[nodiscard]] static Statement *_fg_read_stmt_ptr(detail::FunctionBuilder &fb, GraphReadCtx &ctx) noexcept;
+    [[nodiscard]] static bool _fg_read_stmt_into(Statement &stmt, detail::FunctionBuilder &fb, GraphReadCtx &ctx) noexcept;
+    template<typename StmtT>
+    [[nodiscard]] static luisa::unique_ptr<StmtT> _fg_alloc_stmt() noexcept;
+    template<typename ExprT>
+    [[nodiscard]] static luisa::unique_ptr<ExprT> _fg_alloc_expr() noexcept;
     struct DeserPackage {
         detail::FunctionBuilder *builder;
         luisa::unordered_map<uint64_t, luisa::shared_ptr<detail::FunctionBuilder>> callable_map;
@@ -47,6 +61,13 @@ public:
     void add_callable(luisa::string_view name, const luisa::shared_ptr<const detail::FunctionBuilder> &callable) noexcept;
     void load(luisa::span<const std::byte> binary) noexcept;
     [[nodiscard]] luisa::vector<std::byte> serialize() const noexcept;
+    [[nodiscard]] static luisa::vector<std::byte> serialize_function_graph(
+        luisa::span<const luisa::shared_ptr<const detail::FunctionBuilder>> roots) noexcept;
+    [[nodiscard]] static bool deserialize_function_graph(
+        luisa::span<const std::byte> binary,
+        luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> &out_roots,
+        luisa::shared_ptr<const detail::FunctionBuilder::XIRCacheProvider> xir_provider = {},
+        luisa::span<const size_t> root_xir_provider_indices = {}) noexcept;
     CallableLibrary(CallableLibrary const &) = delete;
     CallableLibrary(CallableLibrary &&) noexcept;
     ~CallableLibrary() noexcept;

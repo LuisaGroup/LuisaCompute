@@ -10,6 +10,10 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/dsl/var.h>
 
+namespace luisa::compute::detail {
+struct CoroCompileCacheCodec;
+}// namespace luisa::compute::detail
+
 namespace luisa::compute {
 
 struct CoroFrame;
@@ -55,6 +59,7 @@ private:
 
 private:
     friend class CoroGraph;
+    friend struct luisa::compute::detail::CoroCompileCacheCodec;
     CoroSlotAccess(
         const Type *type, CoroSuspendBindingAccess access,
         CoroSuspendBindingLifetime lifetime,

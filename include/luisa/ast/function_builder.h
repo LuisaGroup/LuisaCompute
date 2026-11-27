@@ -134,7 +134,18 @@ private:
     uint64_t _hash;
     // Set only while building, before hashing/publication. Kept opaque here so
     // AST-only builds retain no link-time dependency on XIR.
+public:
+    class XIRCacheProvider {
+    public:
+        virtual ~XIRCacheProvider() noexcept = default;
+        [[nodiscard]] virtual luisa::shared_ptr<const xir::FunctionDefinition>
+        load(size_t index) const noexcept = 0;
+    };
+
+private:
     luisa::shared_ptr<const xir::FunctionDefinition> _xir_cache;
+    luisa::shared_ptr<const XIRCacheProvider> _xir_cache_provider;
+    size_t _xir_cache_provider_index{0u};
     uint64_t _xir_cache_hash{0u};
     // Launch dimensions belong exclusively to kernels. Keep the metadata
     // defined for non-kernel functions so reflection and hashing never read
@@ -290,6 +301,20 @@ public:
     [[nodiscard]] luisa::string debug_name() const noexcept;
     /// Return hash.
     [[nodiscard]] uint64_t hash() const noexcept;
+    [[nodiscard]] luisa::shared_ptr<const xir::FunctionDefinition>
+    resolve_xir_cache() const noexcept {
+        if (_xir_cache != nullptr) { return _xir_cache; }
+        if (_xir_cache_provider != nullptr) {
+            return _xir_cache_provider->load(_xir_cache_provider_index);
+        }
+        return nullptr;
+    }
+    [[nodiscard]] bool has_xir_cache() const noexcept {
+        return _xir_cache != nullptr || _xir_cache_provider != nullptr;
+    }
+    [[nodiscard]] uint64_t xir_cache_hash() const noexcept {
+        return _xir_cache_hash;
+    }
     /// Return if is raytracing.
     [[nodiscard]] bool requires_raytracing() const noexcept;
     /// Return if requires motion blur.

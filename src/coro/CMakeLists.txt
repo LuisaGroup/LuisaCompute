@@ -1,5 +1,6 @@
 set(LUISA_COMPUTE_CORO_SOURCES
         coro_compile.cpp
+        coro_compile_cache.cpp
         coro_graph.cpp
         coro_stub.cpp
         schedulers/graph_wavefront_policy.cpp

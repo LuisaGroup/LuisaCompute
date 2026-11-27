@@ -856,7 +856,7 @@ void FunctionBuilder::_compute_hash() noexcept {
                         static_cast<uint64_t>(_use_cooperative_operations) << 2u |
                         static_cast<uint64_t>(_requires_noinline) << 3u);
 
-    if (_xir_cache != nullptr) {
+    if (has_xir_cache()) {
         begin_group(Field::transformed_xir, 1u);
         hashes.emplace_back(_xir_cache_hash);
     }

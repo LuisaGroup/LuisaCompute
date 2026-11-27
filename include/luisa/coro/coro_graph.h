@@ -17,6 +17,10 @@ struct CoroSplitInfo;
 class CallableFunction;
 }// namespace luisa::compute::xir
 
+namespace luisa::compute::detail {
+struct CoroCompileCacheCodec;
+}// namespace luisa::compute::detail
+
 namespace luisa::compute::coro {
 
 enum class CoroStageExecutionHint : uint8_t {
@@ -32,6 +36,7 @@ inline constexpr luisa::string_view kCoroScheduleAsyncDomainAttr =
 /// Token-based transition graph between continuation scopes.
 /// Built from coro CFG analysis, split feedback, and materialization feedback.
 class LUISA_CORO_API CoroGraph {
+    friend struct luisa::compute::detail::CoroCompileCacheCodec;
 
 public:
     /// A node in the coroutine graph — one per continuation scope.

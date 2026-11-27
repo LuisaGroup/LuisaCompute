@@ -1,5 +1,7 @@
 #include <algorithm>
 
+#include "coro_compile_cache.h"
+
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 
@@ -669,6 +671,13 @@ CoroutineCompileResult compile_coroutine_pipeline(
     CoroutineCompileResult result{};
     CoroutineCompilePhaseProfiler profiler;
 
+    auto cache_lookup = coro_compile_cache_try_load(*builder, result);
+    if (cache_lookup.hit) {
+        profiler.checkpoint("disk cache load");
+        profiler.finish();
+        return result;
+    }
+
     auto ast_func = Function{builder.get()};
     xir::AST2XIRConfig config{};
     auto *translation = xir::ast_to_xir_translate_begin(config);
@@ -1277,6 +1286,13 @@ CoroutineCompileResult compile_coroutine_pipeline(
             xir_to_ast_statistics.value_map_checkpoint_count,
             xir_to_ast_statistics.value_map_rollback_work,
             xir_to_ast_statistics.peak_value_map_size);
+    }
+    if (cache_lookup.store_allowed) {
+        coro_compile_cache_store(
+            cache_lookup.key_hi, cache_lookup.key_lo,
+            result, module.get(),
+            luisa::span{continuation_definitions});
+        profiler.checkpoint("disk cache store");
     }
     profiler.finish();
 

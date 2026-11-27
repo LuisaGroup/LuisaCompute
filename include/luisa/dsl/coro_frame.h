@@ -19,6 +19,10 @@ namespace luisa::compute {
 struct CoroFrameIdProxy;
 
 namespace detail {
+struct CoroCompileCacheCodec;
+}// namespace detail
+
+namespace detail {
 
 template<>
 struct expr_value_impl<CoroFrameIdProxy> {
@@ -72,6 +76,7 @@ void assign(CoroFrameIdProxy &lhs, Rhs &&rhs) noexcept {
 }// namespace dsl
 
 struct CoroFrameDesc {
+    friend struct detail::CoroCompileCacheCodec;
     struct FieldDescriptor {
         luisa::string name;
         const Type *type{nullptr};
