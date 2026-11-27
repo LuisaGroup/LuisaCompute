@@ -1622,19 +1622,25 @@ bool CallableLibrary::_fg_collect(detail::FunctionBuilder const *fb, GraphWriteC
     if (!inspect_stmt(inspect_stmt, &fb->_body, 0u)) { return false; }
 
     // Ensure every declared custom callable dependency is also collected in deterministic order
-    luisa::vector<const detail::FunctionBuilder *> remaining;
+    // Keep EASTL and std swap overloads out of argument-dependent lookup.
+    struct CallableRef {
+        const detail::FunctionBuilder *builder;
+    };
+    luisa::vector<CallableRef> remaining;
     for (auto const &callee : fb->_used_custom_callables) {
         if (callee == nullptr) { return false; }
         if (!ctx.func_to_id.contains(callee.get())) {
-            remaining.emplace_back(callee.get());
+            remaining.emplace_back(CallableRef{callee.get()});
         }
     }
-    luisa::sort(remaining.begin(), remaining.end(), [](auto *a, auto *b) noexcept {
+    luisa::sort(remaining.begin(), remaining.end(), [](CallableRef lhs, CallableRef rhs) noexcept {
+        auto *a = lhs.builder;
+        auto *b = rhs.builder;
         if (a->hash() != b->hash()) { return a->hash() < b->hash(); }
         if (a->_tag != b->_tag) { return to_underlying(a->_tag) < to_underlying(b->_tag); }
         return a->_name < b->_name;
     });
-    for (auto *callee : remaining) {
+    for (auto [callee] : remaining) {
         ++ctx.depth;
         bool ok = _fg_collect(callee, ctx);
         --ctx.depth;
@@ -2032,13 +2038,17 @@ bool CallableLibrary::_fg_write_func(detail::FunctionBuilder const &fb, GraphWri
                     static_cast<uint8_t>(fb._requires_noinline ? 8u : 0u);
     w.write(flags);
 
-    luisa::vector<std::pair<luisa::string_view, const Function::FunctionAttribute *>> sorted_attrs;
+    struct AttributeRef {
+        luisa::string_view key;
+        const Function::FunctionAttribute *value;
+    };
+    luisa::vector<AttributeRef> sorted_attrs;
     sorted_attrs.reserve(fb._func_attributes.size());
     for (auto const &[k, v] : fb._func_attributes) {
-        sorted_attrs.emplace_back(luisa::string_view{k}, &v);
+        sorted_attrs.emplace_back(AttributeRef{luisa::string_view{k}, &v});
     }
     luisa::sort(sorted_attrs.begin(), sorted_attrs.end(),
-                [](auto const &a, auto const &b) noexcept { return a.first < b.first; });
+                [](auto const &a, auto const &b) noexcept { return a.key < b.key; });
     w.write<uint32_t>(static_cast<uint32_t>(sorted_attrs.size()));
     for (auto const &[k, vptr] : sorted_attrs) {
         w.write_string(k);
