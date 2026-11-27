@@ -1664,11 +1664,14 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         auto element = expr->type()->is_vector() ?
                            expr->type()->element() :
                            expr->type();
-        // In fast-math mode, keep native HLSL `fmod(...)`; under strict math
-        // (!enable_fast_math), use `_lc_fmod(...)` for binary32 exact remainder.
-        str << ((!util->opt->enable_fast_math && element->is_float32()) ?
-                    "_lc_fmod("sv :
-                    "fmod("sv);
+      // Keep exact binary32 remainder semantics in fast-math mode as well:
+      // DXIL has no `frem`, so native HLSL `fmod(...)` degrades to
+      // `x - y * trunc(x/y)` and loses the remainder once |x/y| reaches 2^24
+      // (e.g. the Cycles Magic Texture reduces coordinates modulo 2*pi at
+      // |x/y| ~ 1.6e16). Only the precise `_lc_fmod(...)` helper is exact.
+      str << (element->is_float32() ?
+                  "_lc_fmod("sv :
+                  "fmod("sv);
         expr->lhs()->accept(*this);
         str << ',';
         expr->rhs()->accept(*this);
