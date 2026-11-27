@@ -32,6 +32,7 @@ public:
         BufferRange range;
         bool before_state_supplied{false};
         bool require_update{false};
+        bool referenced_by_readonly_cache{false};
         explicit BufferStates(VkBuffer buffer) noexcept
             : buffer{buffer} {}
     };
@@ -182,6 +183,8 @@ public:
 private:
     vstd::HashMap<detail::NativeBufferIdentity, RestoreStates> _saved_buffer_restore_states;
     vstd::HashMap<detail::NativeImageIdentity, TextureRestoreStates> _saved_texture_restore_states;
+    uint64_t _readonly_cache_epoch{1u};
+    vstd::HashMap<uint64_t, uint64_t> _verified_readonly_shader_epoch;
     bool _unified_image_layouts_active{false};
 public:
     ResourceBarrier();
@@ -189,6 +192,10 @@ public:
     void record(
         ResourceView const &res,
         Usage usage);
+    void record_readonly_buffers_cached(
+        uint64_t cache_key,
+        vstd::span<BufferView const> buffers,
+        Usage read_usage);
     // A sampled descriptor spans every mip at and after base_level, whereas a
     // storage descriptor names only base_level. Record both access roles and
     // retain the sampled view's single-layout constraint until update_states.

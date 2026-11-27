@@ -14,12 +14,41 @@
 namespace lc::vk {
 using namespace luisa::compute;
 
+class BindlessArray;
+class Tlas;
+
 class Shader : public Resource {
 public:
     enum class ShaderTag : uint {
         kComputeShader,
         kRasterShader,
         kRayTracingShader
+    };
+    struct CapturedBufferMetadataEntry {
+        uint32_t slot{0u};
+        StorageBufferMetadata metadata{};
+    };
+    struct CapturedValidationItem {
+        enum class Kind : uint8_t {
+            kStatic,
+            kBindless,
+            kTlas
+        };
+        Kind kind{Kind::kStatic};
+        uint32_t value{0u};
+        void const *ptr{nullptr};
+    };
+    struct CapturedBindlessInfo {
+        BindlessArray *bdls{nullptr};
+        bool uses_metadata{false};
+        bool writes{false};
+        bool check_device_address{false};
+    };
+    struct CapturedAccelInfo {
+        Tlas *tlas{nullptr};
+        bool has_instance{false};
+        bool instance_write{false};
+        bool has_traversal{false};
     };
 
 protected:
@@ -55,6 +84,14 @@ protected:
     uint64_t _shader_instance_id{0u};
     bool _captured_has_uniforms{false};
     bool _captured_can_fast_skip_descriptors{false};
+    bool _captured_can_fast_preprocess{false};
+    uint32_t _captured_descriptor_end{0u};
+    vstd::vector<BufferView> _captured_readonly_buffers;
+    vstd::vector<BufferView> _captured_writable_buffers;
+    vstd::vector<CapturedBufferMetadataEntry> _captured_buffer_metadata;
+    vstd::vector<CapturedValidationItem> _captured_validation_items;
+    vstd::vector<CapturedBindlessInfo> _captured_dynamic_bindless;
+    vstd::vector<CapturedAccelInfo> _captured_dynamic_accels;
     uint _validation_count{0};
     uint32_t _push_constant_size{32u};
     uint32_t _local_descriptor_binding_count{};
@@ -137,6 +174,30 @@ public:
     }
     [[nodiscard]] bool captured_can_fast_skip_descriptors() const noexcept {
         return _captured_can_fast_skip_descriptors;
+    }
+    [[nodiscard]] bool captured_can_fast_preprocess() const noexcept {
+        return _captured_can_fast_preprocess;
+    }
+    [[nodiscard]] uint32_t captured_descriptor_end() const noexcept {
+        return _captured_descriptor_end;
+    }
+    [[nodiscard]] vstd::span<BufferView const> captured_readonly_buffers() const noexcept {
+        return _captured_readonly_buffers;
+    }
+    [[nodiscard]] vstd::span<BufferView const> captured_writable_buffers() const noexcept {
+        return _captured_writable_buffers;
+    }
+    [[nodiscard]] vstd::span<CapturedBufferMetadataEntry const> captured_buffer_metadata() const noexcept {
+        return _captured_buffer_metadata;
+    }
+    [[nodiscard]] vstd::span<CapturedValidationItem const> captured_validation_items() const noexcept {
+        return _captured_validation_items;
+    }
+    [[nodiscard]] vstd::span<CapturedBindlessInfo const> captured_dynamic_bindless() const noexcept {
+        return _captured_dynamic_bindless;
+    }
+    [[nodiscard]] vstd::span<CapturedAccelInfo const> captured_dynamic_accels() const noexcept {
+        return _captured_dynamic_accels;
     }
     uint validation_count() const { return _validation_count; }
     uint32_t push_constant_size() const { return _push_constant_size; }

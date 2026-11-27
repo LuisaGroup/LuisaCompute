@@ -90,6 +90,7 @@ public:
         D3D12_BARRIER_ACCESS after_access;
         // D3D12_BARRIER_ACCESS init_access;
         bool first_time{true};// used for backup
+        bool before_state_supplied{false};
     };
     struct BufferAfterRange {
         // Range range;
@@ -119,6 +120,7 @@ public:
         };
         size_t size;
         bool require_update{false};
+        bool referenced_by_readonly_cache{false};
 
         ResourceStates(Type type, size_t size);
     };
@@ -132,9 +134,18 @@ public:
     vstd::HashMap<Resource const *, ResourceStates> frameStates;
     vstd::vector<std::pair<Resource const *, ResourceStates *>> current_update_states;
     vstd::HashMap<Resource const *, size_t /* size */> writeStateMap;
+protected:
+    bool _allow_readonly_rtas_skip{false};
+    uint64_t _readonly_cache_epoch{1u};
+    vstd::HashMap<uint64_t, uint64_t> _verified_readonly_shader_epoch;
+public:
     vstd::HashMap<Resource const *, size_t> &WriteStateMap() {
         return writeStateMap;
     }
+    void RecordReadonlyBuffersCached(
+        uint64_t shader_uid,
+        vstd::span<BufferView const> buffers,
+        Usage read_usage);
     EnhancedBarrierTracker();
     virtual ~EnhancedBarrierTracker();
     void SetRes(

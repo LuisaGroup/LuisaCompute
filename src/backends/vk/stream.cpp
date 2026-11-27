@@ -4526,7 +4526,95 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         // Only the fallback path reads this one (it resolves the software
         // acceleration-structure binding of an `accel` argument).
         visitor.device = device();
-        decode_cmd(shader->captured(), visitor);
+        if (shader->captured_can_fast_preprocess()) {
+            visitor.arguments.seek(shader->captured().size());
+            visitor.descriptor_index = shader->captured_descriptor_end();
+            if (!buffer_metadata.empty()) {
+                for (auto const &entry : shader->captured_buffer_metadata()) {
+                    buffer_metadata[entry.slot] = entry.metadata;
+                }
+            }
+            if (shader->validation_count() > 0u) {
+                for (auto const &item : shader->captured_validation_items()) {
+                    switch (item.kind) {
+                        case Shader::CapturedValidationItem::Kind::kStatic:
+                            validation_values.emplace_back(item.value);
+                            break;
+                        case Shader::CapturedValidationItem::Kind::kBindless: {
+                            auto const *bdls =
+                                static_cast<BindlessArray const *>(item.ptr);
+                            uint32_t value = 0u;
+                            LUISA_ASSERT(
+                                argument_block_validation_value(
+                                    bdls->size(), 0u, value),
+                                "Vulkan bindless-array capacity {} is not representable by "
+                                "the HLSL validation ABI.",
+                                bdls->size());
+                            validation_values.emplace_back(value);
+                        } break;
+                        case Shader::CapturedValidationItem::Kind::kTlas:
+                            validation_values.emplace_back(
+                                static_cast<Tlas const *>(item.ptr)
+                                    ->last_instance_count());
+                            break;
+                    }
+                }
+            }
+            resource_barrier->record_readonly_buffers_cached(
+                (shader->shader_instance_id() << 1u) | (is_raster ? 1u : 0u),
+                shader->captured_readonly_buffers(),
+                visitor.read_usage);
+            for (auto const &bv : shader->captured_writable_buffers()) {
+                resource_barrier->record(bv, visitor.uav_usage);
+            }
+            for (auto const &info : shader->captured_dynamic_bindless()) {
+                if (info.check_device_address) {
+                    LUISA_ASSERT(
+                        info.bdls->encoded_buffers_support_device_address(),
+                        "Native Vulkan bindless buffer device-address queries "
+                        "require every buffer in the encoded descriptor snapshot "
+                        "to carry an address-capable creation attestation.");
+                }
+                auto &idx_buffer = info.bdls->indices_buffer();
+                resource_barrier->record(
+                    BufferView(&idx_buffer, 0u, idx_buffer.byte_size()),
+                    visitor.read_usage);
+                if (info.uses_metadata) {
+                    auto metadata = info.bdls->buffer_metadata();
+                    LUISA_ASSERT(
+                        metadata != nullptr,
+                        "A shader uses bindless buffer metadata, but the bound "
+                        "bindless array has no metadata storage.");
+                    resource_barrier->record(
+                        BufferView(metadata, 0u, metadata->byte_size()),
+                        visitor.read_usage);
+                }
+                resource_barrier->process_bindless(
+                    info.bdls,
+                    info.writes ? visitor.uav_usage : visitor.read_usage,
+                    visitor.read_usage);
+            }
+            for (auto const &info : shader->captured_dynamic_accels()) {
+                if (info.has_instance) {
+                    LUISA_ASSERT(
+                        info.tlas->instance_buffer() != nullptr,
+                        "Cannot access an uninitialized Vulkan accel instance buffer.");
+                    resource_barrier->record(
+                        BufferView(info.tlas->instance_buffer()),
+                        info.instance_write ? visitor.uav_usage : visitor.read_usage);
+                }
+                if (info.has_traversal) {
+                    if (!info.tlas->accel_buffer()) [[unlikely]] {
+                        LUISA_ERROR("Accel not initialized.");
+                    }
+                    resource_barrier->record(
+                        BufferView(info.tlas->accel_buffer()),
+                        visitor.accel_read_usage);
+                }
+            }
+        } else {
+            decode_cmd(shader->captured(), visitor);
+        }
         decode_cmd(c->arguments(), visitor);
         visitor.arguments.finish("argument preprocessing");
         auto descriptor_tail_count =

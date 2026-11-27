@@ -483,7 +483,67 @@ public:
         size_t beforeSize = arg_buffer->size();
         pending_validations.clear();
         Visitor visitor{this, cs->args().data(), *cmd, false, cs->validation_count()};
-        {
+        if (cs->captured_can_fast_preprocess() &&
+            (cs->captured_accels().empty() ||
+             !owns_fallback_accel(cs->captured_accels().front().first))) {
+            if (!cs->captured_readonly_buffers().empty()) {
+                state_tracker->RecordReadonlyBuffersCached(
+                    cs->uid(),
+                    cs->captured_readonly_buffers(),
+                    EnhancedBarrierTracker::Usage::ComputeRead);
+            }
+            for (auto const &bv : cs->captured_writable_buffers()) {
+                state_tracker->Record(bv, EnhancedBarrierTracker::Usage::ComputeUAV);
+            }
+            for (auto *arr : cs->captured_bindless()) {
+                vstd::fixed_vector<vstd::HashMap<Resource const *, size_t>::Index, 16> writeMap;
+                auto &write_state_map = state_tracker->WriteStateMap();
+                if (!write_state_map.empty()) {
+                    arr->Lock();
+                    for (auto iter = write_state_map.begin();
+                         iter != write_state_map.end(); ++iter) {
+                        auto &i = *iter;
+                        if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i.first))) {
+                            writeMap.emplace_back(write_state_map.get_index(iter));
+                        }
+                    }
+                    arr->Unlock();
+                }
+                for (auto &&iter : writeMap) {
+                    state_tracker->Record(
+                        iter.key(),
+                        EnhancedBarrierTracker::Range(0, iter.value()),
+                        EnhancedBarrierTracker::Usage::ComputeRead);
+                    write_state_map.remove(iter);
+                }
+                state_tracker->Record(
+                    BufferView(arr->BindlessBuffer()),
+                    EnhancedBarrierTracker::Usage::ComputeRead);
+            }
+            for (auto [acc_handle, is_write] : cs->captured_accels()) {
+                auto *accel = reinterpret_cast<TopAccel *>(acc_handle);
+                if (accel->GetInstBuffer()) [[likely]] {
+                    if (is_write) {
+                        state_tracker->Record(
+                            BufferView{accel->GetInstBuffer(), 0,
+                                       accel->GetInstBuffer()->GetByteSize()},
+                            EnhancedBarrierTracker::Usage::ComputeUAV);
+                    } else {
+                        state_tracker->Record(
+                            BufferView{accel->GetInstBuffer(), 0,
+                                       accel->GetInstBuffer()->GetByteSize()},
+                            EnhancedBarrierTracker::Usage::ComputeRead);
+                        auto *accelBuffer = accel->GetAccelBuffer();
+                        state_tracker->Record(
+                            BufferView{accelBuffer, 0, accelBuffer->GetByteSize()},
+                            EnhancedBarrierTracker::Usage::ComputeAccelRead);
+                    }
+                } else {
+                    LUISA_ERROR("Accel not initialized.");
+                }
+            }
+            visitor.arg += cs->arg_bindings().size();
+        } else {
             // Shader-internal bindings own no `_validate_*` slots.
             Visitor bindings_visitor{visitor};
             bindings_visitor.collect_validation = false;
@@ -1774,8 +1834,10 @@ void LCCmdBuffer::_execute_chunk(
         auto account_size = [&](ShaderDispatchCommandBase const *c) {
             auto cs = reinterpret_cast<ComputeShader const *>(c->handle());
             uniform_size = CalcAlign(uniform_size, 32);
-            for (auto &&i : cs->arg_bindings()) {
-                add_size(*c, i);
+            if (cs->captured_has_uniforms()) {
+                for (auto &&i : cs->arg_bindings()) {
+                    add_size(*c, i);
+                }
             }
             for (auto &&i : c->arguments()) {
                 add_size(*c, i);
@@ -1918,11 +1980,11 @@ void LCCmdBuffer::_execute_chunk(
                         i.texture_layout});
             }
         }
+        if (alloc_type != D3D12_COMMAND_LIST_TYPE_COPY) {
+            cmd_buffer->cmd_list()->SetDescriptorHeaps(vstd::array_count(h), h);
+        }
         // for (auto &&command : commands) {
         for (auto &&lst : cmdLists) {
-            if (alloc_type != D3D12_COMMAND_LIST_TYPE_COPY) {
-                cmd_buffer->cmd_list()->SetDescriptorHeaps(vstd::array_count(h), h);
-            }
 
             // Clear caches
             pp_visitor.arg_vecs->clear();
@@ -1981,6 +2043,9 @@ void LCCmdBuffer::_execute_chunk(
                     });
                 }
                 lck.lock();
+                if (alloc_type != D3D12_COMMAND_LIST_TYPE_COPY) {
+                    cmd_buffer->cmd_list()->SetDescriptorHeaps(vstd::array_count(h), h);
+                }
             }
         }
         if (visitor.arg_buffer.buffer) {

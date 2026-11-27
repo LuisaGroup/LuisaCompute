@@ -187,6 +187,7 @@ void EnhancedBarrierTrackerBackup::UpdateResourceState(Resource const *resPtr, R
         bf.before_access = bf.after_access;
         bf.after_access = D3D12_BARRIER_ACCESS_COMMON;
         bf.first_time = false;
+        bf.before_state_supplied = false;
     } else {
         auto &vec = state.layer_states.get<1>();
         for (auto idx : vstd::range(vec.size())) {
@@ -235,6 +236,8 @@ void EnhancedBarrierTrackerBackup::RestoreState(BarrierCallback *cmdBuffer) {
     barriers.clear();
     writeStateMap.clear();
     current_update_states.clear();
+    _verified_readonly_shader_epoch.clear();
+    ++_readonly_cache_epoch;
     for (auto &i : frameStates) {
         Resource const *resPtr = i.first;
         ResourceStates &state = i.second;

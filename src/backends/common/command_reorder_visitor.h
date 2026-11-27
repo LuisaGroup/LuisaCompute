@@ -197,6 +197,9 @@ public:
         // range tracking silently degraded for batches touching more than 16
         // distinct ranges of one resource.
         vstd::vector<std::pair<Range, ResourceView>> views;
+        bool tracked_written{false};
+        uint64_t bindless_checked_mask{0u};
+        uint64_t bindless_member_mask{0u};
 
         // First interval that can collide with `range`: the intervals are
         // sorted and disjoint, so interval `i + 1` starts at or after
@@ -220,6 +223,16 @@ public:
         // access's own from above (sound), and pieces of old intervals outside
         // the new range keep their exact layers (precise).
         void _emplace_layer(const Range &range, int64_t read_layer, int64_t write_layer) {
+            if (views.empty()) {
+                views.emplace_back(range, ResourceView{read_layer, write_layer});
+                return;
+            }
+            if (views.size() == 1u && views[0].first == range) {
+                auto &v = views[0].second;
+                v.read_layer = std::max(v.read_layer, read_layer);
+                v.write_layer = std::max(v.write_layer, write_layer);
+                return;
+            }
             auto lo = _lower_bound(range);
             auto hi = lo;
             while (hi < views.size() && views[hi].first.collide(range)) {
@@ -258,15 +271,38 @@ public:
 
     public:
         RangeHandle() noexcept {}
+        [[nodiscard]] bool is_tracked_written() const noexcept { return tracked_written; }
+        void mark_tracked_written() noexcept { tracked_written = true; }
+        [[nodiscard]] bool has_bindless_membership_cached(uint32_t slot) const noexcept {
+            return slot < 64u && (bindless_checked_mask & (uint64_t{1u} << slot)) != 0u;
+        }
+        [[nodiscard]] bool cached_bindless_member(uint32_t slot) const noexcept {
+            return (bindless_member_mask & (uint64_t{1u} << slot)) != 0u;
+        }
+        void cache_bindless_membership(uint32_t slot, bool is_member) noexcept {
+            if (slot < 64u) {
+                auto const bit = uint64_t{1u} << slot;
+                bindless_checked_mask |= bit;
+                if (is_member) {
+                    bindless_member_mask |= bit;
+                }
+            }
+        }
         void clear() noexcept {
             max_view = {};
             read_range = Range::empty();
             write_range = Range::empty();
             views.clear();
+            tracked_written = false;
+            bindless_checked_mask = 0u;
+            bindless_member_mask = 0u;
         }
         [[nodiscard]] auto get_max_write_layer(Range const &range) const noexcept {
             if (!range.collide(write_range))
                 return int64_t{-1};
+            if (views.size() == 1u && views[0].first == range) {
+                return views[0].second.write_layer;
+            }
             int64_t layer = -1;
             for (auto i = _lower_bound(range); i < views.size(); i++) {
                 auto &&[iv, view] = views[i];
@@ -285,6 +321,9 @@ public:
         [[nodiscard]] auto get_max_read_layer(Range const &range) const noexcept {
             if (!range.collide(read_range))
                 return int64_t{-1};
+            if (views.size() == 1u && views[0].first == range) {
+                return views[0].second.read_layer;
+            }
             int64_t layer = -1;
             for (auto i = _lower_bound(range); i < views.size(); i++) {
                 auto &&[iv, view] = views[i];
@@ -353,6 +392,23 @@ private:
     vstd::ArenaHashMap<ArenaRef, uint64_t, RangeHandle *> _texture_map;
     vstd::ArenaHashMap<ArenaRef, uint64_t, NoRangeHandle *> _no_range_resmap;
     vstd::ArenaHashMap<ArenaRef, uint64_t, BindlessHandle *> _bindless_map;
+    struct CachedCapturedEntry {
+        ResourceHandle *handle;
+        Range range;
+        uint64_t raw_handle;
+        ResourceType type;
+        bool is_write;
+    };
+    struct CachedCapturedShader {
+        CachedCapturedEntry *entries{nullptr};
+        uint32_t entry_count{0u};
+        uint32_t arg_count{0u};
+        uint32_t resource_count{0u};
+        bool has_accel{false};
+        bool writes_accel{false};
+    };
+    vstd::ArenaHashMap<ArenaRef, uint64_t, CachedCapturedShader> _captured_shader_cache;
+    vstd::vector<CachedCapturedEntry> _tmp_captured_entries;
     static constexpr uint64_t max_allowed_dispatch_size = 65535ull * 32ull;
     vstd::vector<uint64> _max_dispatch_blocks;
     int64_t _max_mesh_level = -1;
@@ -388,6 +444,7 @@ private:
         uint64_t bindless_handle;
         int64_t read_layer = -1;
         int64_t write_layer = -1;
+        uint32_t slot{0u};
         bool has_buffers{true};
         bool has_textures{true};
     };
@@ -397,10 +454,15 @@ private:
         bool active{false};
         bool has_buffers{false};
         bool has_textures{false};
+        uint32_t assigned_slot{~0u};
     };
     vstd::vector<ActiveBindlessState> _active_bindless_states;
     vstd::vector<DispatchBindlessAccess> _dispatch_bindless_accesses;
     vstd::vector<std::pair<RangeHandle *, bool>> _dispatch_bindless_matched_handles;
+    vstd::vector<RangeHandle *> _written_buffers;
+    vstd::vector<RangeHandle *> _written_textures;
+    bool _any_active_bindless_write{false};
+    uint32_t _next_bindless_slot{0u};
     size_t _resolved_bindless_buffer_count{0u};
     size_t _resolved_bindless_texture_count{0u};
     // Reordering switch (see set_enabled()). When it is off, add_command()
@@ -413,6 +475,25 @@ private:
     int64_t _dispatch_layer;
     bool _use_accel_in_pass;
     bool _write_accel_in_pass;
+    void mark_write_layer(RangeHandle *handle, Range const &range, int64_t layer) {
+        handle->emplace_write_layer(range, layer);
+        if (!handle->is_tracked_written()) {
+            handle->mark_tracked_written();
+            if (handle->type == ResourceType::Buffer) {
+                _written_buffers.emplace_back(handle);
+            } else if (handle->type == ResourceType::Texture) {
+                _written_textures.emplace_back(handle);
+            }
+        }
+    }
+    [[nodiscard]] ActiveBindlessState *find_active_bindless(uint64_t bindless_handle) noexcept {
+        for (auto &state : _active_bindless_states) {
+            if (state.bindless_handle == bindless_handle) {
+                return &state;
+            }
+        }
+        return nullptr;
+    }
     ResourceHandle *get_handle(
         uint64_t target_handle,
         ResourceType target_type) {
@@ -440,12 +521,13 @@ private:
                 value->handle = canonical_handle;
                 value->type = target_type;
                 if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
-                    if (!_active_bindless_states.empty()) {
+                    if (_any_active_bindless_write) {
                         auto is_buffer = target_type == ResourceType::Buffer;
                         int64_t max_read_layer = -1;
                         int64_t max_write_layer = -1;
                         for (auto const &state : _active_bindless_states) {
-                            if (is_buffer ? !state.has_buffers : !state.has_textures) {
+                            if (state.write_layer < 0 ||
+                                (is_buffer ? !state.has_buffers : !state.has_textures)) {
                                 continue;
                             }
                             auto matched = false;
@@ -454,13 +536,14 @@ private:
                                 [&](auto &&contains) noexcept {
                                     matched = contains(canonical_handle, is_buffer);
                                 });
+                            value->cache_bindless_membership(state.slot, matched);
                             if (matched) {
                                 max_read_layer = std::max<int64_t>(max_read_layer, state.read_layer);
                                 max_write_layer = std::max<int64_t>(max_write_layer, state.write_layer);
                             }
                         }
                         if (max_write_layer >= 0) {
-                            value->emplace_write_layer(whole_range(), max_write_layer);
+                            mark_write_layer(value, whole_range(), max_write_layer);
                         }
                         if (max_read_layer >= 0) {
                             value->emplace_read_layer(whole_range(), max_read_layer);
@@ -489,10 +572,44 @@ private:
         return nullptr;
     }
     // Texture, Buffer
-    int64_t get_last_layer_write(RangeHandle *handle, Range range) {
+    int64_t get_last_layer_write(
+        RangeHandle *handle,
+        Range range,
+        bool check_active_bindless = true) {
         auto layer = std::max(
             handle->get_max_read_layer(range),
             handle->get_max_write_layer(range));
+        if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            if (check_active_bindless &&
+                !_active_bindless_states.empty() &&
+                (handle->type == ResourceType::Buffer ||
+                 handle->type == ResourceType::Texture)) {
+                auto const is_buffer = handle->type == ResourceType::Buffer;
+                for (auto const &state : _active_bindless_states) {
+                    if (is_buffer ? !state.has_buffers : !state.has_textures) {
+                        continue;
+                    }
+                    auto const state_layer = std::max<int64_t>(state.read_layer, state.write_layer);
+                    if (state_layer <= layer) {
+                        continue;
+                    }
+                    bool matched = false;
+                    if (handle->has_bindless_membership_cached(state.slot)) {
+                        matched = handle->cached_bindless_member(state.slot);
+                    } else {
+                        _func_table.with_bindless_pending_lookup(
+                            state.bindless_handle,
+                            [&](auto &&contains) noexcept {
+                                matched = contains(handle->handle, is_buffer);
+                            });
+                        handle->cache_bindless_membership(state.slot, matched);
+                    }
+                    if (matched) {
+                        layer = state_layer;
+                    }
+                }
+            }
+        }
         // A cluster build reads buffers this range does not name, so its barrier
         // layer also orders every later buffer write (see
         // _cluster_build_read_level).
@@ -628,7 +745,7 @@ private:
             } break;
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
-                handle->emplace_write_layer(range, layer);
+                mark_write_layer(handle, range, layer);
             } break;
         }
     }
@@ -652,7 +769,7 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
                 layer = get_last_layer_write(handle, range);
-                handle->emplace_write_layer(range, layer);
+                mark_write_layer(handle, range, layer);
             } break;
         }
 
@@ -713,7 +830,7 @@ private:
             default: {
                 auto handle = static_cast<RangeHandle *>(dst_handle);
                 layer = std::max<int64_t>(layer, get_last_layer_write(handle, write_range));
-                handle->emplace_write_layer(write_range, layer);
+                mark_write_layer(handle, write_range, layer);
             } break;
         }
         // set_read_layer
@@ -927,10 +1044,17 @@ private:
                         resource_handle,
                         is_buffer ? ResourceType::Buffer : ResourceType::Texture));
                     if (state.write_layer >= 0) {
-                        handle->emplace_write_layer(whole_range(), state.write_layer);
+                        mark_write_layer(handle, whole_range(), state.write_layer);
                     }
                     if (state.read_layer >= 0) {
                         handle->emplace_read_layer(whole_range(), state.read_layer);
+                    }
+                }
+                _any_active_bindless_write = false;
+                for (auto const &remaining : _active_bindless_states) {
+                    if (remaining.write_layer >= 0) {
+                        _any_active_bindless_write = true;
+                        break;
                     }
                 }
                 break;
@@ -989,57 +1113,135 @@ private:
                 return;
             }
             for (auto &access : _dispatch_bindless_accesses) {
-                auto resolve_locked = [&](size_t pending_count,
-                                          bool has_buffers,
-                                          bool has_textures,
-                                          auto &&contains) noexcept {
-                    if (pending_count == 0u) {
-                        access.active = false;
-                        return;
-                    }
+                ActiveBindlessState *existing = find_active_bindless(access.bindless_handle);
+                if (!access.is_write && existing != nullptr) {
                     access.active = true;
-                    access.has_buffers = has_buffers;
-                    access.has_textures = has_textures;
-                    if (access.is_write) {
-                        _dispatch_layer = std::max<int64_t>(
-                            _dispatch_layer, _cluster_build_read_level + 1);
-                    }
-                    auto scan_map = [&](auto const &map, bool is_buffer) noexcept {
-                        for (auto &&[canonical, handle] : map) {
-                            if (contains(canonical, is_buffer)) {
-                                auto layer = access.is_write ?
-                                                 get_last_layer_write(handle, whole_range()) :
-                                                 get_last_layer_read(handle, whole_range());
-                                _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
-                                _dispatch_bindless_matched_handles.emplace_back(
-                                    handle, access.is_write);
+                    access.has_buffers = existing->has_buffers;
+                    access.has_textures = existing->has_textures;
+                    access.assigned_slot = existing->slot;
+                    vstd::fixed_vector<RangeHandle *, 16> unchecked_buffers;
+                    vstd::fixed_vector<RangeHandle *, 16> unchecked_textures;
+                    if (existing->has_buffers) {
+                        for (auto *handle : _written_buffers) {
+                            if (handle->has_bindless_membership_cached(existing->slot)) {
+                                if (handle->cached_bindless_member(existing->slot)) {
+                                    _dispatch_layer = std::max<int64_t>(
+                                        _dispatch_layer,
+                                        get_last_layer_read(handle, whole_range()));
+                                }
+                            } else {
+                                unchecked_buffers.emplace_back(handle);
                             }
                         }
-                    };
-                    if (has_buffers && !_buffer_map.empty()) {
-                        scan_map(_buffer_map, true);
                     }
-                    if (has_textures && !_texture_map.empty()) {
-                        scan_map(_texture_map, false);
+                    if (existing->has_textures) {
+                        for (auto *handle : _written_textures) {
+                            if (handle->has_bindless_membership_cached(existing->slot)) {
+                                if (handle->cached_bindless_member(existing->slot)) {
+                                    _dispatch_layer = std::max<int64_t>(
+                                        _dispatch_layer,
+                                        get_last_layer_read(handle, whole_range()));
+                                }
+                            } else {
+                                unchecked_textures.emplace_back(handle);
+                            }
+                        }
                     }
-                };
-                if constexpr (ReorderSingleLockBindlessFuncTable<FuncTable>) {
-                    _func_table.with_bindless_pending_state(
-                        access.bindless_handle, resolve_locked);
-                } else {
-                    auto pending_count =
-                        _func_table.bindless_pending_count(access.bindless_handle);
-                    if (pending_count == 0u) {
-                        access.active = false;
-                    } else {
-                        const bool has_buffers =
-                            _func_table.bindless_has_pending_buffers(access.bindless_handle);
+                    if (!unchecked_buffers.empty() || !unchecked_textures.empty()) {
                         _func_table.with_bindless_pending_lookup(
                             access.bindless_handle,
                             [&](auto &&contains) noexcept {
-                                resolve_locked(
-                                    pending_count, has_buffers, true, contains);
+                                for (auto *handle : unchecked_buffers) {
+                                    bool matched = contains(handle->handle, true);
+                                    handle->cache_bindless_membership(existing->slot, matched);
+                                    if (matched) {
+                                        _dispatch_layer = std::max<int64_t>(
+                                            _dispatch_layer,
+                                            get_last_layer_read(handle, whole_range()));
+                                    }
+                                }
+                                for (auto *handle : unchecked_textures) {
+                                    bool matched = contains(handle->handle, false);
+                                    handle->cache_bindless_membership(existing->slot, matched);
+                                    if (matched) {
+                                        _dispatch_layer = std::max<int64_t>(
+                                            _dispatch_layer,
+                                            get_last_layer_read(handle, whole_range()));
+                                    }
+                                }
                             });
+                    }
+                } else {
+                    auto resolve_locked = [&](size_t pending_count,
+                                              bool has_buffers,
+                                              bool has_textures,
+                                              auto &&contains) noexcept {
+                        if (pending_count == 0u) {
+                            access.active = false;
+                            return;
+                        }
+                        access.active = true;
+                        access.has_buffers = has_buffers;
+                        access.has_textures = has_textures;
+                        access.assigned_slot =
+                            existing != nullptr ? existing->slot : _next_bindless_slot++;
+                        if (access.is_write) {
+                            _dispatch_layer = std::max<int64_t>(
+                                _dispatch_layer, _cluster_build_read_level + 1);
+                            auto scan_map = [&](auto const &map, bool is_buffer) noexcept {
+                                for (auto &&[canonical, handle] : map) {
+                                    if (contains(canonical, is_buffer)) {
+                                        auto layer = get_last_layer_write(handle, whole_range(), false);
+                                        _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
+                                        _dispatch_bindless_matched_handles.emplace_back(
+                                            handle, true);
+                                    }
+                                }
+                            };
+                            if (has_buffers && !_buffer_map.empty()) {
+                                scan_map(_buffer_map, true);
+                            }
+                            if (has_textures && !_texture_map.empty()) {
+                                scan_map(_texture_map, false);
+                            }
+                        } else {
+                            auto scan_written = [&](vstd::vector<RangeHandle *> const &list, bool is_buffer) noexcept {
+                                for (auto *handle : list) {
+                                    bool matched = contains(handle->handle, is_buffer);
+                                    handle->cache_bindless_membership(access.assigned_slot, matched);
+                                    if (matched) {
+                                        _dispatch_layer = std::max<int64_t>(
+                                            _dispatch_layer,
+                                            get_last_layer_read(handle, whole_range()));
+                                    }
+                                }
+                            };
+                            if (has_buffers && !_written_buffers.empty()) {
+                                scan_written(_written_buffers, true);
+                            }
+                            if (has_textures && !_written_textures.empty()) {
+                                scan_written(_written_textures, false);
+                            }
+                        }
+                    };
+                    if constexpr (ReorderSingleLockBindlessFuncTable<FuncTable>) {
+                        _func_table.with_bindless_pending_state(
+                            access.bindless_handle, resolve_locked);
+                    } else {
+                        auto pending_count =
+                            _func_table.bindless_pending_count(access.bindless_handle);
+                        if (pending_count == 0u) {
+                            access.active = false;
+                        } else {
+                            const bool has_buffers =
+                                _func_table.bindless_has_pending_buffers(access.bindless_handle);
+                            _func_table.with_bindless_pending_lookup(
+                                access.bindless_handle,
+                                [&](auto &&contains) noexcept {
+                                    resolve_locked(
+                                        pending_count, has_buffers, true, contains);
+                                });
+                        }
                     }
                 }
                 if (!access.active) {
@@ -1068,7 +1270,7 @@ private:
         if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
             for (auto [handle, is_write] : _dispatch_bindless_matched_handles) {
                 if (is_write) {
-                    handle->emplace_write_layer(whole_range(), _dispatch_layer);
+                    mark_write_layer(handle, whole_range(), _dispatch_layer);
                 } else {
                     handle->emplace_read_layer(whole_range(), _dispatch_layer);
                 }
@@ -1080,7 +1282,7 @@ private:
                 if (!access.active) {
                     continue;
                 }
-                if (maps_grew) {
+                if (access.is_write && maps_grew) {
                     const bool check_buffers =
                         access.has_buffers &&
                         _buffer_map.size() > _resolved_bindless_buffer_count;
@@ -1094,11 +1296,7 @@ private:
                                 auto apply_map = [&](auto const &map, bool is_buffer) noexcept {
                                     for (auto &&[canonical, handle] : map) {
                                         if (contains(canonical, is_buffer)) {
-                                            if (access.is_write) {
-                                                handle->emplace_write_layer(whole_range(), _dispatch_layer);
-                                            } else {
-                                                handle->emplace_read_layer(whole_range(), _dispatch_layer);
-                                            }
+                                            mark_write_layer(handle, whole_range(), _dispatch_layer);
                                         }
                                     }
                                 };
@@ -1111,18 +1309,16 @@ private:
                             });
                     }
                 }
-                ActiveBindlessState *found = nullptr;
-                for (auto &state : _active_bindless_states) {
-                    if (state.bindless_handle == access.bindless_handle) {
-                        found = &state;
-                        break;
-                    }
+                if (access.is_write) {
+                    _any_active_bindless_write = true;
                 }
+                ActiveBindlessState *found = find_active_bindless(access.bindless_handle);
                 if (found == nullptr) {
                     _active_bindless_states.emplace_back(ActiveBindlessState{
                         .bindless_handle = access.bindless_handle,
                         .read_layer = _dispatch_layer,
                         .write_layer = access.is_write ? _dispatch_layer : -1,
+                        .slot = access.assigned_slot,
                         .has_buffers = access.has_buffers,
                         .has_textures = access.has_textures});
                 } else {
@@ -1365,8 +1561,189 @@ private:
                 } break;
             }
         };
-        for (auto &&i : captured_bindings) {
-            ite_arg(i);
+        if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            if (!native_shader && !captured_bindings.empty()) {
+                auto cached_iter = _captured_shader_cache.find(shader_handle);
+                if (!cached_iter) {
+                    _tmp_captured_entries.clear();
+                    CachedCapturedShader entry_meta{};
+                    auto record_handle = [&](uint64_t raw_handle, ResourceType type, Range range, bool is_write) {
+                        auto *h = get_handle(raw_handle, type);
+                        if (type == ResourceType::Bindless) {
+                            auto is_w = is_write;
+                            bool found = false;
+                            for (auto &existing : _dispatch_bindless_accesses) {
+                                if (existing.bindless_handle == raw_handle) {
+                                    existing.is_write |= is_w;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                _dispatch_bindless_accesses.emplace_back(
+                                    DispatchBindlessAccess{raw_handle, is_w});
+                            }
+                            _dispatch_layer = std::max<int64_t>(
+                                _dispatch_layer,
+                                get_last_layer_read(static_cast<BindlessHandle *>(h)));
+                            _dispatch_read_handle.emplace_back(whole_range(), h);
+                        } else if (is_write) {
+                            switch (type) {
+                                case ResourceType::Accel:
+                                case ResourceType::Mesh:
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_write(static_cast<NoRangeHandle *>(h)));
+                                    break;
+                                case ResourceType::Buffer:
+                                case ResourceType::Texture:
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_write(static_cast<RangeHandle *>(h), range));
+                                    break;
+                                default: break;
+                            }
+                            _dispatch_write_handle.emplace_back(range, h);
+                        } else {
+                            switch (type) {
+                                case ResourceType::Accel:
+                                case ResourceType::Mesh:
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_read(static_cast<NoRangeHandle *>(h)));
+                                    break;
+                                case ResourceType::Buffer:
+                                case ResourceType::Texture:
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_read(static_cast<RangeHandle *>(h), range));
+                                    break;
+                                default: break;
+                            }
+                            _dispatch_read_handle.emplace_back(range, h);
+                        }
+                        _tmp_captured_entries.emplace_back(CachedCapturedEntry{
+                            .handle = h,
+                            .range = range,
+                            .raw_handle = raw_handle,
+                            .type = type,
+                            .is_write = is_write});
+                    };
+                    for (auto &&i : captured_bindings) {
+                        switch (i.tag) {
+                            case Tag::BUFFER: {
+                                auto &&bf = i.buffer;
+                                bool is_write = ((uint)usage_of() & (uint)Usage::WRITE) != 0;
+                                record_handle(bf.handle, ResourceType::Buffer, buffer_range(bf.offset, bf.size), is_write);
+                                ++arg_idx;
+                                ++resource_idx;
+                            } break;
+                            case Tag::TEXTURE: {
+                                auto &&tex = i.texture;
+                                auto usage = usage_of();
+                                auto bits = static_cast<uint>(usage);
+                                auto reads = (bits & static_cast<uint>(Usage::READ)) != 0u || usage == Usage::NONE;
+                                auto writes = (bits & static_cast<uint>(Usage::WRITE)) != 0u;
+                                LUISA_ASSERT(reads || writes, "Texture argument has an invalid empty usage mask.");
+                                if (reads) {
+                                    record_handle(tex.handle, ResourceType::Texture, mip_suffix_range(tex.level), false);
+                                }
+                                if (writes) {
+                                    record_handle(tex.handle, ResourceType::Texture, base_mip_range(tex.level), true);
+                                }
+                                ++arg_idx;
+                                ++resource_idx;
+                            } break;
+                            case Tag::UNIFORM: {
+                                ++arg_idx;
+                            } break;
+                            case Tag::BINDLESS_ARRAY: {
+                                auto &&arr = i.bindless_array;
+                                auto usage = usage_of();
+                                bool is_write = (static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0u;
+                                record_handle(arr.handle, ResourceType::Bindless, whole_range(), is_write);
+                                ++arg_idx;
+                                ++resource_idx;
+                            } break;
+                            case Tag::ACCEL: {
+                                auto &&acc = i.accel;
+                                _use_accel_in_pass = true;
+                                entry_meta.has_accel = true;
+                                auto is_write = (static_cast<uint>(usage_of()) & static_cast<uint>(Usage::WRITE)) != 0u;
+                                _write_accel_in_pass |= is_write;
+                                entry_meta.writes_accel |= is_write;
+                                record_handle(acc.handle, ResourceType::Accel, whole_range(), is_write);
+                                ++arg_idx;
+                                ++resource_idx;
+                            } break;
+                        }
+                    }
+                    entry_meta.entry_count = static_cast<uint32_t>(_tmp_captured_entries.size());
+                    entry_meta.arg_count = static_cast<uint32_t>(arg_idx);
+                    entry_meta.resource_count = static_cast<uint32_t>(resource_idx);
+                    if (entry_meta.entry_count > 0u) {
+                        auto mem = _arena.allocate(
+                            sizeof(CachedCapturedEntry) * entry_meta.entry_count,
+                            alignof(CachedCapturedEntry));
+                        entry_meta.entries = reinterpret_cast<CachedCapturedEntry *>(mem.handle + mem.offset);
+                        std::memcpy(entry_meta.entries, _tmp_captured_entries.data(),
+                                    sizeof(CachedCapturedEntry) * entry_meta.entry_count);
+                    }
+                    _captured_shader_cache.try_emplace(shader_handle, entry_meta);
+                } else {
+                    auto const &cached = cached_iter.value();
+                    arg_idx = cached.arg_count;
+                    resource_idx = cached.resource_count;
+                    if (cached.has_accel) {
+                        _use_accel_in_pass = true;
+                        _write_accel_in_pass |= cached.writes_accel;
+                    }
+                    for (uint32_t ei = 0u; ei < cached.entry_count; ++ei) {
+                        auto const &e = cached.entries[ei];
+                        switch (e.type) {
+                            case ResourceType::Buffer:
+                            case ResourceType::Texture: {
+                                auto *h = static_cast<RangeHandle *>(e.handle);
+                                if (e.is_write) {
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_write(h, e.range));
+                                    _dispatch_write_handle.emplace_back(e.range, h);
+                                } else {
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_read(h, e.range));
+                                    _dispatch_read_handle.emplace_back(e.range, h);
+                                }
+                            } break;
+                            case ResourceType::Accel:
+                            case ResourceType::Mesh: {
+                                auto *h = static_cast<NoRangeHandle *>(e.handle);
+                                if (e.is_write) {
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_write(h));
+                                    _dispatch_write_handle.emplace_back(e.range, h);
+                                } else {
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_read(h));
+                                    _dispatch_read_handle.emplace_back(e.range, h);
+                                }
+                            } break;
+                            case ResourceType::Bindless: {
+                                bool found = false;
+                                for (auto &existing : _dispatch_bindless_accesses) {
+                                    if (existing.bindless_handle == e.raw_handle) {
+                                        existing.is_write |= e.is_write;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) {
+                                    _dispatch_bindless_accesses.emplace_back(
+                                        DispatchBindlessAccess{e.raw_handle, e.is_write});
+                                }
+                                auto *h = static_cast<BindlessHandle *>(e.handle);
+                                _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_read(h));
+                                _dispatch_read_handle.emplace_back(whole_range(), h);
+                            } break;
+                        }
+                    }
+                }
+            } else {
+                for (auto &&i : captured_bindings) {
+                    ite_arg(i);
+                }
+            }
+        } else {
+            for (auto &&i : captured_bindings) {
+                ite_arg(i);
+            }
         }
         for (auto &&i : command->arguments()) {
             ite_arg(i);
@@ -1397,6 +1774,7 @@ public:
           _texture_map(64, ArenaRef{_arena}),
           _no_range_resmap(64, ArenaRef{_arena}),
           _bindless_map(64, ArenaRef{_arena}),
+          _captured_shader_cache(32, ArenaRef{_arena}),
           _func_table(std::forward<FuncTable>(func_table)) {
     }
     void clear() noexcept {
@@ -1426,6 +1804,11 @@ public:
         _active_bindless_states.clear();
         _dispatch_bindless_accesses.clear();
         _dispatch_bindless_matched_handles.clear();
+        _written_buffers.clear();
+        _written_textures.clear();
+        _tmp_captured_entries.clear();
+        _any_active_bindless_write = false;
+        _next_bindless_slot = 0u;
         _resolved_bindless_buffer_count = 0u;
         _resolved_bindless_texture_count = 0u;
         _host_memory_handle.clear();
@@ -1433,11 +1816,13 @@ public:
         destroy_map(_texture_map);
         destroy_map(_no_range_resmap);
         destroy_map(_bindless_map);
+        _captured_shader_cache.~decltype(_captured_shader_cache)();
         _arena.clear();
         new (&_buffer_map) decltype(_buffer_map)(64, ArenaRef{_arena});
         new (&_texture_map) decltype(_texture_map)(64, ArenaRef{_arena});
         new (&_no_range_resmap) decltype(_no_range_resmap)(64, ArenaRef{_arena});
         new (&_bindless_map) decltype(_bindless_map)(64, ArenaRef{_arena});
+        new (&_captured_shader_cache) decltype(_captured_shader_cache)(32, ArenaRef{_arena});
     }
     // clear() also runs the destructors of the placement-constructed resource
     // handles (RangeHandle owns a heap interval vector), so destruction must
@@ -1474,7 +1859,7 @@ public:
             layer = std::max<int64_t>(layer, _host_memory_handle.get_max_write_layer(h_range) + 1);
             _host_memory_handle.emplace_read_layer(h_range, layer);
         }
-        dev_handle->emplace_write_layer(dev_range, layer);
+        mark_write_layer(dev_handle, dev_range, layer);
         add_command(command, layer);
     }
     void visit(const BufferDownloadCommand *command) noexcept override {
@@ -1569,7 +1954,7 @@ public:
             layer = std::max<int64_t>(layer, _host_memory_handle.get_max_write_layer(h_range) + 1);
             _host_memory_handle.emplace_read_layer(h_range, layer);
         }
-        dev_handle->emplace_write_layer(dev_range, layer);
+        mark_write_layer(dev_handle, dev_range, layer);
         add_command(command, layer);
     }
     void visit(const TextureDownloadCommand *command) noexcept override {

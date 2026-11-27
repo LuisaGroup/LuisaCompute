@@ -6,6 +6,7 @@
 #include "shader_binary_contract.h"
 #include "descriptor_interface_plan.h"
 #include "shader_interface_plan.h"
+#include "../common/argument_block_layout.h"
 #include <atomic>
 #include <limits>
 namespace lc::vk {
@@ -524,6 +525,218 @@ vstd::push_back_all(_binds, binds);
             default:
                 _captured_can_fast_skip_descriptors = false;
                 break;
+        }
+    }
+    if (!_captured.empty() && !_captured_has_uniforms &&
+        _captured.size() <= _saved_arguments.size()) {
+        bool can_fast = true;
+        uint32_t desc_idx = _resource_argument_binding_offset;
+        for (size_t i = 0u; i < _captured.size() && can_fast; ++i) {
+            auto const &arg = _captured[i];
+            auto const &saved = _saved_arguments[i];
+            switch (arg.tag) {
+                case Argument::Tag::BUFFER: {
+                    if (saved.tag != Type::Tag::BUFFER || arg.buffer.handle == 0u) {
+                        can_fast = false;
+                        break;
+                    }
+                    auto const *res = reinterpret_cast<Buffer const *>(arg.buffer.handle);
+                    if (res->is_indirect_dispatch_buffer()) {
+                        can_fast = false;
+                        break;
+                    }
+                    auto const *prop = local_descriptor_property(desc_idx++);
+                    if (prop == nullptr ||
+                        (prop->type != hlsl::ShaderVariableType::StructuredBuffer &&
+                         prop->type != hlsl::ShaderVariableType::RWStructuredBuffer)) {
+                        can_fast = false;
+                        break;
+                    }
+                    auto const &bf = arg.buffer;
+                    if (bf.offset > res->byte_size() ||
+                        bf.size > res->byte_size() - bf.offset) {
+                        can_fast = false;
+                        break;
+                    }
+                    if (saved.has_buffer_metadata()) {
+                        if (saved.buffer_metadata_index() >= _buffer_metadata_count) {
+                            can_fast = false;
+                            break;
+                        }
+                        _captured_buffer_metadata.emplace_back(CapturedBufferMetadataEntry{
+                            .slot = saved.buffer_metadata_index(),
+                            .metadata = storage_buffer_descriptor_range(
+                                            res, bf.offset, bf.size, saved.struct_size,
+                                            saved.native_buffer_uses_device_address())
+                                            .metadata});
+                    }
+                    if (_validation_count > 0u) {
+                        uint32_t val = 0u;
+                        if (!argument_block_validation_value(
+                                bf.size, saved.struct_size, val)) {
+                            can_fast = false;
+                            break;
+                        }
+                        _captured_validation_items.emplace_back(CapturedValidationItem{
+                            .kind = CapturedValidationItem::Kind::kStatic,
+                            .value = val,
+                            .ptr = nullptr});
+                    }
+                    if (!res->flush_host()) {
+                        if ((luisa::to_underlying(saved.var_usage) &
+                             luisa::to_underlying(Usage::WRITE)) != 0u) {
+                            _captured_writable_buffers.emplace_back(res, bf.offset, bf.size);
+                        } else {
+                            _captured_readonly_buffers.emplace_back(res, bf.offset, bf.size);
+                        }
+                    }
+                } break;
+                case Argument::Tag::BINDLESS_ARRAY: {
+                    if (saved.tag != Type::Tag::BINDLESS_ARRAY ||
+                        arg.bindless_array.handle == 0u) {
+                        can_fast = false;
+                        break;
+                    }
+                    auto const *prop = local_descriptor_property(desc_idx++);
+                    if (prop == nullptr ||
+                        prop->type != hlsl::ShaderVariableType::StructuredBuffer) {
+                        can_fast = false;
+                        break;
+                    }
+                    bool uses_metadata = false;
+                    if (auto const *meta_prop = local_descriptor_property(desc_idx);
+                        meta_prop != nullptr &&
+                        meta_prop->type ==
+                            hlsl::ShaderVariableType::SPIRVBindlessBufferMetadata) {
+                        ++desc_idx;
+                        uses_metadata = true;
+                    }
+                    bool const writes =
+                        (luisa::to_underlying(saved.var_usage) &
+                         luisa::to_underlying(Usage::WRITE)) != 0u;
+                    bool const check_bda =
+                        (_codegen_dialect ==
+                         detail::ShaderCodegenDialect::XIR_SPIRV) &&
+                        saved.native_bindless_uses_device_address();
+                    _captured_dynamic_bindless.emplace_back(CapturedBindlessInfo{
+                        .bdls = reinterpret_cast<BindlessArray *>(
+                            arg.bindless_array.handle),
+                        .uses_metadata = uses_metadata,
+                        .writes = writes,
+                        .check_device_address = check_bda});
+                    if (_validation_count > 0u) {
+                        _captured_validation_items.emplace_back(CapturedValidationItem{
+                            .kind = CapturedValidationItem::Kind::kBindless,
+                            .value = 0u,
+                            .ptr = reinterpret_cast<void const *>(
+                                arg.bindless_array.handle)});
+                    }
+                } break;
+                case Argument::Tag::ACCEL: {
+                    if (saved.tag != Type::Tag::ACCEL ||
+                        arg.accel.handle == 0u ||
+                        device->owns_fallback_accel(arg.accel.handle)) {
+                        can_fast = false;
+                        break;
+                    }
+                    if (_validation_count > 0u) {
+                        _captured_validation_items.emplace_back(CapturedValidationItem{
+                            .kind = CapturedValidationItem::Kind::kTlas,
+                            .value = 0u,
+                            .ptr = reinterpret_cast<void const *>(arg.accel.handle)});
+                    }
+                    auto const bits = luisa::to_underlying(saved.var_usage);
+                    bool const reads =
+                        (bits & luisa::to_underlying(Usage::READ)) != 0u ||
+                        saved.var_usage == Usage::NONE;
+                    bool const writes =
+                        (bits & luisa::to_underlying(Usage::WRITE)) != 0u;
+                    bool const native =
+                        _codegen_dialect ==
+                        detail::ShaderCodegenDialect::XIR_SPIRV;
+                    bool traversal = false;
+                    bool instance_read = false;
+                    bool instance_write = false;
+                    if (native) {
+                        if (!saved.has_explicit_native_accel_roles()) {
+                            can_fast = false;
+                            break;
+                        }
+                        traversal = saved.native_accel_uses_traversal();
+                        bool const inst = saved.native_accel_uses_instance_buffer();
+                        if (saved.var_usage == Usage::NONE) {
+                            if (traversal || inst) {
+                                can_fast = false;
+                                break;
+                            }
+                            continue;
+                        }
+                        if (traversal) {
+                            auto const *prop = local_descriptor_property(desc_idx);
+                            if (prop == nullptr ||
+                                prop->type != hlsl::ShaderVariableType::SPIRVAccel) {
+                                can_fast = false;
+                                break;
+                            }
+                            ++desc_idx;
+                        }
+                        if (inst) {
+                            auto const *prop = local_descriptor_property(desc_idx);
+                            auto const expected =
+                                writes ? hlsl::ShaderVariableType::SPIRVAccelInstanceRW :
+                                         hlsl::ShaderVariableType::SPIRVAccelInstance;
+                            if (prop == nullptr || prop->type != expected) {
+                                can_fast = false;
+                                break;
+                            }
+                            ++desc_idx;
+                            instance_read = !writes;
+                            instance_write = writes;
+                        }
+                    } else {
+                        auto const *prop = local_descriptor_property(desc_idx);
+                        traversal =
+                            prop != nullptr &&
+                            prop->type == hlsl::ShaderVariableType::SPIRVAccel;
+                        if (traversal) {
+                            ++desc_idx;
+                            prop = local_descriptor_property(desc_idx);
+                        }
+                        instance_read =
+                            prop != nullptr &&
+                            prop->type == hlsl::ShaderVariableType::SPIRVAccelInstance;
+                        instance_write =
+                            prop != nullptr &&
+                            prop->type == hlsl::ShaderVariableType::SPIRVAccelInstanceRW;
+                        if (instance_read || instance_write) { ++desc_idx; }
+                    }
+                    bool const instance = instance_read || instance_write;
+                    if ((native ? !(traversal || instance) : (traversal != reads)) ||
+                        (instance && instance_write != writes)) {
+                        can_fast = false;
+                        break;
+                    }
+                    _captured_dynamic_accels.emplace_back(CapturedAccelInfo{
+                        .tlas = reinterpret_cast<Tlas *>(arg.accel.handle),
+                        .has_instance = instance,
+                        .instance_write = instance_write,
+                        .has_traversal = traversal});
+                } break;
+                default:
+                    can_fast = false;
+                    break;
+            }
+        }
+        if (can_fast) {
+            _captured_descriptor_end = desc_idx;
+            _captured_can_fast_preprocess = true;
+        } else {
+            _captured_readonly_buffers.clear();
+            _captured_writable_buffers.clear();
+            _captured_buffer_metadata.clear();
+            _captured_validation_items.clear();
+            _captured_dynamic_bindless.clear();
+            _captured_dynamic_accels.clear();
         }
     }
     constructed = true;

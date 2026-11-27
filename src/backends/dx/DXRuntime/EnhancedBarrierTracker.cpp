@@ -187,7 +187,12 @@ void EnhancedBarrierTracker::SetRes(
                     D3D12_BARRIER_SYNC_NONE,
                     current_range.access,
                     // vec.init_access,
-                    D3D12_BARRIER_ACCESS_COMMON};
+                    D3D12_BARRIER_ACCESS_COMMON,
+                    true,
+                    true};
+                if (ite.value().referenced_by_readonly_cache) {
+                    ++_readonly_cache_epoch;
+                }
 
             } else {
                 LUISA_DEBUG_ASSERT(resRange.index() == 1);
@@ -489,6 +494,26 @@ void EnhancedBarrierTracker::Record(
     }
     auto ite = iter.first;
     auto &vec = ite.value().layer_states;
+    if (!iter.second &&
+        type == ResourceStates::Type::Buffer &&
+        !ite.value().require_update) {
+        auto const &bf = vec.get<0>();
+        const bool is_rtas_read =
+            (access & D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ) != 0;
+        if (!bf.first_time &&
+            !bf.before_state_supplied &&
+            (_allow_readonly_rtas_skip || !is_rtas_read) &&
+            bf.before_sync != D3D12_BARRIER_SYNC_NONE &&
+            bf.before_access != D3D12_BARRIER_ACCESS_COMMON &&
+            (bf.before_access & detail::write_access) == 0 &&
+            sync != D3D12_BARRIER_SYNC_NONE &&
+            access != D3D12_BARRIER_ACCESS_COMMON &&
+            (access & detail::write_access) == 0 &&
+            (bf.before_sync & sync) == sync &&
+            (bf.before_access & access) == access) {
+            return;
+        }
+    }
     if (!ite.value().require_update) {
         current_update_states.emplace_back(ite.key(), &ite.value());
     }
@@ -555,6 +580,10 @@ void EnhancedBarrierTracker::Record(
                 } else {
                     vec.after_sync |= new_range.after_sync;
                 }
+                if (ite.value().referenced_by_readonly_cache &&
+                    (vec.after_access & detail::write_access) != 0) {
+                    ++_readonly_cache_epoch;
+                }
             } else {
                 LUISA_DEBUG_ASSERT(resRange.index() == 1);
                 auto current_level = resRange.template get<1>();
@@ -604,6 +633,8 @@ void EnhancedBarrierTrackerImpl::UpdateResourceState(Resource const *resPtr, Res
         bf->after_sync = D3D12_BARRIER_SYNC_NONE;
         bf->before_access = bf->after_access;
         bf->after_access = D3D12_BARRIER_ACCESS_COMMON;
+        bf->first_time = false;
+        bf->before_state_supplied = false;
         // bf.after_access = bf.init_access;
     } else {// Texture
         auto &vec = state.layer_states.get<1>();
@@ -677,6 +708,8 @@ void EnhancedBarrierTrackerImpl::RestoreState(BarrierCallback *cmdBuffer) {
     writeStateMap.clear();
     bufferBarriers.clear();
     texBarriers.clear();
+    _verified_readonly_shader_epoch.clear();
+    ++_readonly_cache_epoch;
     for (auto &i : frameStates) {
         Resource const *resPtr = i.first;
         ResourceStates &state = i.second;
@@ -810,6 +843,47 @@ void EnhancedBarrierTrackerImpl::BarrierFilter(D3D12_TEXTURE_BARRIER &barrier) {
 }
 EnhancedBarrierTracker::EnhancedBarrierTracker() = default;
 EnhancedBarrierTracker::~EnhancedBarrierTracker() = default;
-EnhancedBarrierTrackerImpl::EnhancedBarrierTrackerImpl() = default;
+EnhancedBarrierTrackerImpl::EnhancedBarrierTrackerImpl() {
+    _allow_readonly_rtas_skip = true;
+}
 EnhancedBarrierTrackerImpl::~EnhancedBarrierTrackerImpl() = default;
+
+void EnhancedBarrierTracker::RecordReadonlyBuffersCached(
+    uint64_t shader_uid,
+    vstd::span<BufferView const> buffers,
+    Usage read_usage) {
+    if (buffers.empty()) { return; }
+    bool const allow_cache = restoreStates.empty();
+    if (allow_cache) {
+        if (auto iter = _verified_readonly_shader_epoch.find(shader_uid);
+            iter && iter.value() == _readonly_cache_epoch) {
+            return;
+        }
+    }
+    auto const barrier_state_idx = luisa::to_underlying(read_usage);
+    auto const sync = detail::BarrierSyncMap[barrier_state_idx];
+    auto const access = detail::BarrierAccessMap[barrier_state_idx];
+    auto const layout = detail::BarrierLayoutMap[barrier_state_idx];
+    bool all_clean_readonly =
+        allow_cache && (access & detail::write_access) == 0;
+    for (auto const &bv : buffers) {
+        Record(bv, sync, access, layout);
+        if (all_clean_readonly) {
+            if (auto iter = frameStates.find(bv.buffer)) {
+                auto &state = iter.value();
+                state.referenced_by_readonly_cache = true;
+                auto const &bf = state.layer_states.get<0>();
+                if (bf.before_state_supplied ||
+                    (bf.before_access & detail::write_access) != 0 ||
+                    (bf.after_access & detail::write_access) != 0) {
+                    all_clean_readonly = false;
+                }
+            }
+        }
+    }
+    if (all_clean_readonly) {
+        _verified_readonly_shader_epoch.emplace(
+            shader_uid, _readonly_cache_epoch).value() = _readonly_cache_epoch;
+    }
+}
 }// namespace lc::dx

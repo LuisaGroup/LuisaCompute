@@ -419,6 +419,7 @@ ComputeShader::ComputeShader(
         psoDesc.Flags |= D3D12_PIPELINE_STATE_FLAG_RAYQUERY_ALLOW_CLUSTERED_GEOMETRY_ON_PRE_SM69_SHADERS;
     }
     ThrowIfFailed(device->device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(_pso.GetAddressOf())));
+    _init_captured_preprocess();
 }
 ComputeShader::ComputeShader(
     uint3 blockSize,
@@ -435,6 +436,77 @@ ComputeShader::ComputeShader(
       _device(device),
       _block_size(blockSize) {
     this->_pso = std::move(pso);
+    _init_captured_preprocess();
+}
+
+void ComputeShader::_init_captured_preprocess() {
+    for (auto const &arg : _arg_bindings) {
+        if (arg.tag == luisa::compute::Argument::Tag::UNIFORM) {
+            _captured_has_uniforms = true;
+            break;
+        }
+    }
+    if (_arg_bindings.empty() || _captured_has_uniforms ||
+        _arg_bindings.size() > _kernel_arguments.size()) {
+        return;
+    }
+    bool can_fast = true;
+    for (size_t i = 0u; i < _arg_bindings.size() && can_fast; ++i) {
+        auto const &arg = _arg_bindings[i];
+        auto const &saved = _kernel_arguments[i];
+        bool const is_write =
+            (static_cast<uint>(saved.var_usage) &
+             static_cast<uint>(luisa::compute::Usage::WRITE)) != 0u;
+        switch (arg.tag) {
+            case luisa::compute::Argument::Tag::BUFFER: {
+                if (arg.buffer.handle == 0u) {
+                    can_fast = false;
+                    break;
+                }
+                auto const *res =
+                    reinterpret_cast<Buffer const *>(arg.buffer.handle);
+                auto const tag = res->get_tag();
+                if (tag != Resource::Tag::DefaultBuffer &&
+                    tag != Resource::Tag::SparseBuffer &&
+                    tag != Resource::Tag::ExternalBuffer) {
+                    can_fast = false;
+                    break;
+                }
+                BufferView bv{res, arg.buffer.offset, arg.buffer.size};
+                if (is_write) {
+                    _captured_writable_buffers.emplace_back(bv);
+                } else {
+                    _captured_readonly_buffers.emplace_back(bv);
+                }
+            } break;
+            case luisa::compute::Argument::Tag::BINDLESS_ARRAY: {
+                if (arg.bindless_array.handle == 0u) {
+                    can_fast = false;
+                    break;
+                }
+                _captured_bindless.emplace_back(
+                    reinterpret_cast<BindlessArray *>(arg.bindless_array.handle));
+            } break;
+            case luisa::compute::Argument::Tag::ACCEL: {
+                if (arg.accel.handle == 0u) {
+                    can_fast = false;
+                    break;
+                }
+                _captured_accels.emplace_back(arg.accel.handle, is_write);
+            } break;
+            default:
+                can_fast = false;
+                break;
+        }
+    }
+    if (can_fast) {
+        _captured_can_fast_preprocess = true;
+    } else {
+        _captured_readonly_buffers.clear();
+        _captured_writable_buffers.clear();
+        _captured_bindless.clear();
+        _captured_accels.clear();
+    }
 }
 
 ComputeShader::~ComputeShader() {

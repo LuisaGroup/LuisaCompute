@@ -148,6 +148,50 @@ void ResourceBarrier::record(
         detail::TextureLayoutContract::GENERIC_USAGE);
 }
 
+void ResourceBarrier::record_readonly_buffers_cached(
+    uint64_t cache_key,
+    vstd::span<BufferView const> buffers,
+    Usage read_usage) {
+    if (buffers.empty()) { return; }
+    auto const stage = detail::kBarrierSyncMap[luisa::to_underlying(read_usage)];
+    auto const access = detail::kBarrierAccessMap[luisa::to_underlying(read_usage)];
+    uint32_t const vendor_id =
+        device != nullptr ? device->properties().vendorID : 0u;
+    auto const norm = detail::normalize_queue_scope(queue_type, stage, access);
+    bool const allow_cache =
+        _saved_buffer_restore_states.empty() &&
+        !detail::needs_nvidia_transfer_read_widening(vendor_id, access) &&
+        !detail::has_write_access(norm.access);
+    if (allow_cache) {
+        if (auto iter = _verified_readonly_shader_epoch.find(cache_key);
+            iter && iter.value() == _readonly_cache_epoch) {
+            return;
+        }
+    }
+    bool all_clean_readonly = allow_cache;
+    for (auto const &bv : buffers) {
+        _record(
+            bv, stage, access, VK_IMAGE_LAYOUT_UNDEFINED,
+            detail::TextureLayoutContract::GENERIC_USAGE);
+        if (all_clean_readonly && !bv.buffer->flush_host()) {
+            auto identity = detail::native_buffer_identity(bv.buffer->vk_buffer());
+            if (auto iter = _buffer_frame_states.find(identity)) {
+                auto &state = iter.value();
+                state.referenced_by_readonly_cache = true;
+                if (state.before_state_supplied ||
+                    detail::has_write_access(state.range.before_access) ||
+                    detail::has_write_access(state.range.after_access)) {
+                    all_clean_readonly = false;
+                }
+            }
+        }
+    }
+    if (all_clean_readonly) {
+        _verified_readonly_shader_epoch.emplace(
+            cache_key, _readonly_cache_epoch).value() = _readonly_cache_epoch;
+    }
+}
+
 void ResourceBarrier::record_texture_descriptor(
     Texture const *texture, uint32_t base_level,
     bool sampled, bool storage,
@@ -190,6 +234,9 @@ void ResourceBarrier::set_res(
         auto identity = detail::native_buffer_identity(buffer);
         auto &state = _buffer_frame_states.emplace(identity, buffer).value();
         LUISA_DEBUG_ASSERT(state.buffer == buffer);
+        if (state.referenced_by_readonly_cache) {
+            ++_readonly_cache_epoch;
+        }
         if (state.before_state_supplied) {
             state.range.before_stage |= stage;
             state.range.before_access |= access;
@@ -298,6 +345,10 @@ void ResourceBarrier::_record(
             {access, VK_IMAGE_LAYOUT_GENERAL});
         state.range.after_access = result.access;
         state.range.after_stage |= stage;
+        if (state.referenced_by_readonly_cache &&
+            detail::has_write_access(state.range.after_access)) {
+            ++_readonly_cache_epoch;
+        }
         return;
     }
 
@@ -383,6 +434,10 @@ void ResourceBarrier::remove_resource(Resource const *res) noexcept {
             } else {
                 ++it;
             }
+        }
+        if (auto iter = _buffer_frame_states.find(identity);
+            iter && iter.value().referenced_by_readonly_cache) {
+            ++_readonly_cache_epoch;
         }
         _buffer_frame_states.remove(identity);
         _saved_buffer_restore_states.remove(identity);
@@ -953,6 +1008,9 @@ void ResourceBarrier::_flush_layer_bindless_accesses() {
             }
         }
 
+        if (has_buffers && detail::has_write_access(buf_access)) {
+            ++_readonly_cache_epoch;
+        }
         _bindless_memory_state.active_in_frame = true;
         _bindless_memory_state.require_update = true;
         if (has_buffers) {
@@ -1030,6 +1088,9 @@ void ResourceBarrier::set_restore_state(
     if (res.is_type_of<BufferView>()) {
         auto buffer = res.get<0>().buffer->vk_buffer();
         auto identity = detail::native_buffer_identity(buffer);
+        if (_saved_buffer_restore_states.empty()) {
+            ++_readonly_cache_epoch;
+        }
         if (auto iter = _saved_buffer_restore_states.find(identity)) {
             iter.value().after_stage |= stage;
             iter.value().after_access |= access;
@@ -1315,6 +1376,8 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
     }
     _buffer_frame_states.clear();
     _texture_frame_states.clear();
+    _verified_readonly_shader_epoch.clear();
+    ++_readonly_cache_epoch;
     clear_restore_states();
     submit_profile::record_restore_barriers(
         _memory_barriers.size(), _buffer_barriers.size(),
