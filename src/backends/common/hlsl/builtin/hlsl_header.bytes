@@ -348,6 +348,21 @@ return b.template Load<BufferElem>(idx).xyz;
 
 #define _volatile_bfwrite(bf,idx,value) {bf[idx]=value; DeviceMemoryBarrier();}
 #define _volatile_bfwriteVec3(bf,idx,value,type) {bf[idx]=type##4(value,0); DeviceMemoryBarrier();}
+// A shader bool occupies exactly one byte of a byte-address buffer.
+// RWByteAddressBuffer has no byte-granular load, and Load<bool> widens the
+// aligned 32-bit word that holds the byte, so a non-zero neighbour would turn
+// a stored false into true. Load the aligned word and test only that byte.
+template<typename BufferType>
+bool _lc_bytebfread_bool(BufferType b,uint idx){
+	uint word=b.template Load<uint>(idx&~3u);
+	return ((word>>((idx&3u)*8u))&0xFFu)!=0u;
+}
+#ifdef LUISA_DEBUG_INFO
+template<typename BufferType>
+bool _lc_bytebfread_bool(BufferType b,uint idx,uint bound){
+	return (idx<bound) && _lc_bytebfread_bool(b,idx);
+}
+#endif
 template<typename BufferType,typename T>
 void _lc_bytebfwrite_val(BufferType b,uint idx,T v){b.Store(idx,v);}
 #ifdef LUISA_DEBUG_INFO
@@ -373,8 +388,8 @@ void _lc_bytebfwrite_val(BufferType b,uint idx,T v){b.Store(idx,v);}
 #define _SmptxPixel(tex,uv,filter,address) (tex.Sample(_GETSMP((address)*4+(filter)),(uv)))
 #define _SmptxLevel(tex,uv,level,filter,address) (tex.SampleLevel(_GETSMP((address)*4+(filter)),uv,level))
 #define _SmptxGrad(tex,uv,dx,dy,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy))
-#define _SmptxGrad2DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int2(0),minMip))
-#define _SmptxGrad3DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int3(0),minMip))
+#define _SmptxGrad2DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int2(0,0),minMip))
+#define _SmptxGrad3DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int3(0,0,0),minMip))
 #define _clz(T,arg,size) (((T)size)-firstbithigh(arg))
 template<typename T>
 T _round(T x){return sign(x)*floor(abs(x)+(T)0.5);}

@@ -217,8 +217,8 @@ void _lc_bytebfwrite_val(BufferType b,uint idx,T v){b.Store(idx,v);}
 #define _SmptxPixel(tex,uv,filter,address) (tex.Sample(_GETSMP((address)*4+(filter)),(uv)))
 #define _SmptxLevel(tex,uv,level,filter,address) (tex.SampleLevel(_GETSMP((address)*4+(filter)),uv,level))
 #define _SmptxGrad(tex,uv,dx,dy,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy))
-#define _SmptxGrad2DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int2(0),minMip))
-#define _SmptxGrad3DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int3(0),minMip))
+#define _SmptxGrad2DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int2(0,0),minMip))
+#define _SmptxGrad3DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int3(0,0,0),minMip))
 template<typename T>
 T _fract(T x){return x-floor(x);}
 struct _Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};

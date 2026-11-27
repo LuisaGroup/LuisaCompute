@@ -1280,8 +1280,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
             }
-            str << "_bytebfread"sv;
             auto elem = expr->type();
+            // A shader bool occupies one byte, but a byte-address buffer has no
+            // byte-granular load: Load<bool> widens the aligned 32-bit word that
+            // holds the byte, so a non-zero neighbour would turn a stored false
+            // into true. The helper loads that word and tests only that byte.
+            bool byte_bool = !aliasStruct && elem->is_bool() && !opt->isSpirv;
+            str << (byte_bool ? "_lc_bytebfread_bool"sv : "_bytebfread"sv);
             if (IsNumVec3(*elem)) {
                 str << "Vec3("sv;
                 args[0]->accept(vis);
@@ -1310,6 +1315,17 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                         str << "_WrappedFloat4x4"sv;
                         break;
                 }
+                str << ',';
+                args[1]->accept(vis);
+                if (opt->enable_debug_info) {
+                    str << ',';
+                    PrintValidationBound(args[0]);
+                }
+                str << ')';
+            } else if (byte_bool) {
+                // The helper takes no type argument; it always loads one word.
+                str << '(';
+                args[0]->accept(vis);
                 str << ',';
                 args[1]->accept(vis);
                 if (opt->enable_debug_info) {
