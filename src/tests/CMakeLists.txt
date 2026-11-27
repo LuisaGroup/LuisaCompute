@@ -2326,6 +2326,8 @@ if (TARGET luisa-compute-backend-metal4)
 endif ()
 
 luisa_compute_add_test(test_coro_callable_rendering integration/runtime/test_coro_callable_rendering.cpp)
+target_compile_options(test_coro_callable_rendering PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 foreach (backend metal metal4)
     if (TARGET luisa-compute-backend-${backend})
         add_test(NAME test_coro_callable_rendering_${backend} COMMAND test_coro_callable_rendering ${backend})
