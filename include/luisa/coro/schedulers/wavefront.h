@@ -395,6 +395,7 @@ private:
     uint _deterministic_entry_target{0u};
     bool _has_hint_sort{false};
     bool _gather_selected_4x{false};
+    bool _tail_unroll_supported{false};
     bool _has_dispatched{false};
     bool _extension_handlers_finalized{false};
     bool _timeline_labels_registered{false};
@@ -1089,6 +1090,11 @@ private:
         auto fuse_continuation_counts =
             _config.incremental_continuation_counts &&
             _config.fused_continuation_counts;
+        const auto backend_name = device.backend_name();
+        const auto tail_unroll_supported =
+            fuse_continuation_counts &&
+            (backend_name == "dx" || backend_name == "vk" || backend_name == "metal");
+        _tail_unroll_supported = tail_unroll_supported;
         // Incremental queue counts are scheduler-owned state. For
         // every nonterminal continuation t, C[t] is the cardinality of the
         // frames whose target token is t. Queue zero is derived from the
@@ -1099,6 +1105,7 @@ private:
         // in producers so their transition atomics need no second pass.
         _resume_offset = device.create_buffer<uint>(_total_token_count);
         _global_buffer = device.create_buffer<uint>(2u);
+        auto *global_buffer = &_global_buffer;
         if (!_extension_stages.empty()) {
             _extension_route_buffer = device.create_buffer<uint>(
                 coro.graph().boundary_count());
@@ -1308,7 +1315,8 @@ private:
             if (!cont_sub) continue;
             auto cont_candidates = make_candidate_queues(i);
             Kernel1D k_cont = [&coro, frame_buffer, extension_route_buffer,
-                               resume_count_buffer,
+                               resume_count_buffer, global_buffer,
+                               tail_unroll_supported,
                                routes = _extension_routes[i],
                                layout = _frame_layout, input_fields = _frame_io_plan.input_fields[i], output_fields = _frame_io_plan.transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
@@ -1326,6 +1334,14 @@ private:
                 set_block_size(execution_block_size);
                 auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                 auto x = dispatch_x();
+                if (tail_unroll_supported) {
+                    auto actual_count = def(count);
+                    auto is_indirect_count = (count & 0x80000000u) != 0u;
+                    $if (is_indirect_count) {
+                        actual_count = Expr<Buffer<uint>>{*global_buffer}.read(count & 1u);
+                    };
+                    count = actual_count;
+                }
                 $if (x >= count) { $return(); };
                 auto idx = resume_index.read(resume_offset + x);
                 auto tok = read_scheduler_token(idx, frame_buf, frame_capacity);
@@ -2749,14 +2765,32 @@ private:
             std::getenv("LUISA_CORO_WAVEFRONT_VERIFY_QUEUES") != nullptr;
         const bool batch_queues_enabled = parse_bool_env(
             "LUISA_CORO_WAVEFRONT_BATCH_QUEUES", true);
-        const uint batch_min_count_override = []() noexcept -> uint {
-            const char *v = std::getenv("LUISA_CORO_WAVEFRONT_BATCH_MIN_COUNT");
-            if (v == nullptr || *v == '\0') { return 0u; }
+        auto parse_uint_env = [](const char *name, uint default_val) noexcept -> uint {
+            const char *v = std::getenv(name);
+            if (v == nullptr || *v == '\0') { return default_val; }
             char *end = nullptr;
             const unsigned long parsed = std::strtoul(v, &end, 10);
-            if (end == v) { return 0u; }
+            if (end == v || *end != '\0') { return default_val; }
             return static_cast<uint>(parsed);
-        }();
+        };
+        const uint batch_min_count_override = parse_uint_env(
+            "LUISA_CORO_WAVEFRONT_BATCH_MIN_COUNT", 0u);
+        bool tail_unroll_threshold_set = false;
+        uint tail_unroll_threshold_env = 0u;
+        if (const char *v = std::getenv("LUISA_CORO_WAVEFRONT_TAIL_UNROLL_THRESHOLD");
+            v != nullptr && *v != '\0') {
+            char *end = nullptr;
+            const unsigned long parsed = std::strtoul(v, &end, 10);
+            if (end != v && *end == '\0') {
+                tail_unroll_threshold_set = true;
+                tail_unroll_threshold_env = static_cast<uint>(parsed);
+            }
+        }
+        const uint tail_unroll_threshold =
+            tail_unroll_threshold_set ? tail_unroll_threshold_env : 2048u;
+        uint effective_tail_threshold = tail_unroll_threshold;
+        const uint tail_unroll_rounds_override = parse_uint_env(
+            "LUISA_CORO_WAVEFRONT_TAIL_UNROLL_ROUNDS", 0u);
         auto compute_batch_min_count = [&](size_t cur_scan_count) noexcept -> uint {
             if (batch_min_count_override != 0u) {
                 return batch_min_count_override;
@@ -2972,6 +3006,116 @@ private:
             }
             return true;
         };
+        bool tail_unroll_graph_eligible =
+            _tail_unroll_supported &&
+            tail_unroll_threshold != 0u &&
+            _config.largest_continuation_first &&
+            _config.incremental_continuation_counts &&
+            _config.fused_continuation_counts &&
+            !_has_hint_sort;
+        if (tail_unroll_graph_eligible) {
+            for (const auto &reg : _extension_stages) {
+                if (reg.handler != nullptr &&
+                    (reg.is_blocking_async ||
+                     reg.handler->execution() != WavefrontCoroExtensionExecution::before_resume)) {
+                    tail_unroll_graph_eligible = false;
+                    break;
+                }
+            }
+        }
+        if (tail_unroll_graph_eligible) {
+            for (const auto d : _queue_deferred) {
+                if (d != 0u) {
+                    tail_unroll_graph_eligible = false;
+                    break;
+                }
+            }
+        }
+        luisa::vector<uint8_t> tail_queue_used(nq, 0u);
+        luisa::vector<luisa::vector<size_t>> tail_cont_dst_queues(nc);
+        luisa::vector<size_t> tail_queues;
+        luisa::vector<uint> tail_aux_bound_per_round(_auxiliary_work.size(), 0u);
+        if (tail_unroll_graph_eligible) {
+            for (size_t s = 0u; s < nc; ++s) {
+                if (s >= _continuation_targets.size()) { continue; }
+                for (const uint target : _continuation_targets[s]) {
+                    size_t dst_q = static_cast<size_t>(target);
+                    if (s < _extension_routes.size()) {
+                        for (const auto &route : _extension_routes[s]) {
+                            bool matches_target = false;
+                            for (const auto &boundary : _extension_boundaries) {
+                                if (boundary.index == route.boundary_index &&
+                                    boundary.to_index == target) {
+                                    matches_target = true;
+                                    break;
+                                }
+                            }
+                            if (matches_target &&
+                                route.boundary_index < _extension_route_table.size() &&
+                                _extension_route_table[route.boundary_index] != 0u) {
+                                dst_q = static_cast<size_t>(
+                                    _extension_route_table[route.boundary_index]);
+                                break;
+                            }
+                        }
+                    }
+                    if (dst_q >= 1u && dst_q < nq) {
+                        tail_queue_used[dst_q] = 1u;
+                        auto &dsts = tail_cont_dst_queues[s];
+                        if (std::find(dsts.begin(), dsts.end(), dst_q) == dsts.end()) {
+                            dsts.emplace_back(dst_q);
+                        }
+                    }
+                }
+            }
+            for (size_t q = 1u; q < nq; ++q) {
+                if (tail_queue_used[q] == 0u) { continue; }
+                const size_t cont = _queue_continuation[q];
+                if (cont == 0u || cont >= nc || !_resume_kernels[cont]) {
+                    tail_unroll_graph_eligible = false;
+                    break;
+                }
+                tail_queues.emplace_back(q);
+            }
+            if (tail_unroll_graph_eligible) {
+                std::sort(tail_queues.begin(), tail_queues.end(),
+                          [&](size_t lhs, size_t rhs) noexcept {
+                              const auto lc = _queue_continuation[lhs];
+                              const auto rc = _queue_continuation[rhs];
+                              return lc != rc ? lc < rc : lhs < rhs;
+                          });
+                if (!tail_unroll_threshold_set) {
+                    effective_tail_threshold =
+                        tail_queues.size() <= 5u ? 2048u : 1024u;
+                }
+                for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
+                    const auto &reg = _auxiliary_work[a];
+                    uint max_bound = 0u;
+                    uint sum_bound = 0u;
+                    bool has_forward_chain_to_aux = false;
+                    for (size_t i = 0u; i < tail_queues.size(); ++i) {
+                        const size_t ci = _queue_continuation[tail_queues[i]];
+                        const uint bi = ci < reg.max_emitted_per_continuation.size() ?
+                                            reg.max_emitted_per_continuation[ci] :
+                                            0u;
+                        if (bi == 0u) { continue; }
+                        max_bound = std::max(max_bound, bi);
+                        sum_bound += bi;
+                        for (size_t j = i; j < tail_queues.size(); ++j) {
+                            const size_t cj = _queue_continuation[tail_queues[j]];
+                            const uint bj = cj < reg.max_emitted_per_continuation.size() ?
+                                                reg.max_emitted_per_continuation[cj] :
+                                                0u;
+                            if (bj != 0u && can_produce_into(ci, cj)) {
+                                has_forward_chain_to_aux = true;
+                            }
+                        }
+                    }
+                    tail_aux_bound_per_round[a] =
+                        has_forward_chain_to_aux ? sum_bound : max_bound;
+                }
+            }
+        }
         auto encode_single_member_main_queue = [&](size_t q, uint cur_scan_count,
                                                    const WavefrontCoroSchedulerSnapshot &snap) noexcept -> bool {
             const auto count = _host_count[q];
@@ -4253,6 +4397,24 @@ private:
             auto forced_auxiliary_stage = 0u;
             auto forced_auxiliary_count = 0u;
             luisa::vector<uint8_t> aux_prepared(_auxiliary_work.size(), 0u);
+            auto ensure_aux_prepared = [&](size_t a) noexcept -> uint64_t {
+                auto &registered = _auxiliary_work[a];
+                const auto queued = registered.work->host_count();
+                const auto capacity = registered.work->capacity();
+                if (aux_prepared[a] == 0u) {
+                    registered.work->encode_prepare_for_admission(stream, pending_commands);
+                    aux_prepared[a] = 1u;
+                }
+                const auto available = registered.work->host_available_slots();
+                LUISA_ASSERT(registered.work->host_count() == queued &&
+                                 registered.work->capacity() == capacity &&
+                                 available <= capacity - queued &&
+                                 (queued != 0u || available == capacity),
+                             "Auxiliary '{}' admission preparation changed occupancy/capacity "
+                             "or supplied invalid materializable storage.", registered.work->name());
+                return std::min<uint64_t>(
+                    available, capacity >= queued ? capacity - queued : 0ull);
+            };
             if (selected_continuation < nc && selected_count != 0u &&
                 (selected_blocker_override || time_budget_winner_is_main ||
                  selected_auxiliary_count <= selected_count)) {
@@ -4263,15 +4425,7 @@ private:
                     if (bound == 0u) { continue; }
                     auto queued = registered.work->host_count();
                     auto capacity = registered.work->capacity();
-                    registered.work->encode_prepare_for_admission(stream, pending_commands);
-                    aux_prepared[i] = 1u;
-                    auto available = registered.work->host_available_slots();
-                    LUISA_ASSERT(registered.work->host_count() == queued &&
-                                     registered.work->capacity() == capacity &&
-                                     available <= capacity - queued &&
-                                     (queued != 0u || available == capacity),
-                                 "Auxiliary '{}' admission preparation changed occupancy/capacity "
-                                 "or supplied invalid materializable storage.", registered.work->name());
+                    const auto available = ensure_aux_prepared(i);
                     auto required =
                         static_cast<uint64_t>(selected_count) * bound;
                     if (!wavefront_auxiliary_queue_can_admit(
@@ -4381,8 +4535,13 @@ private:
                 dispatch_counter == N &&
                 in_flight_async_count == 0u &&
                 active_count > 0u &&
-                scan_count >= 16384u &&
-                active_count * 4u <= scan_count) {
+                ((scan_count >= 16384u && active_count * 4u <= scan_count) ||
+                 (tail_unroll_graph_eligible &&
+                  N > effective_tail_threshold &&
+                  max_active_count > effective_tail_threshold &&
+                  active_count <= effective_tail_threshold &&
+                  scan_count > 2048u &&
+                  active_count * 2u < scan_count))) {
                 auto tail_holes_slot = global_count_slot;
                 global_count_slot ^= 1u;
                 auto gather_threads = _gather_selected_4x ?
@@ -4434,6 +4593,117 @@ private:
                 compact_empty_count = 0u;
                 _host_count[0u] = 0u;
                 recompute_host_offsets();
+            }
+            if (tail_unroll_graph_eligible &&
+                !online_timing_active &&
+                dispatch_counter == N &&
+                N > effective_tail_threshold &&
+                max_active_count > effective_tail_threshold &&
+                in_flight_async_count == 0u &&
+                active_count > 0u &&
+                active_count <= effective_tail_threshold &&
+                scan_count != 0u &&
+                !tail_queues.empty() &&
+                !(selected_auxiliary_count > effective_tail_threshold * 2u &&
+                  selected_auxiliary_count > active_count * 2u)) {
+                bool all_active_queues_in_tail = true;
+                for (size_t q = 1u; q < nq; ++q) {
+                    if (_host_count[q] != 0u && tail_queue_used[q] == 0u) {
+                        all_active_queues_in_tail = false;
+                        break;
+                    }
+                }
+                if (all_active_queues_in_tail) {
+                    uint target_rounds = 0u;
+                    if (tail_unroll_rounds_override != 0u) {
+                        target_rounds = std::clamp<uint>(
+                            tail_unroll_rounds_override, 1u, 16u);
+                    } else if (tail_queues.size() <= 5u) {
+                        target_rounds = (active_count <= 512u) ? 6u : 3u;
+                    } else {
+                        target_rounds = (active_count <= 256u) ? 3u : 2u;
+                    }
+                    uint admissible_rounds = target_rounds;
+                    for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
+                        const uint64_t per_round_req =
+                            static_cast<uint64_t>(active_count) *
+                            tail_aux_bound_per_round[a];
+                        if (per_round_req == 0ull) { continue; }
+                        const uint64_t usable = ensure_aux_prepared(a);
+                        admissible_rounds = std::min<uint>(
+                            admissible_rounds,
+                            static_cast<uint>(usable / per_round_req));
+                    }
+                    if (admissible_rounds >= 2u) {
+                        for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
+                            if (tail_aux_bound_per_round[a] == 0u) { continue; }
+                            const uint64_t total_req =
+                                static_cast<uint64_t>(admissible_rounds) *
+                                static_cast<uint64_t>(active_count) *
+                                tail_aux_bound_per_round[a];
+                            _auxiliary_work[a].work->encode_prepare_for_producer(
+                                stream, pending_commands,
+                                static_cast<uint>(total_req));
+                            aux_counts_dirty[a] = 1u;
+                        }
+                        luisa::vector<uint8_t> may_be_nonempty(nq, 0u);
+                        for (size_t q = 1u; q < nq; ++q) {
+                            if (_host_count[q] != 0u) {
+                                may_be_nonempty[q] = 1u;
+                            }
+                        }
+                        const auto gather_threads =
+                            _gather_selected_4x ?
+                                ((scan_count + 1023u) / 1024u) * 256u :
+                                scan_count;
+                        for (uint r = 0u; r < admissible_rounds; ++r) {
+                            bool any_dispatched_round = false;
+                            for (const size_t q : tail_queues) {
+                                if (may_be_nonempty[q] == 0u) { continue; }
+                                any_dispatched_round = true;
+                                const size_t cont = _queue_continuation[q];
+                                for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
+                                    const auto &reg = _auxiliary_work[a];
+                                    if (cont < reg.max_emitted_per_continuation.size() &&
+                                        reg.max_emitted_per_continuation[cont] != 0u) {
+                                        LUISA_ASSERT(
+                                            tail_aux_bound_per_round[a] != 0u &&
+                                                aux_counts_dirty[a] == 1u,
+                                            "Tail unroll dispatched aux-producing continuation {} "
+                                            "without auxiliary admission/dirty marking.",
+                                            cont);
+                                    }
+                                }
+                                const auto count_slot = global_count_slot;
+                                global_count_slot ^= 1u;
+                                pending_commands << _gather_selected_shader(
+                                                        _config.thread_count, _resume_index,
+                                                        _global_buffer, count_slot,
+                                                        static_cast<uint>(q), scan_count)
+                                                        .dispatch(gather_threads);
+                                gather_scan_count += scan_count;
+                                pending_commands << _resume_kernels[cont](
+                                                        _config.thread_count,
+                                                        _resume_index.view(0u, active_count),
+                                                        0u, 0x80000000u | count_slot,
+                                                        static_cast<uint>(q), args...)
+                                                        .dispatch(active_count);
+                                ++continuation_dispatch_seq;
+                                if (report_stats) {
+                                    _last_dispatch_stats.continuations[cont].dispatch_count++;
+                                }
+                                may_be_nonempty[q] = 0u;
+                                for (const size_t dst_q : tail_cont_dst_queues[cont]) {
+                                    may_be_nonempty[dst_q] = 1u;
+                                }
+                            }
+                            if (!any_dispatched_round) { break; }
+                        }
+                        main_counts_dirty = true;
+                        counts_known_on_host = false;
+                        continue;
+                    }
+                }
             }
             if (dispatch_auxiliary == _auxiliary_work.size() &&
                 !proactive_async_launch &&
