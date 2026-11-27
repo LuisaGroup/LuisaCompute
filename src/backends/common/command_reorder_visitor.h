@@ -76,6 +76,16 @@ concept ReorderFuncTable =
         requires(std::is_same_v<luisa::span<const Argument>, decltype(t.raster_shader_bindings(uint64_v))>);
     };
 
+namespace detail {
+// Keep the generic callable outside the requires-expression for GCC 13.
+struct ReorderBindlessPendingLookupProbe {
+    template<typename Contains>
+    void operator()(Contains &&contains) const noexcept {
+        [[maybe_unused]] bool found = contains(uint64_t{0u}, true);
+    }
+};
+}// namespace detail
+
 // Optional fast-path interface for backends whose BindlessArray maintains an
 // O(1) canonical pending-resource set. When satisfied, CommandReorderVisitor
 // avoids traversing the full bindless array (potentially 10k+ resources) on
@@ -89,10 +99,7 @@ concept ReorderFastBindlessFuncTable =
         requires(std::is_same_v<size_t, decltype(t.bindless_pending_count(bindless_handle))>);
         requires(std::is_same_v<bool, decltype(t.bindless_has_pending_buffers(bindless_handle))>);
         t.with_bindless_pending_lookup(
-            bindless_handle,
-            [](auto &&contains) noexcept {
-                [[maybe_unused]] bool found = contains(uint64_t{0u}, true);
-            });
+            bindless_handle, detail::ReorderBindlessPendingLookupProbe{});
     };
 
 template<ReorderFuncTable FuncTable, bool supportConcurrentCopy, size_t fixedVectorSize = 2>
