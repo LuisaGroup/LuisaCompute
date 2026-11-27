@@ -69,9 +69,20 @@ struct CompiledSpirv {
 constexpr auto optional_emission_features =
     lc::spirv::target_feature::shader_expect_assume |
     lc::spirv::target_feature::shader_replicated_composites;
+// The 32-bit denormal execution modes are a *device policy*, not a shader
+// requirement. Vulkan float controls (VUID-VkShaderModuleCreateInfo-pCode-08740)
+// decide which mode a module may declare, and the backend declares one for
+// *every* kernel: fast-math flushes, precise arithmetic preserves. The
+// catch-all fixture therefore models a device that reports neither property,
+// which keeps the "a trivial kernel requires nothing" baseline meaningful, and
+// the denormal-mode cases below enable the properties per test.
+constexpr auto float_control_features =
+    lc::spirv::target_feature::denorm_preserve_float32 |
+    lc::spirv::target_feature::denorm_flush_float32;
 constexpr auto all_target_features =
     lc::spirv::SpirvTargetFeatures::from_enabled_mask(
-        lc::spirv::target_feature::known_mask & ~optional_emission_features);
+        lc::spirv::target_feature::known_mask &
+        ~(optional_emission_features | float_control_features));
 
 void set_environment_variable(const char *name,
                               const char *value) noexcept {
@@ -114,10 +125,10 @@ template<typename Kernel>
 [[nodiscard]] CompiledSpirv compile_spirv_fixture(
     Kernel &&kernel,
     lc::spirv::SpirvTargetFeatures target_features =
-        all_target_features) {
+        all_target_features,
+    ShaderOption option = ShaderOption{.enable_cache = false}) {
     auto result = lc::spirv::SpirvCodegenEntry::compile_spirv(
-        kernel.function()->function(),
-        ShaderOption{.enable_cache = false}, target_features);
+        kernel.function()->function(), option, target_features);
     spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
     std::string text;
     expect(tools.Validate(result.spv_bin.data(), result.spv_bin.size()))
@@ -1178,6 +1189,61 @@ int main(int argc, char *argv[]) {
         expect(contains(compiled.text, "OpEntryPoint GLCompute"));
         expect(!contains(compiled.text, "OpCapability GroupNonUniform"));
         expect(!contains(compiled.text, "OpCapability RayQueryKHR"));
+    };
+
+    "spirv_denormal_mode_follows_float_controls_and_fast_math"_test = [] {
+        // The denormal execution mode is the one mode the backend declares for
+        // *every* kernel, so it has to follow the device float-controls
+        // properties exactly: fast math flushes, precise arithmetic preserves,
+        // and only the 32-bit width is declared.
+        Kernel1D kernel = [](BufferFloat output) noexcept {
+            output.write(0u, 1.0e-45f);
+        };
+        constexpr auto both_float_controls =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                lc::spirv::target_feature::denorm_preserve_float32 |
+                lc::spirv::target_feature::denorm_flush_float32);
+        // ShaderOption's fast-math default is on and selects the flush mode.
+        auto fast_math = compile_spirv_fixture(kernel, both_float_controls);
+        expect(eq(fast_math.required_features,
+                  lc::spirv::target_feature::denorm_flush_float32));
+        expect(contains(fast_math.text, "OpCapability DenormFlushToZero"));
+        expect(contains(fast_math.text,
+                        "OpExecutionMode %main DenormFlushToZero 32"));
+        expect(!contains(fast_math.text, "DenormPreserve"));
+        // Precise arithmetic preserves denormals instead of flushing them.
+        auto precise = compile_spirv_fixture(
+            kernel, both_float_controls,
+            ShaderOption{.enable_cache = false,
+                         .enable_fast_math = false});
+        expect(eq(precise.required_features,
+                  lc::spirv::target_feature::denorm_preserve_float32));
+        expect(contains(precise.text, "OpCapability DenormPreserve"));
+        expect(contains(precise.text,
+                        "OpExecutionMode %main DenormPreserve 32"));
+        expect(!contains(precise.text, "DenormFlushToZero"));
+    };
+
+    "spirv_denormal_mode_is_fail_closed_without_float_controls"_test = [] {
+        // Declaring a mode the device did not report violates
+        // VUID-VkShaderModuleCreateInfo-pCode-08740, so without the matching
+        // property the module must declare nothing and record no requirement.
+        // Fast math cannot flush on a preserve-only device either.
+        Kernel1D kernel = [](BufferFloat output) noexcept {
+            output.write(0u, 1.0e-45f);
+        };
+        auto no_float_controls = compile_spirv_fixture(kernel);
+        expect(eq(no_float_controls.required_features, 0u));
+        expect(!contains(no_float_controls.text, "DenormFlushToZero"));
+        expect(!contains(no_float_controls.text, "DenormPreserve"));
+        auto preserve_only = compile_spirv_fixture(
+            kernel,
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                lc::spirv::target_feature::denorm_preserve_float32));
+        expect(eq(preserve_only.required_features, 0u))
+            << "fast math cannot flush when the device only preserves denormals";
+        expect(!contains(preserve_only.text, "DenormFlushToZero"));
+        expect(!contains(preserve_only.text, "DenormPreserve"));
     };
 
     "spirv_target_features_bfloat16_lowers_math_through_float32"_test = [] {

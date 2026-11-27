@@ -122,35 +122,58 @@ int main(int argc, char *argv[]) {
         auto typed_device_address =
             lc::spirv::spirv_bindless_resource_usage(
                 ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS, typed);
+        // Typed and untyped buffer access share one metadata record: it carries
+        // the descriptor index, the byte bias and the 64-bit device address, so
+        // a typed size/bias query still binds the per-array metadata descriptor
+        // even though the length itself is read from the slot record.
         expect(!typed_buffer_size.buffer_heap &&
-               !typed_buffer_size.buffer_metadata);
+               typed_buffer_size.buffer_metadata);
         expect(!typed_byte_buffer_size.buffer_heap &&
-               !typed_byte_buffer_size.buffer_metadata);
+               typed_byte_buffer_size.buffer_metadata);
         expect(!typed_device_address.buffer_heap &&
                typed_device_address.buffer_metadata)
-            << "typed size/bias live in the slot record, but the 64-bit "
-               "device address remains in per-array metadata";
+            << "typed and untyped buffer access share the per-array metadata "
+               "record (descriptor index, bias and device address)";
     };
 
-    "spirv_bindless_xir_usage_typed_buffers_do_not_bind_redundant_metadata"_test = [] {
+    "spirv_bindless_xir_usage_typed_buffers_share_the_untyped_metadata_record"_test = [] {
+        // The typed descriptor index and byte bias live in the per-array
+        // metadata record, so typed and untyped buffer access share one layout
+        // and must classify exactly alike.
         constexpr BindlessResourceAccess typed{.typed = true};
+        constexpr BindlessResourceAccess untyped{};
         constexpr std::array reads{
             ResourceReadOp::BINDLESS_BUFFER_READ,
             ResourceReadOp::BINDLESS_BYTE_BUFFER_READ};
         constexpr std::array writes{
             ResourceWriteOp::BINDLESS_BUFFER_WRITE,
             ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE};
+        auto expect_same_descriptors =
+            [](lc::spirv::SpirvBindlessResourceUsage typed_usage,
+               lc::spirv::SpirvBindlessResourceUsage untyped_usage,
+               luisa::string_view label) noexcept {
+                expect(typed_usage.buffer_heap) << label;
+                expect(typed_usage.buffer_metadata) << label;
+                expect(typed_usage.buffer_heap == untyped_usage.buffer_heap)
+                    << label;
+                expect(typed_usage.buffer_metadata ==
+                       untyped_usage.buffer_metadata)
+                    << label;
+                expect(typed_usage.texture_2d == untyped_usage.texture_2d &&
+                       typed_usage.texture_3d == untyped_usage.texture_3d)
+                    << label;
+            };
         for (auto op : reads) {
-            auto usage = lc::spirv::spirv_bindless_resource_usage(
-                op, typed);
-            expect(usage.buffer_heap);
-            expect(!usage.buffer_metadata);
+            expect_same_descriptors(
+                lc::spirv::spirv_bindless_resource_usage(op, typed),
+                lc::spirv::spirv_bindless_resource_usage(op, untyped),
+                "typed and untyped reads must bind the same descriptors");
         }
         for (auto op : writes) {
-            auto usage = lc::spirv::spirv_bindless_resource_usage(
-                op, typed);
-            expect(usage.buffer_heap);
-            expect(!usage.buffer_metadata);
+            expect_same_descriptors(
+                lc::spirv::spirv_bindless_resource_usage(op, typed),
+                lc::spirv::spirv_bindless_resource_usage(op, untyped),
+                "typed and untyped writes must bind the same descriptors");
         }
     };
 
@@ -316,7 +339,7 @@ int main(int argc, char *argv[]) {
             result.spv_bin.data(), result.spv_bin.size()));
     };
 
-    "spirv_typed_bindless_size_uses_slot_record_without_metadata_descriptor"_test = [] {
+    "spirv_typed_bindless_size_binds_the_shared_metadata_descriptor"_test = [] {
         Kernel1D ast_kernel = [](BindlessVar) noexcept {};
         auto ast_function = ast_kernel.function()->function();
 
@@ -351,12 +374,16 @@ int main(int argc, char *argv[]) {
                       lc::spirv::ShaderVariableType::StructuredBuffer,
                       1u),
                   1u));
+        // The length is read from the four-word slot record, but the typed
+        // descriptor index and byte bias come from the per-array metadata
+        // record that typed and untyped access share, so that descriptor has to
+        // be bound as well.
         expect(eq(count_properties(
                       properties,
                       lc::spirv::ShaderVariableType::SPIRVBindlessBufferMetadata,
                       1u),
-                  0u))
-            << "typed size must consume its four-word slot record directly";
+                  1u))
+            << "typed size must bind the shared per-array metadata record";
 
         spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
         expect(tools.Validate(
@@ -508,9 +535,14 @@ int main(int argc, char *argv[]) {
                 // The two purely optional emission optimizations are exercised by
                 // their own fixtures; enabling them here would add their
                 // requirement bit to the exact descriptor-ABI mask asserted below.
+                // The 32-bit denormal execution modes are device float-controls
+                // policy, declared for every kernel, so they are pinned by the
+                // target-feature tests and stay off this descriptor-ABI fixture.
                 lc::spirv::target_feature::known_mask &
                     ~(lc::spirv::target_feature::shader_expect_assume |
-                      lc::spirv::target_feature::shader_replicated_composites));
+                      lc::spirv::target_feature::shader_replicated_composites |
+                      lc::spirv::target_feature::denorm_preserve_float32 |
+                      lc::spirv::target_feature::denorm_flush_float32));
         auto result = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
             ast_function, &module,
             ShaderOption{.enable_cache = false},

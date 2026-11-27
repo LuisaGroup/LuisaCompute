@@ -8,8 +8,10 @@
 //     `OpCapability Int64`, zero `OpFRem`, zero `OpFDiv`), and binary64 uses the
 //     structured-loop chunked exact reduction with `NoContraction` on `Fma`,
 //     `OpFMul`, and `OpFAdd`;
-//   * under fast math (`enable_fast_math = true`), binary16/binary32/binary64
-//     emit native `OpFRem` with zero `OpCapability Int64` and zero loop overhead;
+//   * fast math (`enable_fast_math = true`) does *not* switch to `OpFRem`:
+//     that instruction is not the C `fmod` on every driver (NVIDIA lowers it to
+//     a reciprocal range reduction whose residue is wrong for large |x / y|),
+//     so both modes share the exact reduction and the fixtures must agree;
 //   * both paths survive `-O2` optimization cleanly.
 #include "ut/ut.hpp"
 #include <luisa/dsl/sugar.h>
@@ -135,8 +137,11 @@ struct RemainderSpirv {
     return found_any;
 }
 
-// The strict binary16/binary32 path performs its modulus in pure 32-bit
+// The binary16/binary32 remainder performs its modulus in pure 32-bit
 // arithmetic using a structured loop, without OpCapability Int64 or OpFDiv.
+// Fast math must satisfy the same invariants: `OpFRem` is not the C `fmod` on
+// every driver (NVIDIA's reciprocal-multiply range reduction loses the residue
+// once |x / y| is large), so the mode never selects it.
 void check_integer_significand_reduction(const RemainderSpirv &compiled,
                                          luisa::string_view label) noexcept {
     expect(compiled.validated) << label << " fixture must validate";
@@ -178,16 +183,6 @@ void check_chunked_binary64_reduction(const RemainderSpirv &compiled,
         << label << " exact double reduction OpFAdd must carry NoContraction";
 }
 
-void check_fast_math_native_frem(const RemainderSpirv &compiled,
-                                 luisa::string_view label) noexcept {
-    expect(compiled.validated) << label << " fixture must validate";
-    expect(count_occurrences(compiled.text, "OpFRem") != 0u)
-        << label << " fast-math remainder must lower to native OpFRem";
-    expect(count_occurrences(compiled.text, "OpCapability Int64") == 0u)
-        << label << " fast-math remainder must not emit Int64";
-    expect(count_occurrences(compiled.text, "OpLoopMerge") == 0u)
-        << label << " fast-math remainder must not emit exact-reduction loop";
-}
 
 }// namespace
 
@@ -214,11 +209,11 @@ int main(int argc, char *argv[]) {
                 vector_kernel.function()->function(), false, features_without_int64),
             "strict float4 remainder without Int64");
 
-        check_fast_math_native_frem(
+        check_integer_significand_reduction(
             compile_remainder_kernel(
                 kernel.function()->function(), true, features_without_int64),
             "fast-math float remainder");
-        check_fast_math_native_frem(
+        check_integer_significand_reduction(
             compile_remainder_kernel(
                 vector_kernel.function()->function(), true, features_without_int64),
             "fast-math float4 remainder");
@@ -238,7 +233,7 @@ int main(int argc, char *argv[]) {
             << "strict half remainder must widen both operands and narrow once, "
             << "observed " << convert_count;
 
-        check_fast_math_native_frem(
+        check_integer_significand_reduction(
             compile_remainder_kernel(
                 kernel.function()->function(), true, features_without_int64),
             "fast-math half remainder");
@@ -260,10 +255,10 @@ int main(int argc, char *argv[]) {
             compile_remainder_kernel(vec_kernel.function()->function(), false),
             "strict double4 remainder");
 
-        check_fast_math_native_frem(
+        check_chunked_binary64_reduction(
             compile_remainder_kernel(kernel.function()->function(), true),
             "fast-math double remainder");
-        check_fast_math_native_frem(
+        check_chunked_binary64_reduction(
             compile_remainder_kernel(vec_kernel.function()->function(), true),
             "fast-math double4 remainder");
     };
@@ -303,10 +298,12 @@ int main(int argc, char *argv[]) {
 
         auto float_fast = compile_remainder_kernel(
             float_kernel.function()->function(), true, features_without_int64, "2");
-        check_fast_math_native_frem(float_fast, "optimized fast-math float remainder");
+        check_integer_significand_reduction(
+            float_fast, "optimized fast-math float remainder");
 
         auto double_fast = compile_remainder_kernel(
             double_kernel.function()->function(), true, all_target_features, "2");
-        check_fast_math_native_frem(double_fast, "optimized fast-math double remainder");
+        check_chunked_binary64_reduction(
+            double_fast, "optimized fast-math double remainder");
     };
 }

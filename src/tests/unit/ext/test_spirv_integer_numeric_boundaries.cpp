@@ -664,7 +664,20 @@ int main(int argc, char *argv[]) {
             spv::Op::OpShiftLeftLogical))
             << "rotate-right must use the reduced count for the right shift and "
                "the reverse count for the left shift";
-        expect(eq(facts.shifts.size(), 7u))
+        // Count only the shifts on this fixture's own values. The dispatch-bounds
+        // prologue strength-reduces its `dispatch_size / block_size` into a
+        // logical shift, which is exact but not part of this contract.
+        auto owned_shift_count = size_t{0u};
+        for (auto &&shift : facts.shifts) {
+            owned_shift_count +=
+                shift.base_id == wide_value_id ||
+                        shift.base_id == signed_value_id ||
+                        shift.base_id == rotate_left_value_id ||
+                        shift.base_id == rotate_right_value_id ?
+                    1u :
+                    0u;
+        }
+        expect(eq(owned_shift_count, 7u))
             << "no extra or missing shift may hide a changed rotate lowering";
     };
 
