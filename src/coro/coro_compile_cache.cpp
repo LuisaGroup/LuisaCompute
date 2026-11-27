@@ -1,3 +1,5 @@
+#include <cstdlib>
+
 #include "coro_compile_cache.h"
 
 #include <luisa/ast/callable_library.h>
@@ -23,7 +25,6 @@
 #include <atomic>
 #include <charconv>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -363,17 +364,23 @@ public:
 
     if (!walk_stmt(walk_stmt, fb->body(), 0u)) { return false; }
 
-    luisa::vector<const FunctionBuilder *> remaining;
+    // Keep EASTL and std swap overloads out of argument-dependent lookup.
+    struct CallableRef {
+        const FunctionBuilder *builder;
+    };
+    luisa::vector<CallableRef> remaining;
     for (auto const &callee : fb->custom_callables()) {
         if (callee == nullptr) { return false; }
-        if (!visited.contains(callee.get())) { remaining.emplace_back(callee.get()); }
+        if (!visited.contains(callee.get())) { remaining.emplace_back(CallableRef{callee.get()}); }
     }
-    luisa::sort(remaining.begin(), remaining.end(), [](auto *a, auto *b) noexcept {
+    luisa::sort(remaining.begin(), remaining.end(), [](CallableRef lhs, CallableRef rhs) noexcept {
+        auto *a = lhs.builder;
+        auto *b = rhs.builder;
         if (a->hash() != b->hash()) { return a->hash() < b->hash(); }
         if (a->tag() != b->tag()) { return to_underlying(a->tag()) < to_underlying(b->tag()); }
         return a->name() < b->name();
     });
-    for (auto *callee : remaining) {
+    for (auto [callee] : remaining) {
         if (!collect_and_hash_function_tree(
                 callee, false, visited, visiting, hasher, fn_depth + 1u)) {
             return false;
