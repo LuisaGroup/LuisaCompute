@@ -239,6 +239,28 @@ void ResourceBarrier::record(
         detail::TextureLayoutContract::EXPLICIT_NATIVE);
 }
 
+[[nodiscard]] static bool can_skip_readonly_buffer_record(
+    ResourceBarrier::BufferStates const &state,
+    detail::QueueType queue_type,
+    uint32_t vendor_id,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access) noexcept {
+    if (state.require_update || state.before_state_supplied ||
+        state.range.before_stage == VK_PIPELINE_STAGE_2_NONE) {
+        return false;
+    }
+    if (detail::needs_nvidia_transfer_read_widening(vendor_id, access)) {
+        return false;
+    }
+    auto const norm = detail::normalize_queue_scope(queue_type, stage, access);
+    if (detail::has_write_access(norm.access) ||
+        detail::has_write_access(state.range.before_access)) {
+        return false;
+    }
+    return (state.range.before_stage & norm.stages) == norm.stages &&
+           (state.range.before_access & norm.access) == norm.access;
+}
+
 void ResourceBarrier::_record(
     ResourceView const &res,
     VkPipelineStageFlagBits2 stage,
@@ -254,6 +276,14 @@ void ResourceBarrier::_record(
         auto try_res = _buffer_frame_states.try_emplace(identity, buffer);
         auto &state = try_res.first.value();
         LUISA_DEBUG_ASSERT(state.buffer == buffer);
+        if (!try_res.second) {
+            uint32_t const vendor_id =
+                device != nullptr ? device->properties().vendorID : 0u;
+            if (can_skip_readonly_buffer_record(
+                    state, queue_type, vendor_id, stage, access)) {
+                return;
+            }
+        }
         if (try_res.second &&
             _bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
             state.range.before_stage = _bindless_memory_state.before_stage;
@@ -801,12 +831,19 @@ void ResourceBarrier::_flush_layer_bindless_accesses() {
         vstd::fixed_vector<TextureStates *, 16> matched_tracked_textures;
         vstd::fixed_vector<Texture const *, 8> non_general_textures;
 
+        uint32_t const vendor_id =
+            device != nullptr ? device->properties().vendorID : 0u;
         {
             std::lock_guard lock{bdls_arr->mtx};
             has_buffers = bdls_arr->has_encoded_buffers();
             has_textures = bdls_arr->has_encoded_textures();
             if (has_buffers && !_buffer_frame_states.empty()) {
                 for (auto &entry : _buffer_frame_states) {
+                    if (can_skip_readonly_buffer_record(
+                            entry.second, queue_type, vendor_id,
+                            buf_stage, buf_access)) {
+                        continue;
+                    }
                     if (bdls_arr->contains_encoded_canonical_buffer(entry.first)) {
                         matched_buffers.emplace_back(entry.first, &entry.second);
                     }

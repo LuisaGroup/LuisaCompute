@@ -497,6 +497,16 @@ public:
         return argument;
     }
 
+    [[nodiscard]] size_t index() const noexcept { return _index; }
+
+    void seek(size_t idx) noexcept {
+        LUISA_ASSERT(
+            idx <= _arguments.size(),
+            "Vulkan SavedArgumentCursor seek {} out of range {}.",
+            idx, _arguments.size());
+        _index = idx;
+    }
+
     void finish(const char *phase) const noexcept {
         LUISA_ASSERT(
             _index == _arguments.size(),
@@ -567,7 +577,7 @@ static void validate_saved_argument_count(
         }
         return true;
     };
-    if (!append_uniforms(shader->captured()) ||
+    if ((shader->captured_has_uniforms() && !append_uniforms(shader->captured())) ||
         !append_uniforms(command->arguments())) {
         return plan;
     }
@@ -1173,6 +1183,7 @@ struct BindPropVisitor {
     detail::ShaderCodegenDialect codegen_dialect{
         detail::ShaderCodegenDialect::HLSL_SPIRV};
     ResourceBarrier::Usage uav_usage;
+    bool pending_captured_cache_commit{false};
     [[nodiscard]] const hlsl::Property *binding_at(uint index) const noexcept {
         return shader != nullptr ?
                    shader->local_descriptor_property(index) :
@@ -2051,8 +2062,7 @@ VkDescriptorSet CommandBufferState::allocate_descriptor_set(
             if (bucket.cursor < bucket.sets.size()) {
                 if (shader_id != 0u &&
                     bucket.sets[bucket.cursor].last_shader_id != shader_id) {
-                    auto const limit = std::min(bucket.sets.size(), bucket.cursor + 8u);
-                    for (size_t k = bucket.cursor + 1u; k < limit; ++k) {
+                    for (size_t k = bucket.cursor + 1u; k < bucket.sets.size(); ++k) {
                         if (bucket.sets[k].last_shader_id == shader_id) {
                             std::swap(bucket.sets[bucket.cursor], bucket.sets[k]);
                             break;
@@ -2315,6 +2325,9 @@ void CommandBufferState::reset_native(
             if (clear_cached_bindings) {
                 for (auto &item : entry.second.sets) {
                     item.bindings.clear();
+                    item.captured_shader_id = 0u;
+                    item.captured_resource_gen = 0u;
+                    item.captured_dynamic_args.clear();
                 }
             }
         }
@@ -5227,6 +5240,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         }
         resource_barrier->update_states(_cmdbuffer);
 
+        static const bool diff_desc_enabled =
+            !luisa::compute::detail::env_flag("LUISA_VK_DISABLE_DIFF_DESC_UPDATE");
         size_t dispatch_offset_index = 0u;
         auto set_dispatch_args = [&](
                                      Command const *identity,
@@ -5270,13 +5285,25 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             // lets the state reuse the set it allocated for the batch before this one
             // instead of calling vkAllocateDescriptorSets again.
             visitor.cached_desc_entry = nullptr;
+            visitor.pending_captured_cache_commit = false;
             visitor.desc_set = shader->uses_push_descriptors() ?
                                    VK_NULL_HANDLE :
                                    _state->allocate_descriptor_set(
                                        shader->desc_set_layout_id(0u),
                                        shader->desc_set_layout()[0],
-                                       reinterpret_cast<uint64_t>(shader),
+                                       shader->shader_instance_id(),
                                        &visitor.cached_desc_entry);
+            auto const cur_res_gen = device()->resource_destroy_generation();
+            bool const entry_diff_eligible =
+                diff_desc_enabled &&
+                !device()->descriptor_update_template_capable() &&
+                visitor.cached_desc_entry != nullptr &&
+                shader->captured_can_fast_skip_descriptors();
+            bool const fast_skip_captured =
+                entry_diff_eligible &&
+                cur_res_gen == _state->cached_resource_generation &&
+                visitor.cached_desc_entry->captured_shader_id == shader->shader_instance_id() &&
+                visitor.cached_desc_entry->captured_resource_gen == cur_res_gen;
             if (descriptor_range > 0u) {
                 LUISA_ASSERT(
                     arg_buffer.buffer != nullptr,
@@ -5320,22 +5347,26 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     nullptr});
             }
             if (shader->has_constant_ubo()) {
-                auto ubo_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-                *ubo_info = VkDescriptorBufferInfo{
-                    shader->constant_ubo()->vk_buffer(),
-                    0,
-                    shader->constant_ubo()->byte_size()};
-                write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    nullptr,
-                    visitor.desc_set,
-                    desc_index++,
-                    0,
-                    1,
-                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    nullptr,
-                    ubo_info,
-                    nullptr});
+                if (fast_skip_captured) {
+                    desc_index++;
+                } else {
+                    auto ubo_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                    *ubo_info = VkDescriptorBufferInfo{
+                        shader->constant_ubo()->vk_buffer(),
+                        0,
+                        shader->constant_ubo()->byte_size()};
+                    write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        nullptr,
+                        visitor.desc_set,
+                        desc_index++,
+                        0,
+                        1,
+                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                        nullptr,
+                        ubo_info,
+                        nullptr});
+                }
             }
             visitor.desc_index = desc_index;
             visitor.img_views = &_state->img_views;
@@ -5348,7 +5379,34 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 shader->shader_tag() == Shader::ShaderTag::kRasterShader ?
                     ResourceBarrier::Usage::kRasterUAV :
                     ResourceBarrier::Usage::kComputeUAV;
-            decode_cmd(shader->captured(), visitor);
+            auto const captured_span = shader->captured();
+            if (fast_skip_captured) {
+                for (auto const &dyn : visitor.cached_desc_entry->captured_dynamic_args) {
+                    visitor.arguments.seek(dyn.saved_arg_index);
+                    visitor.desc_index = dyn.desc_index;
+                    decode_cmd(vstd::span<const Argument>{&captured_span[dyn.captured_index], 1u}, visitor);
+                }
+                visitor.arguments.seek(captured_span.size());
+                visitor.desc_index = visitor.cached_desc_entry->captured_desc_end_index;
+            } else if (entry_diff_eligible) {
+                visitor.cached_desc_entry->captured_dynamic_args.clear();
+                for (uint32_t ci = 0u; ci < static_cast<uint32_t>(captured_span.size()); ++ci) {
+                    auto const &cap_arg = captured_span[ci];
+                    if (cap_arg.tag == Argument::Tag::BINDLESS_ARRAY ||
+                        cap_arg.tag == Argument::Tag::ACCEL) {
+                        visitor.cached_desc_entry->captured_dynamic_args.emplace_back(
+                            CommandBufferState::CapturedDynamicDescArg{
+                                .captured_index = ci,
+                                .saved_arg_index = static_cast<uint32_t>(visitor.arguments.index()),
+                                .desc_index = visitor.desc_index});
+                    }
+                    decode_cmd(vstd::span<const Argument>{&cap_arg, 1u}, visitor);
+                }
+                visitor.cached_desc_entry->captured_desc_end_index = visitor.desc_index;
+                visitor.pending_captured_cache_commit = true;
+            } else {
+                decode_cmd(captured_span, visitor);
+            }
             decode_cmd(c->arguments(), visitor);
             visitor.arguments.finish("descriptor binding");
             if (shader->uses_indirect_dispatch()) {
@@ -5478,16 +5536,21 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     0u);
                 desc_sets->clear();
             } else {
+                if (diff_desc_enabled && visitor.cached_desc_entry != nullptr &&
+                    !device()->descriptor_update_template_capable()) {
+                    if (device()->resource_destroy_generation() !=
+                        _state->cached_resource_generation) {
+                        visitor.cached_desc_entry->bindings.clear();
+                        visitor.cached_desc_entry->captured_shader_id = 0u;
+                        visitor.cached_desc_entry->captured_resource_gen = 0u;
+                        visitor.cached_desc_entry->captured_dynamic_args.clear();
+                        visitor.pending_captured_cache_commit = false;
+                    }
+                }
                 if (!write_desc_sets->empty()) {
-                    static const bool diff_desc_enabled =
-                        !luisa::compute::detail::env_flag("LUISA_VK_DISABLE_DIFF_DESC_UPDATE");
                     if (diff_desc_enabled && visitor.cached_desc_entry != nullptr &&
                         !device()->descriptor_update_template_capable()) {
                         auto &cached_bindings = visitor.cached_desc_entry->bindings;
-                        if (device()->resource_destroy_generation() !=
-                            _state->cached_resource_generation) {
-                            cached_bindings.clear();
-                        }
                         uint32_t max_binding = 0u;
                         for (auto const &w : *write_desc_sets) {
                             if (w.dstBinding > max_binding) {
@@ -5596,6 +5659,12 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         }
                         write_desc_sets->clear();
                     }
+                }
+                if (visitor.pending_captured_cache_commit &&
+                    visitor.cached_desc_entry != nullptr &&
+                    device()->resource_destroy_generation() == _state->cached_resource_generation) {
+                    visitor.cached_desc_entry->captured_shader_id = shader->shader_instance_id();
+                    visitor.cached_desc_entry->captured_resource_gen = _state->cached_resource_generation;
                 }
                 desc_sets->clear();
                 desc_sets->push_back(visitor.desc_set);

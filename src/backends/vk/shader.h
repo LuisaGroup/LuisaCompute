@@ -52,6 +52,9 @@ protected:
     // size) and never re-evaluated: the flag describes the *layout* object, so a
     // dispatch cannot switch paths mid-frame.
     bool _uses_push_descriptor_set{false};
+    uint64_t _shader_instance_id{0u};
+    bool _captured_has_uniforms{false};
+    bool _captured_can_fast_skip_descriptors{false};
     uint _validation_count{0};
     uint32_t _push_constant_size{32u};
     uint32_t _local_descriptor_binding_count{};
@@ -125,6 +128,15 @@ public:
     // path of a given shader is fixed for its whole lifetime.
     [[nodiscard]] bool uses_push_descriptors() const noexcept {
         return _uses_push_descriptor_set;
+    }
+    [[nodiscard]] uint64_t shader_instance_id() const noexcept {
+        return _shader_instance_id;
+    }
+    [[nodiscard]] bool captured_has_uniforms() const noexcept {
+        return _captured_has_uniforms;
+    }
+    [[nodiscard]] bool captured_can_fast_skip_descriptors() const noexcept {
+        return _captured_can_fast_skip_descriptors;
     }
     uint validation_count() const { return _validation_count; }
     uint32_t push_constant_size() const { return _push_constant_size; }

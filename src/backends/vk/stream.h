@@ -140,10 +140,19 @@ struct CommandBufferState {
         VkDeviceSize range{0u};
         [[nodiscard]] bool operator==(const CachedDescriptorBinding &) const noexcept = default;
     };
+    struct CapturedDynamicDescArg {
+        uint32_t captured_index{0u};
+        uint32_t saved_arg_index{0u};
+        uint32_t desc_index{0u};
+    };
     struct CachedDescriptorSetEntry {
         VkDescriptorSet set{VK_NULL_HANDLE};
         uint64_t last_shader_id{0u};
         luisa::vector<CachedDescriptorBinding> bindings;
+        uint64_t captured_shader_id{0u};
+        uint64_t captured_resource_gen{0u};
+        uint32_t captured_desc_end_index{0u};
+        luisa::vector<CapturedDynamicDescArg> captured_dynamic_args;
     };
     struct CachedDescriptorSetBucket {
         vstd::vector<CachedDescriptorSetEntry> sets;

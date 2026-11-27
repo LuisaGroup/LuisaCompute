@@ -17,17 +17,11 @@ namespace {
 // changed before the blocking wait returns from it immediately.
 [[nodiscard]] uint32_t sync_pause_iterations() noexcept {
     static auto const iterations = [] {
-        // Phase 3B (opt C) measurement: blocking costs 150-200 us per decode token on
-        // this host. `example_qwen --version dsl-q8 --synthetic-prompt-len 128`
-        // (interleaved A/B, 2 runs per arm) reported 10.18/10.29 ms/token with a 500 us
-        // budget that really slept during the ~9 ms GPU wait, and 10.00/10.01 ms/token
-        // with the budget raised past the wait. The wakeup of a blocked thread is a
-        // kernel transition (WaitOnAddress), which is far more expensive than the
-        // microsecond the poll costs, so the default budget is 20 ms: it still ends in a
-        // blocking wait for a pathological multi-second stall, but a decode token -
-        // and every per-command `commit()+synchronize()` - is served by polling.
+        // Blocking on the timeline semaphore/WaitOnAddress frees CPU power
+        // headroom on power-shared GPUs instead of busy-spinning for 20 ms,
+        // while still honoring `LUISA_VK_SYNC_SPIN_US` when polling is wanted.
         return detail::parse_spin_pause_iterations(
-            std::getenv("LUISA_VK_SYNC_SPIN_US"), 20'000u);
+            std::getenv("LUISA_VK_SYNC_SPIN_US"), 0u);
     }();
     return iterations;
 }

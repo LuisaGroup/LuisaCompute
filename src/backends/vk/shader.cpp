@@ -6,8 +6,13 @@
 #include "shader_binary_contract.h"
 #include "descriptor_interface_plan.h"
 #include "shader_interface_plan.h"
+#include <atomic>
 #include <limits>
 namespace lc::vk {
+
+namespace {
+std::atomic<uint64_t> next_shader_instance_id{1u};
+}// namespace
 
 SavedArgument::SavedArgument(luisa::compute::Type const *type) {
     auto checked_u32_size = [](size_t size, luisa::string_view description) {
@@ -46,7 +51,8 @@ Shader::Shader(
     detail::ShaderCodegenDialect codegen_dialect,
  bool allow_push_descriptors)
     : Resource{device}, _captured{std::move(captured)}, _saved_arguments(std::move(saved_arguments)),
-      _shader_tag(tag), _use_tex2d_bindless(use_tex2d_bindless), _use_tex3d_bindless(use_tex3d_bindless), _use_buffer_bindless(use_buffer_bindless), _printers(std::move(printers)), _validation_count(validation_count), _push_constant_size(push_constant_size), _codegen_dialect(codegen_dialect) {
+      _shader_tag(tag), _use_tex2d_bindless(use_tex2d_bindless), _use_tex3d_bindless(use_tex3d_bindless), _use_buffer_bindless(use_buffer_bindless), _printers(std::move(printers)), _validation_count(validation_count), _push_constant_size(push_constant_size), _codegen_dialect(codegen_dialect),
+      _shader_instance_id(next_shader_instance_id.fetch_add(1u, std::memory_order_relaxed)) {
     auto argument_contract = plan_saved_argument_contract(
         _saved_arguments, validation_count);
     LUISA_ASSERT(
@@ -494,6 +500,31 @@ vstd::push_back_all(_binds, binds);
         _constant_ubo = luisa::make_unique<UploadBuffer>(device, constant_ubo_data.size_bytes());
         _constant_ubo->copy_from(constant_ubo_data.data(), 0, constant_ubo_data.size_bytes());
         _constant_ubo->flush_host();
+    }
+    _captured_can_fast_skip_descriptors = !_uses_push_descriptor_set;
+    for (auto const &arg : _captured) {
+        switch (arg.tag) {
+            case Argument::Tag::UNIFORM:
+                _captured_has_uniforms = true;
+                break;
+            case Argument::Tag::BUFFER:
+                if (arg.buffer.handle == 0u ||
+                    reinterpret_cast<Buffer const *>(arg.buffer.handle)->is_indirect_dispatch_buffer()) {
+                    _captured_can_fast_skip_descriptors = false;
+                }
+                break;
+            case Argument::Tag::BINDLESS_ARRAY:
+                break;
+            case Argument::Tag::ACCEL:
+                if (arg.accel.handle == 0u ||
+                    device->owns_fallback_accel(arg.accel.handle)) {
+                    _captured_can_fast_skip_descriptors = false;
+                }
+                break;
+            default:
+                _captured_can_fast_skip_descriptors = false;
+                break;
+        }
     }
     constructed = true;
 }

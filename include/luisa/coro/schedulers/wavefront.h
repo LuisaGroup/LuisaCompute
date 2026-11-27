@@ -521,6 +521,56 @@ private:
         }
     }
 
+    [[nodiscard]] static bool _scope_may_return(const ScopeStmt *scope) noexcept {
+        if (scope == nullptr) { return false; }
+        for (auto *stmt : scope->statements()) {
+            if (_stmt_may_return(stmt)) { return true; }
+        }
+        return false;
+    }
+
+    [[nodiscard]] static bool _stmt_may_return(const Statement *stmt) noexcept {
+        if (stmt == nullptr) { return false; }
+        switch (stmt->tag()) {
+            case Statement::Tag::BREAK:
+            case Statement::Tag::CONTINUE:
+            case Statement::Tag::COMMENT:
+            case Statement::Tag::DEBUG_BREAK:
+            case Statement::Tag::ASSIGN:
+            case Statement::Tag::EXPR:
+            case Statement::Tag::PRINT:
+                return false;
+            case Statement::Tag::RETURN:
+                return true;
+            case Statement::Tag::SCOPE:
+                return _scope_may_return(static_cast<const ScopeStmt *>(stmt));
+            case Statement::Tag::IF: {
+                auto *ifs = static_cast<const IfStmt *>(stmt);
+                return _scope_may_return(ifs->true_branch()) ||
+                       _scope_may_return(ifs->false_branch());
+            }
+            case Statement::Tag::FOR:
+                return _scope_may_return(static_cast<const ForStmt *>(stmt)->body());
+            case Statement::Tag::LOOP:
+                return _scope_may_return(static_cast<const LoopStmt *>(stmt)->body());
+            case Statement::Tag::SWITCH:
+                return _scope_may_return(static_cast<const SwitchStmt *>(stmt)->body());
+            case Statement::Tag::SWITCH_CASE:
+                return _scope_may_return(static_cast<const SwitchCaseStmt *>(stmt)->body());
+            case Statement::Tag::SWITCH_DEFAULT:
+                return _scope_may_return(static_cast<const SwitchDefaultStmt *>(stmt)->body());
+            case Statement::Tag::AUTO_DIFF:
+                return _scope_may_return(static_cast<const AutoDiffStmt *>(stmt)->body());
+            case Statement::Tag::RAY_QUERY: {
+                auto *rq = static_cast<const RayQueryStmt *>(stmt);
+                return _scope_may_return(rq->on_triangle_candidate()) ||
+                       _scope_may_return(rq->on_procedural_candidate());
+            }
+            default:
+                return true;
+        }
+    }
+
     struct _ScopeTokenAnalysis {
         bool always_returns{false};
         bool normal_expected{false};
@@ -607,8 +657,26 @@ private:
                 }
                 case Statement::Tag::RETURN:
                     return {true, false, definitely_expected};
+                case Statement::Tag::FOR:
+                    if (_scope_may_return(static_cast<const ForStmt *>(stmt)->body())) {
+                        return {false, false, false};
+                    }
+                    definitely_expected = false;
+                    break;
+                case Statement::Tag::LOOP:
+                    if (_scope_may_return(static_cast<const LoopStmt *>(stmt)->body())) {
+                        return {false, false, false};
+                    }
+                    definitely_expected = false;
+                    break;
+                case Statement::Tag::SWITCH:
+                    if (_scope_may_return(static_cast<const SwitchStmt *>(stmt)->body())) {
+                        return {false, false, false};
+                    }
+                    definitely_expected = false;
+                    break;
                 default:
-                    // Conservative fail-closed on loops, switches, or extension statements.
+                    // Conservative fail-closed on unhandled statements.
                     return {false, false, false};
             }
         }
