@@ -1,5 +1,7 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
+#include <Resource/BindlessArray.h>
+#include <Resource/TopAccel.h>
 #include "../../common/hlsl/hlsl_codegen.h"
 #include "../../common/hlsl/shader_compiler.h"
 #include <luisa/core/clock.h>
@@ -501,11 +503,62 @@ void ComputeShader::_init_captured_preprocess() {
     }
     if (can_fast) {
         _captured_can_fast_preprocess = true;
+        _captured_bind_props.clear();
+        _captured_accel_inst_patches.clear();
+        _captured_prop_is_dynamic.clear();
+        for (size_t i = 0u; i < _arg_bindings.size(); ++i) {
+            auto const &arg = _arg_bindings[i];
+            auto const &saved = _kernel_arguments[i];
+            bool const is_write =
+                (static_cast<uint>(saved.var_usage) &
+                 static_cast<uint>(luisa::compute::Usage::WRITE)) != 0u;
+            switch (arg.tag) {
+                case luisa::compute::Argument::Tag::BUFFER: {
+                    auto const *res =
+                        reinterpret_cast<Buffer const *>(arg.buffer.handle);
+                    const uint64 byte_size = arg.buffer.size > 0u ?
+                                                 arg.buffer.size :
+                                                 (res->GetByteSize() - arg.buffer.offset);
+                    _captured_bind_props.emplace_back(
+                        BufferView(res, arg.buffer.offset, byte_size));
+                    _captured_prop_is_dynamic.emplace_back(0u);
+                } break;
+                case luisa::compute::Argument::Tag::BINDLESS_ARRAY: {
+                    auto const *arr =
+                        reinterpret_cast<BindlessArray const *>(arg.bindless_array.handle);
+                    _captured_bind_props.emplace_back(
+                        BufferView(arr->BindlessBuffer(), 0));
+                    _captured_prop_is_dynamic.emplace_back(0u);
+                } break;
+                case luisa::compute::Argument::Tag::ACCEL: {
+                    auto const *accel =
+                        reinterpret_cast<TopAccel const *>(arg.accel.handle);
+                    if (!is_write) {
+                        _captured_bind_props.emplace_back(accel);
+                        _captured_prop_is_dynamic.emplace_back(1u);
+                    }
+                    _captured_accel_inst_patches.emplace_back(CapturedAccelInstPatch{
+                        .prop_offset = static_cast<uint32_t>(_captured_bind_props.size()),
+                        .accel = accel});
+                    auto const *inst_buf = accel->GetInstBuffer();
+                    _captured_bind_props.emplace_back(
+                        inst_buf != nullptr ? BufferView(inst_buf) : BufferView(nullptr, 0u, 0u));
+                    _captured_prop_is_dynamic.emplace_back(1u);
+                } break;
+                default:
+                    break;
+            }
+        }
+        _captured_can_fast_bind = true;
     } else {
         _captured_readonly_buffers.clear();
         _captured_writable_buffers.clear();
         _captured_bindless.clear();
         _captured_accels.clear();
+        _captured_bind_props.clear();
+        _captured_accel_inst_patches.clear();
+        _captured_prop_is_dynamic.clear();
+        _captured_can_fast_bind = false;
     }
 }
 

@@ -33,6 +33,7 @@ public:
         bool before_state_supplied{false};
         bool require_update{false};
         bool referenced_by_readonly_cache{false};
+        bool in_non_pure_compute_read_list{false};
         explicit BufferStates(VkBuffer buffer) noexcept
             : buffer{buffer} {}
     };
@@ -81,6 +82,7 @@ private:
     };
     vstd::HashMap<detail::NativeBufferIdentity, BufferStates> _buffer_frame_states;
     vstd::vector<std::pair<detail::NativeBufferIdentity, BufferStates *>> _current_buffer_update_states;
+    vstd::vector<std::pair<detail::NativeBufferIdentity, BufferStates *>> _non_pure_compute_read_buffers;
     vstd::HashMap<detail::NativeImageIdentity, TextureStates> _texture_frame_states;
     vstd::vector<std::pair<detail::NativeImageIdentity, TextureStates *>> _current_texture_update_states;
     vstd::vector<TextureDescriptorView> _current_texture_descriptor_views;
@@ -91,7 +93,13 @@ private:
     vstd::vector<VkImageMemoryBarrier2> _tex_barriers;
     vstd::vector<VkBufferMemoryBarrier2> _buffer_barriers;
     TextureStates &_texture_state(Texture const *texture);
-    void _update_state(BufferStates &states);
+    void _mark_non_pure_compute_read(
+        detail::NativeBufferIdentity identity, BufferStates &state);
+    BufferStates *_record_buffer(
+        BufferView const &buffer_view,
+        VkPipelineStageFlagBits2 stage,
+        VkAccessFlagBits2 access);
+    void _update_state(detail::NativeBufferIdentity identity, BufferStates &states);
     void _update_state(TextureStates &states);
     void _resolve_texture_descriptor_layouts();
     void _flush_layer_bindless_accesses();

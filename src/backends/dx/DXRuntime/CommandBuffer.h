@@ -19,28 +19,43 @@ class CommandBufferBuilder {
 
 private:
     CommandBuffer const *_cb;
+    ID3D12RootSignature *_bound_compute_root_sig{nullptr};
+    ID3D12PipelineState *_bound_pso{nullptr};
     CommandBufferBuilder(CommandBuffer const *_cb);
     CommandBufferBuilder(CommandBufferBuilder const &) = delete;
     CommandBufferBuilder(CommandBufferBuilder &&);
     void set_compute_resources(
         Shader const *s,
-        vstd::span<const BindProperty> resources);
+        vstd::span<const BindProperty> resources,
+        size_t captured_begin = 0u,
+        size_t captured_end = 0u,
+        vstd::span<const uint8_t> captured_is_dynamic = {});
     void set_raster_resources(
         Shader const *s,
         vstd::span<const BindProperty> resources);
 
 public:
     [[nodiscard]] CommandBuffer const *get_cb() const { return _cb; }
+    void reset_pipeline_state() noexcept {
+        _bound_compute_root_sig = nullptr;
+        _bound_pso = nullptr;
+    }
 
     void dispatch_compute(
         ComputeShader const *cs,
         uint3 dispatchId,
-        vstd::span<const BindProperty> resources);
+        vstd::span<const BindProperty> resources,
+        size_t captured_begin = 0u,
+        size_t captured_end = 0u,
+        vstd::span<const uint8_t> captured_is_dynamic = {});
     void dispatch_compute(
         ComputeShader const *cs,
         vstd::span<const uint3> dispatchSizes,
         uint constBindPos,
-        vstd::span<const BindProperty> resources);
+        vstd::span<const BindProperty> resources,
+        size_t captured_begin = 0u,
+        size_t captured_end = 0u,
+        vstd::span<const uint8_t> captured_is_dynamic = {});
     // Binds a root signature, a graphics pipeline state and one root resource per
     // property. Only `Shader::root_sig()` / `properties()` are read, so the
     // parameter is a plain `Shader`: a DSL `RasterShader` and a native raster
@@ -54,7 +69,10 @@ public:
         Buffer const &indirectBuffer,
         uint32_t indirectOffset,
         uint32_t maxIndirectCount,
-        vstd::span<const BindProperty> resources);
+        vstd::span<const BindProperty> resources,
+        size_t captured_begin = 0u,
+        size_t captured_end = 0u,
+        vstd::span<const uint8_t> captured_is_dynamic = {});
     /*void DispatchRT(
         RTShader const *rt,
         uint3 dispatchId,

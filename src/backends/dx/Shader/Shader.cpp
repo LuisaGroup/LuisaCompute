@@ -336,7 +336,10 @@ void write_spilled_uav_descriptor(
 
 void Shader::bind_compute_resources(
     CommandBufferBuilder *cb,
-    vstd::span<const BindProperty> resources) const {
+    vstd::span<const BindProperty> resources,
+    size_t captured_begin,
+    size_t captured_end,
+    vstd::span<const uint8_t> captured_is_dynamic) const {
     LUISA_ASSUME(resources.size() == _properties.size());
     if (!_spilled_tables) {
         for (auto i : vstd::range(static_cast<int64>(resources.size()))) {
@@ -356,11 +359,16 @@ void Shader::bind_compute_resources(
     auto *cached = total_spilled > 0u ?
                        alloc->acquire_spilled_table(_shader_uid, total_spilled) :
                        nullptr;
+    const bool has_captured_meta =
+        captured_end > captured_begin &&
+        captured_end <= resources.size() &&
+        captured_is_dynamic.size() == (captured_end - captured_begin);
     if (cached != nullptr) {
         base = cached->base;
         if (cached->keys.size() != total_spilled) {
             cached->keys.assign(
                 total_spilled, CommandAllocator::SpilledDescriptorKey{});
+            cached->captured_valid = false;
         }
     } else if (total_spilled > 0u) {
         auto *node = heap->SubAllocate(total_spilled);
@@ -369,6 +377,8 @@ void Shader::bind_compute_resources(
             heap->DeAllocate(node);
         });
     }
+    const bool fast_skip_captured =
+        cached != nullptr && cached->captured_valid && has_captured_meta;
     for (size_t i = 0; i < resources.size(); ++i) {
         auto const &binding = _root_sig_bindings[i];
         switch (binding.kind) {
@@ -400,6 +410,11 @@ void Shader::bind_compute_resources(
             } break;
             case RootSigBinding::Kind::SpilledSRV: {
                 if (cached != nullptr) {
+                    if (fast_skip_captured && i >= captured_begin &&
+                        i < captured_end &&
+                        captured_is_dynamic[i - captured_begin] == 0u) {
+                        break;
+                    }
                     auto const key = make_spilled_descriptor_key(
                         binding, resources[i], false, sm69);
                     auto &slot_key = cached->keys[binding.index];
@@ -412,6 +427,11 @@ void Shader::bind_compute_resources(
             } break;
             case RootSigBinding::Kind::SpilledUAV: {
                 if (cached != nullptr) {
+                    if (fast_skip_captured && i >= captured_begin &&
+                        i < captured_end &&
+                        captured_is_dynamic[i - captured_begin] == 0u) {
+                        break;
+                    }
                     auto const key = make_spilled_descriptor_key(
                         binding, resources[i], true, sm69);
                     auto &slot_key = cached->keys[_spilled_srv_count + binding.index];
@@ -423,6 +443,9 @@ void Shader::bind_compute_resources(
                 write_spilled_uav_descriptor(heap, base + _spilled_srv_count + binding.index, binding, resources[i], sm69);
             } break;
         }
+    }
+    if (cached != nullptr && has_captured_meta) {
+        cached->captured_valid = true;
     }
     if (_spilled_srv_count > 0u) {
         cmd_list->SetComputeRootDescriptorTable(_spilled_srv_root_param, heap->hGPU(base));

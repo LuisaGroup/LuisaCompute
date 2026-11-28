@@ -81,6 +81,7 @@ public:
         luisa::FirstFit::Node *node{nullptr};
         uint32_t base{0u};
         uint32_t total_slots{0u};
+        bool captured_valid{false};
         luisa::vector<SpilledDescriptorKey> keys;
     };
     struct CachedSpilledTableBucket {

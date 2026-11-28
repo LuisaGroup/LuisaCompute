@@ -1326,6 +1326,7 @@ void DxNativeShaderExt::encode(
         return;
     }
     auto *shader = entry->shader;
+    builder->reset_pipeline_state();
     auto cmd_list = builder->get_cb()->cmd_list();
     cmd_list->SetComputeRootSignature(shader->root_sig());
     cmd_list->SetPipelineState(shader->pso());
@@ -1464,6 +1465,7 @@ bool encode_native_raster_draw(
             resource_count, binding_count);
         return false;
     }
+    builder->reset_pipeline_state();
     auto cmd_list = builder->get_cb()->cmd_list();
     cmd_list->SetGraphicsRootSignature(shader->root_sig());
     cmd_list->SetPipelineState(pso);

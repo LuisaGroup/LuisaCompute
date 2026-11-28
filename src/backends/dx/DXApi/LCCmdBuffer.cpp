@@ -1128,6 +1128,9 @@ public:
         BufferView count_buffer;
         BufferView data_buffer;
         CommandAllocator *alloc{nullptr};
+        size_t captured_begin = 0u;
+        size_t captured_end = 0u;
+        vstd::span<const uint8_t> captured_is_dynamic;
         auto BeforeDispatch = [&]() {
             bind_props->emplace_back(DescriptorHeapView(device->sampler_heap.get()));
             if (tempBuffer.second > 0) {
@@ -1135,9 +1138,29 @@ public:
             }
             DescriptorHeapView global_heapView(device->global_heap.get());
             vstd::push_back_func(*bind_props, shader->bindless_count(), [&] { return global_heapView; });
-            Visitor visitor{this, cs->args().data()};
-            decode_cmd(shader->arg_bindings(), visitor);
-            decode_cmd(cmd->arguments(), visitor);
+            if (cs->captured_can_fast_bind() &&
+                (lc_device == nullptr || lc_device->fallback_rtx() == nullptr ||
+                 cs->captured_accel_inst_patches().empty())) {
+                captured_begin = bind_props->size();
+                auto const cap_props = cs->captured_bind_props();
+                bind_props->reserve(captured_begin + cap_props.size());
+                for (auto const &p : cap_props) {
+                    bind_props->emplace_back(p);
+                }
+                captured_end = bind_props->size();
+                for (auto const &patch : cs->captured_accel_inst_patches()) {
+                    auto const *inst_buf = patch.accel->GetInstBuffer();
+                    (*bind_props)[captured_begin + patch.prop_offset] =
+                        inst_buf != nullptr ? BufferView(inst_buf) : BufferView(nullptr, 0u, 0u);
+                }
+                captured_is_dynamic = cs->captured_prop_is_dynamic();
+                Visitor visitor{this, cs->args().data() + cs->arg_bindings().size()};
+                decode_cmd(cmd->arguments(), visitor);
+            } else {
+                Visitor visitor{this, cs->args().data()};
+                decode_cmd(shader->arg_bindings(), visitor);
+                decode_cmd(cmd->arguments(), visitor);
+            }
             auto printers = shader->printers();
             if (!printers.empty()) [[unlikely]] {
                 alloc = bd->get_cb()->get_alloc();
@@ -1169,7 +1192,9 @@ public:
             auto buffer = reinterpret_cast<Buffer *>(t.handle);
             bind_props->emplace_back();
             BeforeDispatch();
-            bd->dispatch_compute_indirect(cs, *buffer, t.offset, t.max_dispatch_size, *bind_props);
+            bd->dispatch_compute_indirect(
+                cs, *buffer, t.offset, t.max_dispatch_size, *bind_props,
+                captured_begin, captured_end, captured_is_dynamic);
         } else if (cmd->is_multiple_dispatch()) {
             size_t bindCount = bind_props->size();
             bind_props->emplace_back();
@@ -1179,7 +1204,10 @@ public:
                 cs,
                 sizes,
                 bindCount,
-                *bind_props);
+                *bind_props,
+                captured_begin,
+                captured_end,
+                captured_is_dynamic);
         } else {
             auto &&t = cmd->dispatch_size();
             bind_props->emplace_back(4, make_uint4(t, 0));
@@ -1187,7 +1215,10 @@ public:
             bd->dispatch_compute(
                 cs,
                 t,
-                *bind_props);
+                *bind_props,
+                captured_begin,
+                captured_end,
+                captured_is_dynamic);
         }
         if (logger && data_buffer.buffer != nullptr) [[unlikely]] {
             state_tracker->Record(
@@ -1429,6 +1460,7 @@ public:
             *state_tracker,
             *bd,
             scratch.has_value() ? scratch.ptr() : nullptr);
+        bd->reset_pipeline_state();
     }
     void bottom_build(uint64 handle) {
         flush_all_pending();
@@ -1438,6 +1470,7 @@ public:
             *bd,
             BufferView(accel_scratch_buffer, accel_scratch_offsets->first, accel_scratch_offsets->second),
             *bottom_accel_data);
+        bd->reset_pipeline_state();
         if (accel->RequireCompact()) {
             update_accel->emplace_back(ButtomCompactCmd{
                 .accel = accel,
@@ -1461,6 +1494,7 @@ public:
                            accel_scratch_offsets->first,
                            accel_scratch_offsets->second),
                 cmd);
+            bd->reset_pipeline_state();
             accel_scratch_offsets++;
             return;
         }
@@ -1508,6 +1542,7 @@ public:
             device->device.Get(),
             bd->get_cb()->cmd_list());
         after_custom_cmd(device, bd);
+        bd->reset_pipeline_state();
     }
     void visit(const CustomCommand *cmd) noexcept override {
         flush_all_pending();

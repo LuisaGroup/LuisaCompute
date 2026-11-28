@@ -61,9 +61,11 @@ void CommandQueue::add_event(LCEvent const *evt, uint64_t fenceIdx) {
         evt->retain();
         std::lock_guard lck{_mtx};
         _executed_allocators.enqueue(evt, fenceIdx, true);
-        _work_epoch.fetch_add(1u, std::memory_order_release);
+        _work_epoch.fetch_add(1u, std::memory_order_seq_cst);
     }
-    _work_epoch.notify_one();
+    if (_retire_thread_sleeping.load(std::memory_order_seq_cst)) {
+        _work_epoch.notify_one();
+    }
 }
 
 void CommandQueue::_execute_thread() {
@@ -89,10 +91,12 @@ void CommandQueue::_execute_thread() {
                 while (prev_alloc < fence &&
                        !_completed_allocator_frame.compare_exchange_weak(
                            prev_alloc, fence,
-                           std::memory_order_release,
+                           std::memory_order_seq_cst,
                            std::memory_order_relaxed)) {
                 }
-                _completed_allocator_frame.notify_all();
+                if (_completed_allocator_waiters.load(std::memory_order_seq_cst) != 0u) {
+                    _completed_allocator_frame.notify_all();
+                }
             }
             // Wake Sync()/complete() waiters once GPU completion is visible,
             // overlapping allocator/command-list reset with host scheduling.
@@ -156,7 +160,12 @@ void CommandQueue::_execute_thread() {
         }
         if (_enabled.load(std::memory_order_acquire) &&
             _work_epoch.load(std::memory_order_acquire) == epoch_before) {
-            _work_epoch.wait(epoch_before, std::memory_order_acquire);
+            _retire_thread_sleeping.store(true, std::memory_order_seq_cst);
+            if (_enabled.load(std::memory_order_seq_cst) &&
+                _work_epoch.load(std::memory_order_seq_cst) == epoch_before) {
+                _work_epoch.wait(epoch_before, std::memory_order_acquire);
+            }
+            _retire_thread_sleeping.store(false, std::memory_order_relaxed);
         }
     }
     drain_queue();
@@ -174,10 +183,12 @@ void CommandQueue::force_sync(
         while (prev_alloc < curFrame &&
                !_completed_allocator_frame.compare_exchange_weak(
                    prev_alloc, curFrame,
-                   std::memory_order_release,
+                   std::memory_order_seq_cst,
                    std::memory_order_relaxed)) {
         }
-        _completed_allocator_frame.notify_all();
+        if (_completed_allocator_waiters.load(std::memory_order_seq_cst) != 0u) {
+            _completed_allocator_frame.notify_all();
+        }
     }
     alloc->reset(this);
     _executed_frame.store(curFrame, std::memory_order_release);
@@ -210,17 +221,25 @@ CommandQueue::~CommandQueue() {
     }
 }
 void CommandQueue::wait_allocator_frame(uint64_t fence) const noexcept {
-    for (;;) {
+    if (_completed_allocator_frame.load(std::memory_order_acquire) >= fence) {
+        return;
+    }
+    for (uint32_t spin = 0u; spin < 4096u; ++spin) {
         if (_completed_allocator_frame.load(std::memory_order_acquire) >= fence) {
             return;
         }
-        for (uint32_t spin = 0u; spin < 4096u; ++spin) {
-            if (_completed_allocator_frame.load(std::memory_order_acquire) >= fence) {
-                return;
-            }
-            LUISA_INTRIN_PAUSE();
+        LUISA_INTRIN_PAUSE();
+    }
+    struct WaiterGuard {
+        std::atomic_uint32_t &count;
+        ~WaiterGuard() {
+            count.fetch_sub(1u, std::memory_order_release);
         }
-        const auto cur = _completed_allocator_frame.load(std::memory_order_acquire);
+    };
+    _completed_allocator_waiters.fetch_add(1u, std::memory_order_seq_cst);
+    WaiterGuard guard{_completed_allocator_waiters};
+    for (;;) {
+        const auto cur = _completed_allocator_frame.load(std::memory_order_seq_cst);
         if (cur >= fence) {
             return;
         }
@@ -237,9 +256,11 @@ void CommandQueue::signal() {
     {
         std::lock_guard lck{_mtx};
         _executed_allocators.enqueue(WaitFence{}, curFrame, true);
-        _work_epoch.fetch_add(1u, std::memory_order_release);
+        _work_epoch.fetch_add(1u, std::memory_order_seq_cst);
     }
-    _work_epoch.notify_one();
+    if (_retire_thread_sleeping.load(std::memory_order_seq_cst)) {
+        _work_epoch.notify_one();
+    }
 }
 uint64_t CommandQueue::execute(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks, luisa::span<std::pair<IDXGISwapChain *, bool>> swapChains, bool cmdlist_is_empty) {
     auto curFrame = ++_last_frame;
@@ -250,9 +271,11 @@ uint64_t CommandQueue::execute(AllocatorPtr &&alloc, vstd::vector<vstd::function
             {
                 std::lock_guard lck{_mtx};
                 _executed_allocators.enqueue(std::move(callbacks), curFrame, true);
-                _work_epoch.fetch_add(1u, std::memory_order_release);
+                _work_epoch.fetch_add(1u, std::memory_order_seq_cst);
             }
-            _work_epoch.notify_one();
+            if (_retire_thread_sleeping.load(std::memory_order_seq_cst)) {
+                _work_epoch.notify_one();
+            }
         }
     } else {
         {
@@ -260,9 +283,11 @@ uint64_t CommandQueue::execute(AllocatorPtr &&alloc, vstd::vector<vstd::function
             _executed_allocators.enqueue(std::move(alloc), curFrame, callbacks.empty());
             if (!callbacks.empty())
                 _executed_allocators.enqueue(std::move(callbacks), curFrame, true);
-            _work_epoch.fetch_add(1u, std::memory_order_release);
+            _work_epoch.fetch_add(1u, std::memory_order_seq_cst);
         }
-        _work_epoch.notify_one();
+        if (_retire_thread_sleeping.load(std::memory_order_seq_cst)) {
+            _work_epoch.notify_one();
+        }
     }
     return curFrame;
 }

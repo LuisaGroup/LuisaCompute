@@ -856,6 +856,64 @@ inline void coro_frame_copy_fields(
     bool is_volatile = false) noexcept {
     LUISA_ASSERT(desc != nullptr, "Coroutine frame descriptor is null.");
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
+    struct PendingCopyOp {
+        const Type *type{nullptr};
+        const Expression *source_offset{nullptr};
+        const Expression *destination_offset{nullptr};
+        size_t words{0u};
+    };
+    constexpr size_t max_batch_ops = 8u;
+    constexpr size_t max_batch_words = 16u;
+    std::array<PendingCopyOp, max_batch_ops> pending_ops{};
+    std::array<const Expression *, max_batch_ops> loaded_values{};
+    size_t pending_count = 0u;
+    size_t pending_words = 0u;
+    auto flush_pending = [&]() noexcept {
+        if (pending_count == 0u) { return; }
+        for (size_t i = 0u; i < pending_count; ++i) {
+            coro_frame_mark_raw_access(layout);
+            auto *read_expr = fb->call(
+                pending_ops[i].type,
+                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
+                              CallOp::BYTE_BUFFER_READ,
+                {buffer.expression(), pending_ops[i].source_offset});
+            if (pending_count > 1u) {
+                auto *tmp = fb->local(pending_ops[i].type);
+                fb->assign(tmp, read_expr);
+                loaded_values[i] = tmp;
+            } else {
+                loaded_values[i] = read_expr;
+            }
+        }
+        for (size_t i = 0u; i < pending_count; ++i) {
+            coro_frame_mark_raw_access(layout);
+            fb->call(
+                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
+                              CallOp::BYTE_BUFFER_WRITE,
+                {buffer.expression(),
+                 pending_ops[i].destination_offset,
+                 loaded_values[i]});
+        }
+        pending_count = 0u;
+        pending_words = 0u;
+    };
+    auto enqueue_copy = [&](const Type *type,
+                            const Expression *src_offset,
+                            const Expression *dst_offset) noexcept {
+        const size_t op_words = std::max<size_t>(1u, (type->size() + 3u) / 4u);
+        if (!is_volatile && pending_count > 0u &&
+            (pending_count >= max_batch_ops ||
+             pending_words + op_words > max_batch_words)) {
+            flush_pending();
+        }
+        pending_ops[pending_count++] =
+            PendingCopyOp{type, src_offset, dst_offset, op_words};
+        pending_words += op_words;
+        if (is_volatile || pending_count >= max_batch_ops ||
+            pending_words >= max_batch_words) {
+            flush_pending();
+        }
+    };
     luisa::vector<uint8_t> field_remaining;
     if (soa && layout.has_runtime_capacity() && !layout.packed_chunks.empty()) {
         field_remaining.assign(desc->frame_field_count(), 0u);
@@ -880,20 +938,10 @@ inline void coro_frame_copy_fields(
             auto base_offset = soa_capacity * static_cast<uint>(chunk.capacity_stride);
             auto source_byte_offset = def(base_offset + source_index * chunk_stride);
             auto destination_byte_offset = def(base_offset + destination_index * chunk_stride);
-            coro_frame_mark_raw_access(layout);
-            auto *value = fb->call(
+            enqueue_copy(
                 vec_type,
-                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
-                              CallOp::BYTE_BUFFER_READ,
-                {buffer.expression(),
-                 luisa::compute::detail::extract_expression(source_byte_offset)});
-            coro_frame_mark_raw_access(layout);
-            fb->call(
-                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
-                              CallOp::BYTE_BUFFER_WRITE,
-                {buffer.expression(),
-                 luisa::compute::detail::extract_expression(destination_byte_offset),
-                 value});
+                luisa::compute::detail::extract_expression(source_byte_offset),
+                luisa::compute::detail::extract_expression(destination_byte_offset));
             for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
                 field_remaining[chunk.fields[lane]] = 0u;
             }
@@ -912,21 +960,11 @@ inline void coro_frame_copy_fields(
                                    auto destination_offset) noexcept {
             auto source_byte_offset = def(source_offset);
             auto destination_byte_offset = def(destination_offset);
-            coro_frame_mark_raw_access(layout);
-            auto *value = fb->call(
+            enqueue_copy(
                 type,
-                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
-                              CallOp::BYTE_BUFFER_READ,
-                {buffer.expression(),
-                 luisa::compute::detail::extract_expression(source_byte_offset)});
-            coro_frame_mark_raw_access(layout);
-            fb->call(
-                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
-                              CallOp::BYTE_BUFFER_WRITE,
-                {buffer.expression(),
-                 luisa::compute::detail::extract_expression(
-                     destination_byte_offset),
-                 value});
+                luisa::compute::detail::extract_expression(source_byte_offset),
+                luisa::compute::detail::extract_expression(
+                    destination_byte_offset));
         };
         if (soa) {
             auto source_offset = coro_frame_runtime_soa_offset(
@@ -944,6 +982,7 @@ inline void coro_frame_copy_fields(
             copy_at_offsets(source_offset, destination_offset);
         }
     }
+    flush_pending();
 }
 
 inline void coro_frame_store_runtime_soa(

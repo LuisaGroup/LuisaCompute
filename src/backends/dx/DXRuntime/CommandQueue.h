@@ -34,6 +34,8 @@ private:
     std::atomic_bool _enabled = true;
     std::atomic_uint64_t _executed_frame = 0;
     std::atomic_uint64_t _completed_allocator_frame = 0;
+    mutable std::atomic_uint32_t _completed_allocator_waiters{0u};
+    std::atomic_bool _retire_thread_sleeping{false};
     std::atomic_uint64_t _last_frame = 0;
     std::atomic_uint64_t _work_epoch = 0;
     Device *_device;

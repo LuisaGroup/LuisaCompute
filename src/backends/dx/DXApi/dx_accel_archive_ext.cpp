@@ -757,6 +757,7 @@ void main(uint3 gtid : SV_GroupThreadID, uint3 dtid : SV_DispatchThreadID) {
             cmdlist->SetComputeRootShaderResourceView(1u, src_gpu_va);
             cmdlist->SetComputeRootUnorderedAccessView(2u, csum_uav->GetGPUVirtualAddress());
             cmdlist->Dispatch(groups, 1u, 1u);
+            builder.reset_pipeline_state();
             emit_resource_barrier(
                 dev, builder, csum_uav.Get(),
                 D3D12_BARRIER_SYNC_COMPUTE_SHADING,

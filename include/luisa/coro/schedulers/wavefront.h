@@ -1296,9 +1296,25 @@ private:
                             resume_count.atomic(next).fetch_add(total);
                         };
                     } $else {
-                        $if ((next != 0u) & (next < queue_count)) {
-                            resume_count.atomic(next).fetch_add(1u);
-                        };
+                        if (candidates.size() <= 8u) {
+                            auto is_leader = warp_prefix_count_bits(true) == 0u;
+                            Bool unmatched = (next != 0u) & (next < queue_count);
+                            for (uint q : candidates) {
+                                auto match_q = (next == q);
+                                unmatched = unmatched & (!match_q);
+                                auto cnt = warp_active_count_bits(match_q);
+                                $if (is_leader & (cnt != 0u)) {
+                                    resume_count.atomic(q).fetch_add(cnt);
+                                };
+                            }
+                            $if (unmatched) {
+                                resume_count.atomic(next).fetch_add(1u);
+                            };
+                        } else {
+                            $if ((next != 0u) & (next < queue_count)) {
+                                resume_count.atomic(next).fetch_add(1u);
+                            };
+                        }
                     };
                 } else {
                     $if ((next != 0u) & (next < queue_count)) {
@@ -2849,6 +2865,8 @@ private:
             "LUISA_CORO_WAVEFRONT_BATCH_QUEUES", true);
         const bool post_batch_chain_enabled = parse_bool_env(
             "LUISA_CORO_WAVEFRONT_POST_BATCH_CHAIN", true);
+        const bool defer_aux_until_needed = parse_bool_env(
+            "LUISA_CORO_WAVEFRONT_DEFER_AUX", true);
         auto parse_uint_env = [](const char *name, uint default_val) noexcept -> uint {
             const char *v = std::getenv(name);
             if (v == nullptr || *v == '\0') { return default_val; }
@@ -3176,7 +3194,7 @@ private:
                           });
                 if (!tail_unroll_threshold_set) {
                     effective_tail_threshold =
-                        tail_queues.size() <= 6u ? 16384u : 8192u;
+                        tail_queues.size() <= 6u ? 20480u : 8192u;
                 }
                 for (size_t a = 0u; a < _auxiliary_work.size(); ++a) {
                     const auto &reg = _auxiliary_work[a];
@@ -4505,9 +4523,16 @@ private:
                 return std::min<uint64_t>(
                     available, capacity >= queued ? capacity - queued : 0ull);
             };
+            const bool defer_aux_active =
+                defer_aux_until_needed &&
+                _config.largest_continuation_first &&
+                _config.incremental_continuation_counts &&
+                _config.fused_continuation_counts &&
+                in_flight_async_count == 0u &&
+                !online_timing_active;
             if (selected_continuation < nc && selected_count != 0u &&
                 (selected_blocker_override || time_budget_winner_is_main ||
-                 selected_auxiliary_count <= selected_count)) {
+                 defer_aux_active || selected_auxiliary_count <= selected_count)) {
                 for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
                     auto &&registered = _auxiliary_work[i];
                     auto bound =
@@ -4545,14 +4570,18 @@ private:
                     "Wavefront auxiliary '{}' supplied an empty admission stage.",
                     registered.work->name());
             }
+            const bool greedy_aux =
+                !time_budget_winner_is_main &&
+                !selected_is_deferred && !selected_blocker_override &&
+                (selected_count == 0u ?
+                     (selected_auxiliary_count != 0u) :
+                     (!defer_aux_active && selected_auxiliary_count > selected_count));
             auto dispatch_auxiliary =
                 forced_auxiliary != _auxiliary_work.size() ?
                     forced_auxiliary :
                     (time_budget_aux_winner != _auxiliary_work.size() ?
                          time_budget_aux_winner :
-                         (!time_budget_winner_is_main &&
-                          !selected_is_deferred && !selected_blocker_override &&
-                          selected_auxiliary_count > selected_count ?
+                         (greedy_aux ?
                               selected_auxiliary :
                               _auxiliary_work.size()));
             auto dispatch_auxiliary_stage =
@@ -4694,8 +4723,9 @@ private:
                 active_count <= effective_tail_threshold &&
                 scan_count != 0u &&
                 !tail_queues.empty() &&
-                !(selected_auxiliary_count > effective_tail_threshold * 2u &&
-                  selected_auxiliary_count > active_count * 2u)) {
+                (defer_aux_active ||
+                 !(selected_auxiliary_count > effective_tail_threshold * 2u &&
+                   selected_auxiliary_count > active_count * 2u))) {
                 bool all_active_queues_in_tail = true;
                 for (size_t q = 1u; q < nq; ++q) {
                     if (_host_count[q] != 0u && tail_queue_used[q] == 0u) {
@@ -4709,7 +4739,8 @@ private:
                         target_rounds = std::clamp<uint>(
                             tail_unroll_rounds_override, 1u, 16u);
                     } else if (tail_queues.size() <= 5u) {
-                        target_rounds = (active_count <= 1024u) ? 6u : (active_count <= 4096u ? 4u : 3u);
+                        target_rounds = (active_count <= 64u) ? 2u
+                                      : ((active_count <= 6144u) ? 10u : 3u);
                     } else {
                         target_rounds = (active_count <= 512u) ? 3u : 2u;
                     }
@@ -5433,8 +5464,15 @@ private:
                         if (selected_auxiliary < num_aux &&
                             selected_auxiliary_count != 0u &&
                             batch_req[selected_auxiliary] == 0u) {
-                            static_cast<void>(encode_aux_stage(
-                                selected_auxiliary, selected_auxiliary_stage, scheduler_snapshot));
+                            const auto &aux_work = _auxiliary_work[selected_auxiliary].work;
+                            const bool aux_needs_drain =
+                                !defer_aux_active ||
+                                aux_work->host_count() * 2u >= aux_work->capacity() ||
+                                aux_work->host_available_slots() * 2u <= aux_work->capacity();
+                            if (aux_needs_drain) {
+                                static_cast<void>(encode_aux_stage(
+                                    selected_auxiliary, selected_auxiliary_stage, scheduler_snapshot));
+                            }
                         }
                     }
                     continue;

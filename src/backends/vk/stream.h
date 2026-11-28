@@ -452,6 +452,18 @@ public:
     // runs under `_dispatch_mtx`, which is what serializes it; see
     // argument_plan_scratch.h for the lifetime and reentrancy contract.
     detail::ArgumentScratch argument_scratch;
+    struct PreboundDispatch {
+        Command const *identity{nullptr};
+        size_t offset{0u};
+        size_t size{0u};
+        VkDescriptorSet desc_set{VK_NULL_HANDLE};
+        uint32_t fallback_accel_offset{0u};
+        uint32_t fallback_accel_count{0u};
+    };
+    luisa::vector<Command const *> expanded_commands;
+    luisa::vector<PreboundDispatch> prebound_dispatches;
+    vstd::vector<uint32_t> prebound_fallback_accel_bases;
+    vstd::vector<VkWriteDescriptorSet> batched_write_desc_sets;
     [[nodiscard]] auto queue() const { return _queue; }
     [[nodiscard]] auto stream_tag() const { return _stream_tag; }
     void enable_online_timing() noexcept {
@@ -612,18 +624,21 @@ private:
     // `_thd`, because the thread starts running inside `_thd`'s constructor and
     // reads both. Declaring `_work_epoch` after `_thd` made the thread read a
     // not-yet-constructed atomic (member-initialization-order UB).
+    mutable std::atomic_uint32_t _host_retired_waiters{0u};
+    std::atomic_bool _retire_thread_sleeping{false};
     std::atomic_uint64_t _host_retired_fence{0u};
     std::atomic_uint64_t _work_epoch{0u};
     std::thread _thd;
     // Bumped under `_mtx` by every producer that enqueues into `_exec` (so the
     // enqueue and the epoch are one atomic step from the thread's point of view)...
     void _bump_work_epoch_locked() noexcept {
-        _work_epoch.fetch_add(1u, std::memory_order_release);
+        _work_epoch.fetch_add(1u, std::memory_order_seq_cst);
     }
-    // ...and notified only after `_mtx` is released: `notify_all` wakes a parked
-    // thread, which immediately tries to take `_mtx` in `loop_cmd()`.
+    // ...and notified only when the retirement thread is parked in `wait()`.
     void _notify_retirement_thread() noexcept {
-        _work_epoch.notify_all();
+        if (_retire_thread_sleeping.load(std::memory_order_seq_cst)) {
+            _work_epoch.notify_all();
+        }
     }
 };
 

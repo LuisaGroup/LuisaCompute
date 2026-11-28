@@ -2488,10 +2488,12 @@ Stream::Stream(Device *device, StreamTag tag)
                                   while (prev < retired &&
                                          !_host_retired_fence.compare_exchange_weak(
                                              prev, retired,
-                                             std::memory_order_release,
+                                             std::memory_order_seq_cst,
                                              std::memory_order_relaxed)) {
                                   }
-                                  _host_retired_fence.notify_all();
+                                  if (_host_retired_waiters.load(std::memory_order_seq_cst) != 0u) {
+                                      _host_retired_fence.notify_all();
+                                  }
                               }
                               pending_recycle.emplace_back(std::move(t));
                           }
@@ -2531,7 +2533,12 @@ Stream::Stream(Device *device, StreamTag tag)
               }
               if (_enabled.load(std::memory_order_acquire) &&
                   _work_epoch.load(std::memory_order_acquire) == epoch_before) {
-                  _work_epoch.wait(epoch_before, std::memory_order_acquire);
+                  _retire_thread_sleeping.store(true, std::memory_order_seq_cst);
+                  if (_enabled.load(std::memory_order_seq_cst) &&
+                      _work_epoch.load(std::memory_order_seq_cst) == epoch_before) {
+                      _work_epoch.wait(epoch_before, std::memory_order_acquire);
+                  }
+                  _retire_thread_sleeping.store(false, std::memory_order_relaxed);
               }
           }
           loop_cmd();
@@ -2584,7 +2591,7 @@ Stream::~Stream() {
         _enabled.store(false, std::memory_order_release);
         _bump_work_epoch_locked();
     }
-    _notify_retirement_thread();
+    _work_epoch.notify_all();
     _thd.join();
     _scratch_buffer_alloc_visitor.buffers.clear();
     while (auto p = _cmdbuffers.dequeue()) {
@@ -2894,8 +2901,19 @@ void Stream::present(
     }
 }
 void Stream::_wait_host_retired_fence(uint64_t target) noexcept {
+    if (_host_retired_fence.load(std::memory_order_acquire) >= target) {
+        return;
+    }
+    struct WaiterGuard {
+        std::atomic_uint32_t &count;
+        ~WaiterGuard() {
+            count.fetch_sub(1u, std::memory_order_release);
+        }
+    };
+    _host_retired_waiters.fetch_add(1u, std::memory_order_seq_cst);
+    WaiterGuard guard{_host_retired_waiters};
     for (;;) {
-        auto cur = _host_retired_fence.load(std::memory_order_acquire);
+        auto cur = _host_retired_fence.load(std::memory_order_seq_cst);
         if (cur >= target) { break; }
         _host_retired_fence.wait(cur, std::memory_order_acquire);
     }
@@ -4278,14 +4296,18 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         "Vulkan argument-planning scratch is already in use: a stream must not "
         "record a command buffer from inside the recording of another one.");
     argument_scratch.in_use = true;
+    auto &expanded_commands = _stream.expanded_commands;
+    expanded_commands.clear();
+    expanded_commands.reserve(cmds.size());
     auto release_argument_scratch = vstd::scope_exit([&] {
         // The plans are keyed by pointers into this batch's commands, which die
         // with it, so nothing may survive `execute` - not even a stale key. The
-        // capacity of all three containers is kept for the next batch.
+        // capacity of all containers is kept for the next batch.
         argument_scratch.plans.clear();
         argument_scratch.buffer_metadata.clear();
         argument_scratch.validation_values.clear();
         argument_scratch.in_use = false;
+        expanded_commands.clear();
     });
     // collect argument buffer
     const auto argument_buffer_alignment = std::max<size_t>(
@@ -4326,8 +4348,6 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     // native build command is dropped: its handle belongs to the fallback, so
     // reinterpreting it as a `Blas`/`Tlas` would be meaningless.
     luisa::vector<luisa::unique_ptr<Command>> fallback_builds;
-    luisa::vector<Command const *> expanded_commands;
-    expanded_commands.reserve(cmds.size());
     auto is_stream_signal_cmd = [](Command const *cmd) noexcept {
         return cmd->tag() == Command::Tag::ECustomCommand &&
                static_cast<CustomCommand const *>(cmd)->custom_cmd_uuid() ==
@@ -4461,6 +4481,480 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 uniform_buffer_size, argument_buffer_alignment);
         }
     }
+    static const bool diff_desc_enabled =
+        !luisa::compute::detail::env_flag("LUISA_VK_DISABLE_DIFF_DESC_UPDATE");
+    static const bool batch_desc_enabled =
+        !luisa::compute::detail::env_flag("LUISA_VK_DISABLE_BATCH_DESC_UPDATE");
+
+    auto populate_dispatch_writes = [&](
+                                        BindPropVisitor &visitor,
+                                        Shader const *shader,
+                                        ShaderDispatchCommandBase const *c,
+                                        size_t relative_offset,
+                                        size_t descriptor_range,
+                                        const Buffer *indirect_source = nullptr) -> uint32_t {
+        uint desc_index = 0;
+        visitor.cmdbuffer = this;
+        // Plan P2.3: this call owns the write list of the dispatch it encodes, so it
+        // starts empty (a push consumes it, and one dispatch pushes twice at most).
+        write_desc_sets->clear();
+        // A push shader has no VkDescriptorSet: its set 0 lives in the command
+        // buffer's push descriptor bank, so nothing is allocated for it.
+        // Phase 3B (opt A): the interning id of this shader's set-0 layout is what
+        // lets the state reuse the set it allocated for the batch before this one
+        // instead of calling vkAllocateDescriptorSets again.
+        visitor.cached_desc_entry = nullptr;
+        visitor.pending_captured_cache_commit = false;
+        visitor.desc_set = shader->uses_push_descriptors() ?
+                               VK_NULL_HANDLE :
+                               _state->allocate_descriptor_set(
+                                   shader->desc_set_layout_id(0u),
+                                   shader->desc_set_layout()[0],
+                                   shader->shader_instance_id(),
+                                   &visitor.cached_desc_entry);
+        auto const cur_res_gen = device()->resource_destroy_generation();
+        bool const entry_diff_eligible =
+            diff_desc_enabled &&
+            !device()->descriptor_update_template_capable() &&
+            visitor.cached_desc_entry != nullptr &&
+            shader->captured_can_fast_skip_descriptors();
+        bool const fast_skip_captured =
+            entry_diff_eligible &&
+            cur_res_gen == _state->cached_resource_generation &&
+            visitor.cached_desc_entry->captured_shader_id == shader->shader_instance_id() &&
+            visitor.cached_desc_entry->captured_resource_gen == cur_res_gen;
+        if (descriptor_range > 0u) {
+            LUISA_ASSERT(
+                arg_buffer.buffer != nullptr,
+                "Vulkan dispatch has a nonempty argument block without "
+                "an upload buffer.");
+            constexpr auto max_device_offset =
+                std::numeric_limits<VkDeviceSize>::max();
+            LUISA_ASSERT(
+                arg_buffer.offset <= max_device_offset &&
+                    relative_offset <= max_device_offset - arg_buffer.offset,
+                "Vulkan argument descriptor offset {} + {} is not "
+                "representable by VkDeviceSize.",
+                arg_buffer.offset, relative_offset);
+            auto descriptor_offset =
+                static_cast<VkDeviceSize>(arg_buffer.offset) +
+                static_cast<VkDeviceSize>(relative_offset);
+            LUISA_ASSERT(
+                descriptor_range <= max_device_offset &&
+                    descriptor_offset <= arg_buffer.buffer->byte_size() &&
+                    descriptor_range <=
+                        arg_buffer.buffer->byte_size() - descriptor_offset,
+                "Vulkan argument descriptor offset {} and range {} exceed "
+                "the backing upload buffer size {}.",
+                descriptor_offset, descriptor_range,
+                arg_buffer.buffer->byte_size());
+            auto arg_buffer_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+            *arg_buffer_info = VkDescriptorBufferInfo{
+                arg_buffer.buffer->vk_buffer(),
+                descriptor_offset,
+                static_cast<VkDeviceSize>(descriptor_range)};
+            write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                nullptr,
+                visitor.desc_set,
+                desc_index++,
+                0,
+                1,
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                nullptr,
+                arg_buffer_info,
+                nullptr});
+        }
+        if (shader->has_constant_ubo()) {
+            if (fast_skip_captured) {
+                desc_index++;
+            } else {
+                auto ubo_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                *ubo_info = VkDescriptorBufferInfo{
+                    shader->constant_ubo()->vk_buffer(),
+                    0,
+                    shader->constant_ubo()->byte_size()};
+                write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    visitor.desc_set,
+                    desc_index++,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    nullptr,
+                    ubo_info,
+                    nullptr});
+            }
+        }
+        visitor.desc_index = desc_index;
+        visitor.img_views = &_state->img_views;
+        visitor.arguments =
+            SavedArgumentCursor{shader->saved_arguments()};
+        visitor.bindings = shader->binds();
+        visitor.shader = shader;
+        visitor.codegen_dialect = shader->codegen_dialect();
+        visitor.uav_usage =
+            shader->shader_tag() == Shader::ShaderTag::kRasterShader ?
+                ResourceBarrier::Usage::kRasterUAV :
+                ResourceBarrier::Usage::kComputeUAV;
+        auto const captured_span = shader->captured();
+        if (fast_skip_captured) {
+            for (auto const &dyn : visitor.cached_desc_entry->captured_dynamic_args) {
+                visitor.arguments.seek(dyn.saved_arg_index);
+                visitor.desc_index = dyn.desc_index;
+                decode_cmd(vstd::span<const Argument>{&captured_span[dyn.captured_index], 1u}, visitor);
+            }
+            visitor.arguments.seek(captured_span.size());
+            visitor.desc_index = visitor.cached_desc_entry->captured_desc_end_index;
+        } else if (entry_diff_eligible) {
+            visitor.cached_desc_entry->captured_dynamic_args.clear();
+            for (uint32_t ci = 0u; ci < static_cast<uint32_t>(captured_span.size()); ++ci) {
+                auto const &cap_arg = captured_span[ci];
+                if (cap_arg.tag == Argument::Tag::BINDLESS_ARRAY ||
+                    cap_arg.tag == Argument::Tag::ACCEL) {
+                    visitor.cached_desc_entry->captured_dynamic_args.emplace_back(
+                        CommandBufferState::CapturedDynamicDescArg{
+                            .captured_index = ci,
+                            .saved_arg_index = static_cast<uint32_t>(visitor.arguments.index()),
+                            .desc_index = visitor.desc_index});
+                }
+                decode_cmd(vstd::span<const Argument>{&cap_arg, 1u}, visitor);
+            }
+            visitor.cached_desc_entry->captured_desc_end_index = visitor.desc_index;
+            visitor.pending_captured_cache_commit = true;
+        } else {
+            decode_cmd(captured_span, visitor);
+        }
+        decode_cmd(c->arguments(), visitor);
+        visitor.arguments.finish("descriptor binding");
+        if (shader->uses_indirect_dispatch()) {
+            auto source_view = BufferView{};
+            if (indirect_source != nullptr) {
+                LUISA_ASSERT(
+                    indirect_source->is_indirect_dispatch_buffer(),
+                    "Vulkan indirect metadata source has the wrong buffer type.");
+                source_view = BufferView{
+                    indirect_source, 0u,
+                    indirect_source->byte_size()};
+            } else {
+                auto *dummy = device()->indirect_dispatch_dummy();
+                LUISA_ASSERT(
+                    dummy != nullptr &&
+                        dummy->byte_size() >=
+                            IndirectDispatchLayout::header_size +
+                                IndirectDispatchLayout::record_size,
+                    "Vulkan direct dispatch has no valid persistent "
+                    "indirect-metadata descriptor.");
+                source_view = BufferView{dummy};
+            }
+            auto *binding = visitor.binding_at(visitor.desc_index);
+            LUISA_ASSERT(
+                binding != nullptr &&
+                    binding->type == hlsl::ShaderVariableType::SPIRVIndirectDispatch,
+                "Vulkan native SPIR-V shader is missing its indirect "
+                "metadata descriptor at binding {}.",
+                visitor.desc_index);
+            auto descriptor =
+                temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+            *descriptor = VkDescriptorBufferInfo{
+                source_view.buffer->vk_buffer(), source_view.offset,
+                source_view.size_bytes};
+            write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                nullptr,
+                visitor.desc_set,
+                visitor.desc_index++,
+                0u,
+                1u,
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                nullptr,
+                descriptor,
+                nullptr});
+        } else {
+            LUISA_ASSERT(
+                indirect_source == nullptr,
+                "Vulkan indirect dispatch cannot bind a shader without "
+                "the native logical-metadata descriptor.");
+        }
+        return visitor.desc_index;
+    };
+    auto filter_diff_desc_writes = [&](BindPropVisitor &visitor) {
+        if (diff_desc_enabled && visitor.cached_desc_entry != nullptr &&
+            !device()->descriptor_update_template_capable()) {
+            if (device()->resource_destroy_generation() !=
+                _state->cached_resource_generation) {
+                visitor.cached_desc_entry->bindings.clear();
+                visitor.cached_desc_entry->captured_shader_id = 0u;
+                visitor.cached_desc_entry->captured_resource_gen = 0u;
+                visitor.cached_desc_entry->captured_dynamic_args.clear();
+                visitor.pending_captured_cache_commit = false;
+            }
+        }
+        if (!write_desc_sets->empty() &&
+            diff_desc_enabled && visitor.cached_desc_entry != nullptr &&
+            !device()->descriptor_update_template_capable()) {
+            auto &cached_bindings = visitor.cached_desc_entry->bindings;
+            uint32_t max_binding = 0u;
+            for (auto const &w : *write_desc_sets) {
+                if (w.dstBinding > max_binding) {
+                    max_binding = w.dstBinding;
+                }
+            }
+            if (cached_bindings.size() <= max_binding) {
+                cached_bindings.resize(
+                    static_cast<size_t>(max_binding) + 1u);
+            }
+            size_t keep = 0u;
+            for (size_t wi = 0u; wi < write_desc_sets->size(); ++wi) {
+                auto const &w = (*write_desc_sets)[wi];
+                bool unchanged = false;
+                if (w.descriptorCount == 1u && w.dstArrayElement == 0u) {
+                    if ((w.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
+                         w.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) &&
+                        w.pNext == nullptr && w.pBufferInfo != nullptr) {
+                        CommandBufferState::CachedDescriptorBinding cur{
+                            w.descriptorType,
+                            detail::handle_to_uint64(w.pBufferInfo->buffer),
+                            w.pBufferInfo->offset,
+                            w.pBufferInfo->range};
+                        if (cached_bindings[w.dstBinding] == cur) {
+                            unchanged = true;
+                        } else {
+                            cached_bindings[w.dstBinding] = cur;
+                        }
+                    } else if (w.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR &&
+                               w.pNext != nullptr) {
+                        auto const *as_write =
+                            reinterpret_cast<VkWriteDescriptorSetAccelerationStructureKHR const *>(w.pNext);
+                        if (as_write->sType ==
+                                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR &&
+                            as_write->accelerationStructureCount == 1u &&
+                            as_write->pAccelerationStructures != nullptr) {
+                            CommandBufferState::CachedDescriptorBinding cur{
+                                w.descriptorType,
+                                detail::handle_to_uint64(as_write->pAccelerationStructures[0]),
+                                0u,
+                                0u};
+                            if (cached_bindings[w.dstBinding] == cur) {
+                                unchanged = true;
+                            } else {
+                                cached_bindings[w.dstBinding] = cur;
+                            }
+                        } else {
+                            cached_bindings[w.dstBinding] = {};
+                        }
+                    } else {
+                        cached_bindings[w.dstBinding] = {};
+                    }
+                } else if (w.dstBinding < cached_bindings.size()) {
+                    cached_bindings[w.dstBinding] = {};
+                }
+                if (!unchanged) {
+                    if (keep != wi) {
+                        (*write_desc_sets)[keep] = w;
+                    }
+                    ++keep;
+                }
+            }
+            write_desc_sets->resize(keep);
+        }
+    };
+    auto commit_captured_desc_cache = [&](BindPropVisitor &visitor, Shader const *shader) {
+        if (visitor.pending_captured_cache_commit &&
+            visitor.cached_desc_entry != nullptr &&
+            device()->resource_destroy_generation() == _state->cached_resource_generation) {
+            visitor.cached_desc_entry->captured_shader_id = shader->shader_instance_id();
+            visitor.cached_desc_entry->captured_resource_gen = _state->cached_resource_generation;
+        }
+    };
+    auto assemble_and_bind_desc_sets = [&](
+                                           VkDescriptorSet set0,
+                                           Shader const *shader,
+                                           VkPipelineBindPoint bind_point) {
+        desc_sets->clear();
+        if (!shader->uses_push_descriptors()) {
+            desc_sets->push_back(set0);
+        }
+        desc_sets->push_back(device()->sampler_set());
+        if (shader->use_buffer_bindless()) {
+            desc_sets->push_back(device()->bdls_buffer_set());
+        }
+        if (shader->use_tex2d_bindless()) {
+            desc_sets->push_back(device()->bdls_tex2d_set());
+        }
+        if (shader->use_tex3d_bindless()) {
+            desc_sets->push_back(device()->bdls_tex3d_set());
+        }
+        // Plan P2.3: on the push path set 0 is not part of the bind, so the
+        // assembled list is exactly the global sets (sampler + bindless heaps)
+        // and starts at set 1.
+        auto const bound_set_count =
+            desc_sets->size() +
+            (shader->uses_push_descriptors() ? 1u : 0u);
+        LUISA_ASSERT(
+            bound_set_count == shader->desc_set_layout().size() &&
+                desc_sets->size() <=
+                    std::numeric_limits<uint32_t>::max(),
+            "Vulkan dispatch assembled {} descriptor sets for a "
+            "validated pipeline layout with {} sets (set 0 {}).",
+            desc_sets->size(), shader->desc_set_layout().size(),
+            shader->uses_push_descriptors() ? "pushed" : "bound");
+        // P1.2: skipped only when this exact layout object and every set index
+        // of the range already hold the requested handle (plan P2.3: the
+        // tracker is per slot, so the global sets below are no longer re-bound
+        // just because the local set 0 changed). With the push path the first
+        // set is 1 and the local set is not part of the bind at all.
+        detail::cmd_bind_descriptor_sets(
+            _state->bind_state,
+            _cmdbuffer,
+            bind_point,
+            shader->pipeline_layout(),
+            shader->uses_push_descriptors() ? 1u : 0u,
+            static_cast<uint32_t>(desc_sets->size()),
+            desc_sets->data(),
+            0u,
+            nullptr);
+    };
+
+    auto &prebound_dispatches = _stream.prebound_dispatches;
+    auto &prebound_fallback_accel_bases = _stream.prebound_fallback_accel_bases;
+    auto &batched_write_desc_sets = _stream.batched_write_desc_sets;
+    prebound_dispatches.clear();
+    prebound_fallback_accel_bases.clear();
+    batched_write_desc_sets.clear();
+    size_t prebound_dispatch_index = 0u;
+    bool use_batched_desc_update =
+        diff_desc_enabled && batch_desc_enabled &&
+        !device()->descriptor_update_template_capable();
+    if (use_batched_desc_update) {
+        size_t prebound_dispatch_count = 0u;
+        auto has_ineligible_arg = [](luisa::span<const Argument> args) noexcept {
+            for (auto const &arg : args) {
+                if (arg.tag == Argument::Tag::TEXTURE) {
+                    return true;
+                }
+                if (arg.tag == Argument::Tag::BUFFER) {
+                    auto const *buf = reinterpret_cast<Buffer const *>(arg.buffer.handle);
+                    if (buf != nullptr && buf->is_indirect_dispatch_buffer()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        for (auto &&lst : cmd_lists) {
+            if (!use_batched_desc_update) { break; }
+            for (auto i = lst; i != nullptr; i = i->p_next) {
+                auto cmd = i->cmd;
+                switch (cmd->tag()) {
+                    case Command::Tag::EAccelBuildCommand:
+                    case Command::Tag::EBindlessArrayUpdateCommand:
+                        use_batched_desc_update = false;
+                        break;
+                    case Command::Tag::ECustomCommand: {
+                        auto c = static_cast<CustomCommand const *>(cmd);
+                        if (c->custom_cmd_uuid() == to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE)) {
+                            use_batched_desc_update = false;
+                        }
+                    } break;
+                    case Command::Tag::EShaderDispatchCommand: {
+                        auto c = static_cast<ShaderDispatchCommand const *>(cmd);
+                        auto shader = reinterpret_cast<Shader const *>(c->handle());
+                        if (c->is_indirect() ||
+                            !shader->printers().empty() ||
+                            shader->uses_push_descriptors() ||
+                            shader->captured_has_ineligible_batch_arg() ||
+                            has_ineligible_arg(c->arguments())) {
+                            use_batched_desc_update = false;
+                        } else {
+                            ++prebound_dispatch_count;
+                        }
+                    } break;
+                    default: break;
+                }
+                if (!use_batched_desc_update) { break; }
+            }
+        }
+        if (prebound_dispatch_count < 2u) {
+            use_batched_desc_update = false;
+        }
+        if (use_batched_desc_update) {
+            prebound_dispatches.reserve(prebound_dispatch_count);
+            batched_write_desc_sets.reserve(prebound_dispatch_count * 4u);
+            ArgumentBlockLayout pre_arg_layout;
+            for (auto &&lst : cmd_lists) {
+                for (auto i = lst; i != nullptr; i = i->p_next) {
+                    auto cmd = i->cmd;
+                    if (cmd->tag() != Command::Tag::EShaderDispatchCommand) { continue; }
+                    auto c = static_cast<ShaderDispatchCommand const *>(cmd);
+                    auto shader = reinterpret_cast<Shader *>(c->handle());
+                    auto const *plan = argument_scratch.plans.peek(cmd);
+                    LUISA_ASSERT(
+                        plan != nullptr,
+                        "Vulkan batched descriptor pre-pass reached a dispatch that was not planned.");
+                    size_t pre_block_offset = 0u;
+                    if (!pre_arg_layout.append_padded(
+                            plan->layout.size(), argument_buffer_alignment,
+                            pre_block_offset)) {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "Vulkan batched descriptor argument-buffer sizing failed: {}.",
+                            argument_block_layout_status_name(pre_arg_layout.status()));
+                    }
+                    BindPropVisitor visitor{};
+                    visitor.device = device();
+                    populate_dispatch_writes(
+                        visitor, shader, c, pre_block_offset,
+                        plan->layout.size(), nullptr);
+                    LUISA_ASSERT(
+                        visitor.desc_index ==
+                            shader->local_descriptor_binding_count(),
+                        "Vulkan dispatch consumed {} local descriptor bindings but "
+                        "the validated shader interface requires {}.",
+                        visitor.desc_index,
+                        shader->local_descriptor_binding_count());
+                    filter_diff_desc_writes(visitor);
+                    if (!write_desc_sets->empty()) {
+                        batched_write_desc_sets.insert(
+                            batched_write_desc_sets.end(),
+                            write_desc_sets->begin(),
+                            write_desc_sets->end());
+                        write_desc_sets->clear();
+                    }
+                    commit_captured_desc_cache(visitor, shader);
+                    const uint32_t fallback_offset =
+                        static_cast<uint32_t>(prebound_fallback_accel_bases.size());
+                    const uint32_t fallback_count =
+                        static_cast<uint32_t>(visitor.fallback_accel_bases.size());
+                    if (fallback_count != 0u) {
+                        prebound_fallback_accel_bases.insert(
+                            prebound_fallback_accel_bases.end(),
+                            visitor.fallback_accel_bases.begin(),
+                            visitor.fallback_accel_bases.end());
+                    }
+                    prebound_dispatches.emplace_back(Stream::PreboundDispatch{
+                        .identity = cmd,
+                        .offset = pre_block_offset,
+                        .size = plan->layout.size(),
+                        .desc_set = visitor.desc_set,
+                        .fallback_accel_offset = fallback_offset,
+                        .fallback_accel_count = fallback_count});
+                }
+            }
+            if (!batched_write_desc_sets.empty()) {
+                LUISA_ASSERT(
+                    batched_write_desc_sets.size() <=
+                        std::numeric_limits<uint32_t>::max(),
+                    "Vulkan batched descriptor-write count is not representable.");
+                vkUpdateDescriptorSets(
+                    device()->logic_device(),
+                    static_cast<uint32_t>(batched_write_desc_sets.size()),
+                    batched_write_desc_sets.data(), 0u, nullptr);
+                submit_profile::record_descriptor_set_update();
+                batched_write_desc_sets.clear();
+            }
+        }
+    }
     ArgumentBlockLayout preprocessed_argument_buffer_layout;
     auto preprocess_arguments = [this, argument_buffer_alignment,
                                  argument_buffer_range_limit,
@@ -4501,9 +4995,21 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         // keeps a pointer into them past the copy below.
         auto &buffer_metadata = argument_scratch.buffer_metadata;
         auto &validation_values = argument_scratch.validation_values;
-        buffer_metadata.clear();
-        vstd::push_back_all(buffer_metadata, plan->buffer_metadata_count,
-                            StorageBufferMetadata{});
+        bool const used_metadata_template =
+            shader->captured_can_fast_preprocess() &&
+            plan->buffer_metadata_count > 0u &&
+            shader->captured_buffer_metadata_template().size() == plan->buffer_metadata_count;
+        if (used_metadata_template) {
+            luisa::vector_resize(buffer_metadata, plan->buffer_metadata_count);
+            std::memcpy(
+                buffer_metadata.data(),
+                shader->captured_buffer_metadata_template().data(),
+                plan->buffer_metadata_count * sizeof(StorageBufferMetadata));
+        } else {
+            buffer_metadata.clear();
+            vstd::push_back_all(buffer_metadata, plan->buffer_metadata_count,
+                                StorageBufferMetadata{});
+        }
         validation_values.clear();
         validation_values.reserve(shader->validation_count());
         ArgumentBlockLayout emitted_layout{
@@ -4529,7 +5035,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         if (shader->captured_can_fast_preprocess()) {
             visitor.arguments.seek(shader->captured().size());
             visitor.descriptor_index = shader->captured_descriptor_end();
-            if (!buffer_metadata.empty()) {
+            if (!buffer_metadata.empty() && !used_metadata_template) {
                 for (auto const &entry : shader->captured_buffer_metadata()) {
                     buffer_metadata[entry.slot] = entry.metadata;
                 }
@@ -4743,7 +5249,18 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         }
     };
     struct PendingCopy {
-        vstd::unordered_map<BufferPair, vstd::vector<VkBufferCopy2>> copies;
+        vstd::fixed_vector<std::pair<BufferPair, vstd::fixed_vector<VkBufferCopy2, 4>>, 4> copies;
+        void append(BufferPair const &pair, VkBufferCopy2 const &region) {
+            for (auto &entry : copies) {
+                if (entry.first == pair) {
+                    entry.second.push_back(region);
+                    return;
+                }
+            }
+            auto &entry = copies.emplace_back();
+            entry.first = pair;
+            entry.second.push_back(region);
+        }
     };
     PendingCopy pending_upload;
     PendingCopy pending_download;
@@ -5328,8 +5845,6 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         }
         resource_barrier->update_states(_cmdbuffer);
 
-        static const bool diff_desc_enabled =
-            !luisa::compute::detail::env_flag("LUISA_VK_DISABLE_DIFF_DESC_UPDATE");
         size_t dispatch_offset_index = 0u;
         auto set_dispatch_args = [&](
                                      Command const *identity,
@@ -5352,201 +5867,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 "Vulkan descriptor binding is about to bind another command's "
                 "argument block: the preprocessing and encoding passes of this "
                 "layer disagree about the command order.");
-            auto relative_offset = block.offset;
-            auto descriptor_range = block.size;
-            LUISA_ASSERT(
-                relative_offset <= arg_buffer.size_bytes &&
-                    descriptor_range <=
-                        arg_buffer.size_bytes - relative_offset,
-                "Vulkan dispatch argument block offset {} and size {} exceed "
-                "the {}-byte upload allocation.",
-                relative_offset, descriptor_range,
-                arg_buffer.size_bytes);
-            uint desc_index = 0;
-            visitor.cmdbuffer = this;
-            // Plan P2.3: this call owns the write list of the dispatch it encodes, so it
-            // starts empty (a push consumes it, and one dispatch pushes twice at most).
-            write_desc_sets->clear();
-            // A push shader has no VkDescriptorSet: its set 0 lives in the command
-            // buffer's push descriptor bank, so nothing is allocated for it.
-            // Phase 3B (opt A): the interning id of this shader's set-0 layout is what
-            // lets the state reuse the set it allocated for the batch before this one
-            // instead of calling vkAllocateDescriptorSets again.
-            visitor.cached_desc_entry = nullptr;
-            visitor.pending_captured_cache_commit = false;
-            visitor.desc_set = shader->uses_push_descriptors() ?
-                                   VK_NULL_HANDLE :
-                                   _state->allocate_descriptor_set(
-                                       shader->desc_set_layout_id(0u),
-                                       shader->desc_set_layout()[0],
-                                       shader->shader_instance_id(),
-                                       &visitor.cached_desc_entry);
-            auto const cur_res_gen = device()->resource_destroy_generation();
-            bool const entry_diff_eligible =
-                diff_desc_enabled &&
-                !device()->descriptor_update_template_capable() &&
-                visitor.cached_desc_entry != nullptr &&
-                shader->captured_can_fast_skip_descriptors();
-            bool const fast_skip_captured =
-                entry_diff_eligible &&
-                cur_res_gen == _state->cached_resource_generation &&
-                visitor.cached_desc_entry->captured_shader_id == shader->shader_instance_id() &&
-                visitor.cached_desc_entry->captured_resource_gen == cur_res_gen;
-            if (descriptor_range > 0u) {
-                LUISA_ASSERT(
-                    arg_buffer.buffer != nullptr,
-                    "Vulkan dispatch has a nonempty argument block without "
-                    "an upload buffer.");
-                constexpr auto max_device_offset =
-                    std::numeric_limits<VkDeviceSize>::max();
-                LUISA_ASSERT(
-                    arg_buffer.offset <= max_device_offset &&
-                        relative_offset <= max_device_offset - arg_buffer.offset,
-                    "Vulkan argument descriptor offset {} + {} is not "
-                    "representable by VkDeviceSize.",
-                    arg_buffer.offset, relative_offset);
-                auto descriptor_offset =
-                    static_cast<VkDeviceSize>(arg_buffer.offset) +
-                    static_cast<VkDeviceSize>(relative_offset);
-                LUISA_ASSERT(
-                    descriptor_range <= max_device_offset &&
-                        descriptor_offset <= arg_buffer.buffer->byte_size() &&
-                        descriptor_range <=
-                            arg_buffer.buffer->byte_size() - descriptor_offset,
-                    "Vulkan argument descriptor offset {} and range {} exceed "
-                    "the backing upload buffer size {}.",
-                    descriptor_offset, descriptor_range,
-                    arg_buffer.buffer->byte_size());
-                auto arg_buffer_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-                *arg_buffer_info = VkDescriptorBufferInfo{
-                    arg_buffer.buffer->vk_buffer(),
-                    descriptor_offset,
-                    static_cast<VkDeviceSize>(descriptor_range)};
-                write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    nullptr,
-                    visitor.desc_set,
-                    desc_index++,
-                    0,
-                    1,
-                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                    nullptr,
-                    arg_buffer_info,
-                    nullptr});
-            }
-            if (shader->has_constant_ubo()) {
-                if (fast_skip_captured) {
-                    desc_index++;
-                } else {
-                    auto ubo_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-                    *ubo_info = VkDescriptorBufferInfo{
-                        shader->constant_ubo()->vk_buffer(),
-                        0,
-                        shader->constant_ubo()->byte_size()};
-                    write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        visitor.desc_set,
-                        desc_index++,
-                        0,
-                        1,
-                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        nullptr,
-                        ubo_info,
-                        nullptr});
-                }
-            }
-            visitor.desc_index = desc_index;
-            visitor.img_views = &_state->img_views;
-            visitor.arguments =
-                SavedArgumentCursor{shader->saved_arguments()};
-            visitor.bindings = shader->binds();
-            visitor.shader = shader;
-            visitor.codegen_dialect = shader->codegen_dialect();
-            visitor.uav_usage =
-                shader->shader_tag() == Shader::ShaderTag::kRasterShader ?
-                    ResourceBarrier::Usage::kRasterUAV :
-                    ResourceBarrier::Usage::kComputeUAV;
-            auto const captured_span = shader->captured();
-            if (fast_skip_captured) {
-                for (auto const &dyn : visitor.cached_desc_entry->captured_dynamic_args) {
-                    visitor.arguments.seek(dyn.saved_arg_index);
-                    visitor.desc_index = dyn.desc_index;
-                    decode_cmd(vstd::span<const Argument>{&captured_span[dyn.captured_index], 1u}, visitor);
-                }
-                visitor.arguments.seek(captured_span.size());
-                visitor.desc_index = visitor.cached_desc_entry->captured_desc_end_index;
-            } else if (entry_diff_eligible) {
-                visitor.cached_desc_entry->captured_dynamic_args.clear();
-                for (uint32_t ci = 0u; ci < static_cast<uint32_t>(captured_span.size()); ++ci) {
-                    auto const &cap_arg = captured_span[ci];
-                    if (cap_arg.tag == Argument::Tag::BINDLESS_ARRAY ||
-                        cap_arg.tag == Argument::Tag::ACCEL) {
-                        visitor.cached_desc_entry->captured_dynamic_args.emplace_back(
-                            CommandBufferState::CapturedDynamicDescArg{
-                                .captured_index = ci,
-                                .saved_arg_index = static_cast<uint32_t>(visitor.arguments.index()),
-                                .desc_index = visitor.desc_index});
-                    }
-                    decode_cmd(vstd::span<const Argument>{&cap_arg, 1u}, visitor);
-                }
-                visitor.cached_desc_entry->captured_desc_end_index = visitor.desc_index;
-                visitor.pending_captured_cache_commit = true;
-            } else {
-                decode_cmd(captured_span, visitor);
-            }
-            decode_cmd(c->arguments(), visitor);
-            visitor.arguments.finish("descriptor binding");
-            if (shader->uses_indirect_dispatch()) {
-                auto source_view = BufferView{};
-                if (indirect_source != nullptr) {
-                    LUISA_ASSERT(
-                        indirect_source->is_indirect_dispatch_buffer(),
-                        "Vulkan indirect metadata source has the wrong buffer type.");
-                    source_view = BufferView{
-                        indirect_source, 0u,
-                        indirect_source->byte_size()};
-                } else {
-                    auto *dummy = device()->indirect_dispatch_dummy();
-                    LUISA_ASSERT(
-                        dummy != nullptr &&
-                            dummy->byte_size() >=
-                                IndirectDispatchLayout::header_size +
-                                    IndirectDispatchLayout::record_size,
-                        "Vulkan direct dispatch has no valid persistent "
-                        "indirect-metadata descriptor.");
-                    source_view = BufferView{dummy};
-                }
-                auto *binding = visitor.binding_at(visitor.desc_index);
-                LUISA_ASSERT(
-                    binding != nullptr &&
-                        binding->type == hlsl::ShaderVariableType::SPIRVIndirectDispatch,
-                    "Vulkan native SPIR-V shader is missing its indirect "
-                    "metadata descriptor at binding {}.",
-                    visitor.desc_index);
-                auto descriptor =
-                    temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-                *descriptor = VkDescriptorBufferInfo{
-                    source_view.buffer->vk_buffer(), source_view.offset,
-                    source_view.size_bytes};
-                write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    nullptr,
-                    visitor.desc_set,
-                    visitor.desc_index++,
-                    0u,
-                    1u,
-                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                    nullptr,
-                    descriptor,
-                    nullptr});
-            } else {
-                LUISA_ASSERT(
-                    indirect_source == nullptr,
-                    "Vulkan indirect dispatch cannot bind a shader without "
-                    "the native logical-metadata descriptor.");
-            }
-            return visitor.desc_index;
+            return populate_dispatch_writes(
+                visitor, shader, c, block.offset, block.size, indirect_source);
         };
         auto push_shader_constants = [&]<typename T>(
                                          const Shader *shader,
@@ -5622,98 +5944,21 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     bind_point,
                     detail::handle_to_uint64(shader->pipeline_layout()),
                     0u);
-                desc_sets->clear();
             } else {
-                if (diff_desc_enabled && visitor.cached_desc_entry != nullptr &&
-                    !device()->descriptor_update_template_capable()) {
-                    if (device()->resource_destroy_generation() !=
-                        _state->cached_resource_generation) {
-                        visitor.cached_desc_entry->bindings.clear();
-                        visitor.cached_desc_entry->captured_shader_id = 0u;
-                        visitor.cached_desc_entry->captured_resource_gen = 0u;
-                        visitor.cached_desc_entry->captured_dynamic_args.clear();
-                        visitor.pending_captured_cache_commit = false;
-                    }
-                }
+                filter_diff_desc_writes(visitor);
                 if (!write_desc_sets->empty()) {
                     if (diff_desc_enabled && visitor.cached_desc_entry != nullptr &&
                         !device()->descriptor_update_template_capable()) {
-                        auto &cached_bindings = visitor.cached_desc_entry->bindings;
-                        uint32_t max_binding = 0u;
-                        for (auto const &w : *write_desc_sets) {
-                            if (w.dstBinding > max_binding) {
-                                max_binding = w.dstBinding;
-                            }
-                        }
-                        if (cached_bindings.size() <= max_binding) {
-                            cached_bindings.resize(
-                                static_cast<size_t>(max_binding) + 1u);
-                        }
-                        size_t keep = 0u;
-                        for (size_t wi = 0u; wi < write_desc_sets->size(); ++wi) {
-                            auto const &w = (*write_desc_sets)[wi];
-                            bool unchanged = false;
-                            if (w.descriptorCount == 1u && w.dstArrayElement == 0u) {
-                                if ((w.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
-                                     w.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) &&
-                                    w.pNext == nullptr && w.pBufferInfo != nullptr) {
-                                    CommandBufferState::CachedDescriptorBinding cur{
-                                        w.descriptorType,
-                                        detail::handle_to_uint64(w.pBufferInfo->buffer),
-                                        w.pBufferInfo->offset,
-                                        w.pBufferInfo->range};
-                                    if (cached_bindings[w.dstBinding] == cur) {
-                                        unchanged = true;
-                                    } else {
-                                        cached_bindings[w.dstBinding] = cur;
-                                    }
-                                } else if (w.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR &&
-                                           w.pNext != nullptr) {
-                                    auto const *as_write =
-                                        reinterpret_cast<VkWriteDescriptorSetAccelerationStructureKHR const *>(w.pNext);
-                                    if (as_write->sType ==
-                                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR &&
-                                        as_write->accelerationStructureCount == 1u &&
-                                        as_write->pAccelerationStructures != nullptr) {
-                                        CommandBufferState::CachedDescriptorBinding cur{
-                                            w.descriptorType,
-                                            detail::handle_to_uint64(as_write->pAccelerationStructures[0]),
-                                            0u,
-                                            0u};
-                                        if (cached_bindings[w.dstBinding] == cur) {
-                                            unchanged = true;
-                                        } else {
-                                            cached_bindings[w.dstBinding] = cur;
-                                        }
-                                    } else {
-                                        cached_bindings[w.dstBinding] = {};
-                                    }
-                                } else {
-                                    cached_bindings[w.dstBinding] = {};
-                                }
-                            } else if (w.dstBinding < cached_bindings.size()) {
-                                cached_bindings[w.dstBinding] = {};
-                            }
-                            if (!unchanged) {
-                                if (keep != wi) {
-                                    (*write_desc_sets)[keep] = w;
-                                }
-                                ++keep;
-                            }
-                        }
-                        write_desc_sets->resize(keep);
-                        if (!write_desc_sets->empty()) {
-                            LUISA_ASSERT(
-                                write_desc_sets->size() <=
-                                    std::numeric_limits<uint32_t>::max(),
-                                "Vulkan descriptor-write count is not representable.");
-                            vkUpdateDescriptorSets(
-                                device()->logic_device(),
-                                static_cast<uint32_t>(write_desc_sets->size()),
-                                write_desc_sets->data(), 0u, nullptr);
-                            submit_profile::record_descriptor_set_update();
-                            write_desc_sets->clear();
-                        }
+                        LUISA_ASSERT(
+                            write_desc_sets->size() <=
+                                std::numeric_limits<uint32_t>::max(),
+                            "Vulkan descriptor-write count is not representable.");
+                        vkUpdateDescriptorSets(
+                            device()->logic_device(),
+                            static_cast<uint32_t>(write_desc_sets->size()),
+                            write_desc_sets->data(), 0u, nullptr);
+                        submit_profile::record_descriptor_set_update();
+                        write_desc_sets->clear();
                     } else {
                         LUISA_ASSERT(
                             write_desc_sets->size() <=
@@ -5748,54 +5993,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         write_desc_sets->clear();
                     }
                 }
-                if (visitor.pending_captured_cache_commit &&
-                    visitor.cached_desc_entry != nullptr &&
-                    device()->resource_destroy_generation() == _state->cached_resource_generation) {
-                    visitor.cached_desc_entry->captured_shader_id = shader->shader_instance_id();
-                    visitor.cached_desc_entry->captured_resource_gen = _state->cached_resource_generation;
-                }
-                desc_sets->clear();
-                desc_sets->push_back(visitor.desc_set);
+                commit_captured_desc_cache(visitor, shader);
             }
-            desc_sets->push_back(device()->sampler_set());
-            if (shader->use_buffer_bindless()) {
-                desc_sets->push_back(device()->bdls_buffer_set());
-            }
-            if (shader->use_tex2d_bindless()) {
-                desc_sets->push_back(device()->bdls_tex2d_set());
-            }
-            if (shader->use_tex3d_bindless()) {
-                desc_sets->push_back(device()->bdls_tex3d_set());
-            }
-            // Plan P2.3: on the push path set 0 is not part of the bind, so the
-            // assembled list is exactly the global sets (sampler + bindless heaps)
-            // and starts at set 1.
-            auto const bound_set_count =
-                desc_sets->size() +
-                (shader->uses_push_descriptors() ? 1u : 0u);
-            LUISA_ASSERT(
-                bound_set_count == shader->desc_set_layout().size() &&
-                    desc_sets->size() <=
-                        std::numeric_limits<uint32_t>::max(),
-                "Vulkan dispatch assembled {} descriptor sets for a "
-                "validated pipeline layout with {} sets (set 0 {}).",
-                desc_sets->size(), shader->desc_set_layout().size(),
-                shader->uses_push_descriptors() ? "pushed" : "bound");
-            // P1.2: skipped only when this exact layout object and every set index
-            // of the range already hold the requested handle (plan P2.3: the
-            // tracker is per slot, so the global sets below are no longer re-bound
-            // just because the local set 0 changed). With the push path the first
-            // set is 1 and the local set is not part of the bind at all.
-            detail::cmd_bind_descriptor_sets(
-                _state->bind_state,
-                _cmdbuffer,
-                bind_point,
-                shader->pipeline_layout(),
-                shader->uses_push_descriptors() ? 1u : 0u,
-                static_cast<uint32_t>(desc_sets->size()),
-                desc_sets->data(),
-                0u,
-                nullptr);
+            assemble_and_bind_desc_sets(visitor.desc_set, shader, bind_point);
         };
         auto prepare_indirect_dispatch = [&](
                                              const Buffer *source,
@@ -6016,12 +6216,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     static_cast<UploadBuffer const *>(chunk.buffer)->copy_from(c->data(), chunk.offset, c->size());
                     VkBuffer src = chunk.buffer->vk_buffer();
                     VkBuffer dst = reinterpret_cast<Buffer const *>(c->handle())->vk_buffer();
-                    auto &regions = pending_upload.copies[BufferPair{src, dst}];
-                    regions.push_back({VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-                                       nullptr,
-                                       chunk.offset,
-                                       c->offset(),
-                                       c->size()});
+                    pending_upload.append(
+                        BufferPair{src, dst},
+                        VkBufferCopy2{
+                            VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                            nullptr,
+                            chunk.offset,
+                            c->offset(),
+                            c->size()});
                 } break;
                 case Command::Tag::EBufferDownloadCommand: {
                     auto c = static_cast<BufferDownloadCommand const *>(cmd);
@@ -6031,12 +6233,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     });
                     VkBuffer src = reinterpret_cast<Buffer const *>(c->handle())->vk_buffer();
                     VkBuffer dst = chunk.buffer->vk_buffer();
-                    auto &regions = pending_download.copies[BufferPair{src, dst}];
-                    regions.push_back({VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-                                       nullptr,
-                                       c->offset(),
-                                       chunk.offset,
-                                       c->size()});
+                    pending_download.append(
+                        BufferPair{src, dst},
+                        VkBufferCopy2{
+                            VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                            nullptr,
+                            c->offset(),
+                            chunk.offset,
+                            c->size()});
                 } break;
                 case Command::Tag::EBufferCopyCommand: {
                     auto c = static_cast<BufferCopyCommand const *>(cmd);
@@ -6116,93 +6320,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     bool is_rt_shader = (shader->shader_tag() == Shader::ShaderTag::kRayTracingShader);
                     BindPropVisitor visitor{};
                     visitor.device = device();
-                    set_dispatch_args(
-                        cmd, visitor, c, shader, indirect_source);
                     constexpr size_t max_printer_count = 1024ull * 1024ull;
                     BufferView count_buffer;
                     BufferView data_buffer;
-                    if (!shader->printers().empty()) {
-                        auto count_chunk = scratch_buffer_alloc->allocate(4, 16);
-                        auto data_chunk = scratch_buffer_alloc->allocate(max_printer_count, 16);
-                        count_buffer = BufferView(
-                            reinterpret_cast<Buffer const *>(count_chunk.handle),
-                            count_chunk.offset,
-                            4);
-                        auto upload_buffer = states()->upload_alloc.allocate(4);
-                        uint zero = 0;
-                        static_cast<UploadBuffer const *>(upload_buffer.buffer)->copy_from(&zero, upload_buffer.offset, 4);
-
-                        resource_barrier->record(
-                            count_buffer,
-                            ResourceBarrier::Usage::kCopyDest);
-                        resource_barrier->update_states(_cmdbuffer);
-                        VkBufferCopy2 buffer_copy{
-                            VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-                            nullptr,
-                            upload_buffer.offset,
-                            count_buffer.offset,
-                            4};
-                        VkCopyBufferInfo2 copy_info2{
-                            VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
-                            nullptr,
-                            upload_buffer.buffer->vk_buffer(),
-                            count_buffer.buffer->vk_buffer(),
-                            1,
-                            &buffer_copy};
-                        detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
-
-                        data_buffer = BufferView{
-                            reinterpret_cast<Buffer const *>(data_chunk.handle),
-                            data_chunk.offset,
-                            max_printer_count};
-                        // bind counter
-                        {
-                            auto idx = visitor.desc_index++;
-                            auto buffer_descs = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-                            *buffer_descs = VkDescriptorBufferInfo{
-                                count_buffer.buffer->vk_buffer(),
-                                count_buffer.offset,
-                                4};
-                            write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                                nullptr,
-                                visitor.desc_set,
-                                idx,
-                                0,
-                                1,
-                                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                nullptr,
-                                buffer_descs,
-                                nullptr});
-                        }
-                        // bind data
-                        {
-                            auto idx = visitor.desc_index++;
-                            auto buffer_descs = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
-                            *buffer_descs = VkDescriptorBufferInfo{
-                                data_buffer.buffer->vk_buffer(),
-                                data_buffer.offset,
-                                max_printer_count};
-                            write_desc_sets->emplace_back(VkWriteDescriptorSet{
-                                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                                nullptr,
-                                visitor.desc_set,
-                                idx,
-                                0,
-                                1,
-                                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                nullptr,
-                                buffer_descs,
-                                nullptr});
-                        }
-                        resource_barrier->record(
-                            data_buffer,
-                            ResourceBarrier::Usage::kComputeUAV);
-                        resource_barrier->record(
-                            count_buffer,
-                            ResourceBarrier::Usage::kComputeUAV);
-                        resource_barrier->update_states(_cmdbuffer);
-                    }
                     auto bind_point = is_rt_shader ? VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR : VK_PIPELINE_BIND_POINT_COMPUTE;
                     auto push_stage = is_rt_shader ?
                                           static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_RAYGEN_BIT_KHR) :
@@ -6225,11 +6345,119 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     // command is therefore retained here - only for indirect commands - and
                     // restored for the second push.
                     vstd::vector<VkWriteDescriptorSet> indirect_repush_writes;
-                    if (c->is_indirect()) {
-                        indirect_repush_writes.assign(write_desc_sets->begin(),
-                                                        write_desc_sets->end());
+                    if (use_batched_desc_update) {
+                        LUISA_ASSERT(
+                            dispatch_offset_index < dispatch_offsets->size() &&
+                                prebound_dispatch_index < prebound_dispatches.size(),
+                            "Vulkan batched descriptor state out of bounds.");
+                        auto const &block = (*dispatch_offsets)[dispatch_offset_index++];
+                        auto &pre = prebound_dispatches[prebound_dispatch_index++];
+                        LUISA_ASSERT(
+                            block.command == cmd && pre.identity == cmd &&
+                                pre.offset == block.offset && pre.size == block.size,
+                            "Vulkan batched descriptor mismatch with preprocessing plan.");
+                        visitor.desc_set = pre.desc_set;
+                        visitor.fallback_accel_bases.clear();
+                        if (pre.fallback_accel_count != 0u) {
+                            auto const *base_ptr =
+                                prebound_fallback_accel_bases.data() + pre.fallback_accel_offset;
+                            visitor.fallback_accel_bases.insert(
+                                visitor.fallback_accel_bases.end(),
+                                base_ptr,
+                                base_ptr + pre.fallback_accel_count);
+                        }
+                        assemble_and_bind_desc_sets(visitor.desc_set, shader, bind_point);
+                    } else {
+                        set_dispatch_args(
+                            cmd, visitor, c, shader, indirect_source);
+                        if (!shader->printers().empty()) {
+                            auto count_chunk = scratch_buffer_alloc->allocate(4, 16);
+                            auto data_chunk = scratch_buffer_alloc->allocate(max_printer_count, 16);
+                            count_buffer = BufferView(
+                                reinterpret_cast<Buffer const *>(count_chunk.handle),
+                                count_chunk.offset,
+                                4);
+                            auto upload_buffer = states()->upload_alloc.allocate(4);
+                            uint zero = 0;
+                            static_cast<UploadBuffer const *>(upload_buffer.buffer)->copy_from(&zero, upload_buffer.offset, 4);
+
+                            resource_barrier->record(
+                                count_buffer,
+                                ResourceBarrier::Usage::kCopyDest);
+                            resource_barrier->update_states(_cmdbuffer);
+                            VkBufferCopy2 buffer_copy{
+                                VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                                nullptr,
+                                upload_buffer.offset,
+                                count_buffer.offset,
+                                4};
+                            VkCopyBufferInfo2 copy_info2{
+                                VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                                nullptr,
+                                upload_buffer.buffer->vk_buffer(),
+                                count_buffer.buffer->vk_buffer(),
+                                1,
+                                &buffer_copy};
+                            detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
+
+                            data_buffer = BufferView{
+                                reinterpret_cast<Buffer const *>(data_chunk.handle),
+                                data_chunk.offset,
+                                max_printer_count};
+                            // bind counter
+                            {
+                                auto idx = visitor.desc_index++;
+                                auto buffer_descs = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                                *buffer_descs = VkDescriptorBufferInfo{
+                                    count_buffer.buffer->vk_buffer(),
+                                    count_buffer.offset,
+                                    4};
+                                write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                    nullptr,
+                                    visitor.desc_set,
+                                    idx,
+                                    0,
+                                    1,
+                                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                    nullptr,
+                                    buffer_descs,
+                                    nullptr});
+                            }
+                            // bind data
+                            {
+                                auto idx = visitor.desc_index++;
+                                auto buffer_descs = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                                *buffer_descs = VkDescriptorBufferInfo{
+                                    data_buffer.buffer->vk_buffer(),
+                                    data_buffer.offset,
+                                    max_printer_count};
+                                write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                    nullptr,
+                                    visitor.desc_set,
+                                    idx,
+                                    0,
+                                    1,
+                                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                    nullptr,
+                                    buffer_descs,
+                                    nullptr});
+                            }
+                            resource_barrier->record(
+                                data_buffer,
+                                ResourceBarrier::Usage::kComputeUAV);
+                            resource_barrier->record(
+                                count_buffer,
+                                ResourceBarrier::Usage::kComputeUAV);
+                            resource_barrier->update_states(_cmdbuffer);
+                        }
+                        if (c->is_indirect()) {
+                            indirect_repush_writes.assign(write_desc_sets->begin(),
+                                                            write_desc_sets->end());
+                        }
+                        bind_shader_desc(visitor, shader, bind_point);
                     }
-                    bind_shader_desc(visitor, shader, bind_point);
                     // P1.2: a repeated dispatch of one shader in one command
                     // buffer binds its pipeline once; the bind is skipped only for
                     // the exact same VkPipeline handle at this bind point.

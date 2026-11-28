@@ -508,9 +508,16 @@ vstd::push_back_all(_binds, binds);
             case Argument::Tag::UNIFORM:
                 _captured_has_uniforms = true;
                 break;
+            case Argument::Tag::TEXTURE:
+                _captured_has_ineligible_batch_arg = true;
+                _captured_can_fast_skip_descriptors = false;
+                break;
             case Argument::Tag::BUFFER:
-                if (arg.buffer.handle == 0u ||
+                if (arg.buffer.handle != 0u &&
                     reinterpret_cast<Buffer const *>(arg.buffer.handle)->is_indirect_dispatch_buffer()) {
+                    _captured_has_ineligible_batch_arg = true;
+                    _captured_can_fast_skip_descriptors = false;
+                } else if (arg.buffer.handle == 0u) {
                     _captured_can_fast_skip_descriptors = false;
                 }
                 break;
@@ -730,10 +737,18 @@ vstd::push_back_all(_binds, binds);
         if (can_fast) {
             _captured_descriptor_end = desc_idx;
             _captured_can_fast_preprocess = true;
+            if (_buffer_metadata_count > 0u) {
+                _captured_buffer_metadata_template.resize(
+                    _buffer_metadata_count, StorageBufferMetadata{});
+                for (auto const &entry : _captured_buffer_metadata) {
+                    _captured_buffer_metadata_template[entry.slot] = entry.metadata;
+                }
+            }
         } else {
             _captured_readonly_buffers.clear();
             _captured_writable_buffers.clear();
             _captured_buffer_metadata.clear();
+            _captured_buffer_metadata_template.clear();
             _captured_validation_items.clear();
             _captured_dynamic_bindless.clear();
             _captured_dynamic_accels.clear();

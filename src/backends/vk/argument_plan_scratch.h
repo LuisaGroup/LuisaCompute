@@ -209,6 +209,21 @@ public:
         }
     }
 
+    // Read-only lookup of `command`'s planned block, used by pre-passes before
+    // the layer preprocessing pass consumes the entry.
+    [[nodiscard]] const PlannedArgumentBlock *peek(
+        Command const *command) const noexcept {
+        if (command == nullptr || _slots.empty()) { return nullptr; }
+        auto mask = _slots.size() - 1u;
+        for (auto slot_index = _hash(command) & mask;; slot_index = (slot_index + 1u) & mask) {
+            auto const &slot = _slots[slot_index];
+            if (slot.command == nullptr) { return nullptr; }
+            if (slot.command == command) {
+                return &_plans[slot.plan_index];
+            }
+        }
+    }
+
     // The plan of `command`, or nullptr when the sizing pass never planned it.
     // Every successful lookup is counted so a batch can assert that it
     // preprocessed exactly as many commands as it planned.

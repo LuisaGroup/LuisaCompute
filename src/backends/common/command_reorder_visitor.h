@@ -196,7 +196,7 @@ public:
         // recorded region was conservatively serialized (a false hazard) and
         // range tracking silently degraded for batches touching more than 16
         // distinct ranges of one resource.
-        vstd::vector<std::pair<Range, ResourceView>> views;
+        vstd::fixed_vector<std::pair<Range, ResourceView>, 2> views;
         bool tracked_written{false};
         uint64_t bindless_checked_mask{0u};
         uint64_t bindless_member_mask{0u};
@@ -1770,7 +1770,7 @@ private:
 public:
     explicit CommandReorderVisitor(FuncTable &&func_table) noexcept
         : _arena(65536, &malloc_visitor),
-          _buffer_map(64, ArenaRef{_arena}),
+          _buffer_map(256, ArenaRef{_arena}),
           _texture_map(64, ArenaRef{_arena}),
           _no_range_resmap(64, ArenaRef{_arena}),
           _bindless_map(64, ArenaRef{_arena}),
@@ -1818,7 +1818,7 @@ public:
         destroy_map(_bindless_map);
         std::destroy_at(&_captured_shader_cache);
         _arena.clear();
-        new (&_buffer_map) decltype(_buffer_map)(64, ArenaRef{_arena});
+        new (&_buffer_map) decltype(_buffer_map)(256, ArenaRef{_arena});
         new (&_texture_map) decltype(_texture_map)(64, ArenaRef{_arena});
         new (&_no_range_resmap) decltype(_no_range_resmap)(64, ArenaRef{_arena});
         new (&_bindless_map) decltype(_bindless_map)(64, ArenaRef{_arena});

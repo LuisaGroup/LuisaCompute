@@ -10,6 +10,12 @@ class BindlessArray;
 class ComputeShader final : public Shader {
     friend class ShaderSerializer;
 
+public:
+    struct CapturedAccelInstPatch {
+        uint32_t prop_offset{0u};
+        TopAccel const *accel{nullptr};
+    };
+
 private:
     ComPtr<ID3D12PipelineState> _pso;
     vstd::vector<luisa::compute::Argument> _arg_bindings;
@@ -17,10 +23,14 @@ private:
     uint3 _block_size;
     bool _captured_has_uniforms{false};
     bool _captured_can_fast_preprocess{false};
+    bool _captured_can_fast_bind{false};
     vstd::vector<BufferView> _captured_readonly_buffers;
     vstd::vector<BufferView> _captured_writable_buffers;
     vstd::vector<BindlessArray *> _captured_bindless;
     vstd::vector<std::pair<uint64_t, bool>> _captured_accels;
+    vstd::vector<BindProperty> _captured_bind_props;
+    vstd::vector<CapturedAccelInstPatch> _captured_accel_inst_patches;
+    vstd::vector<uint8_t> _captured_prop_is_dynamic;
     void _init_captured_preprocess();
     ComputeShader(
         uint3 blockSize,
@@ -57,10 +67,14 @@ public:
     vstd::span<luisa::compute::Argument const> arg_bindings() const { return _arg_bindings; }
     [[nodiscard]] bool captured_has_uniforms() const noexcept { return _captured_has_uniforms; }
     [[nodiscard]] bool captured_can_fast_preprocess() const noexcept { return _captured_can_fast_preprocess; }
+    [[nodiscard]] bool captured_can_fast_bind() const noexcept { return _captured_can_fast_bind; }
     [[nodiscard]] vstd::span<BufferView const> captured_readonly_buffers() const noexcept { return _captured_readonly_buffers; }
     [[nodiscard]] vstd::span<BufferView const> captured_writable_buffers() const noexcept { return _captured_writable_buffers; }
     [[nodiscard]] vstd::span<BindlessArray *const> captured_bindless() const noexcept { return _captured_bindless; }
     [[nodiscard]] vstd::span<std::pair<uint64_t, bool> const> captured_accels() const noexcept { return _captured_accels; }
+    [[nodiscard]] vstd::span<BindProperty const> captured_bind_props() const noexcept { return _captured_bind_props; }
+    [[nodiscard]] vstd::span<CapturedAccelInstPatch const> captured_accel_inst_patches() const noexcept { return _captured_accel_inst_patches; }
+    [[nodiscard]] vstd::span<uint8_t const> captured_prop_is_dynamic() const noexcept { return _captured_prop_is_dynamic; }
     ID3D12CommandSignature *cmd_sig() const;
     Device *get_device() const { return _device; }
     Tag get_tag() const { return Tag::ComputeShader; }

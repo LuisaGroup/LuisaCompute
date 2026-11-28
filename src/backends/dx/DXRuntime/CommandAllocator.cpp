@@ -195,6 +195,7 @@ CommandAllocator::CachedSpilledTable *CommandAllocator::acquire_spilled_table(
         for (auto &entry : _spilled_table_cache) {
             for (auto &table : entry.second.tables) {
                 table.keys.clear();
+                table.captured_valid = false;
             }
         }
         _cached_resource_generation = res_gen;
@@ -253,6 +254,7 @@ void CommandAllocator::reset(CommandQueue *queue) {
                 if (clear_keys) {
                     for (auto &table : entry.second.tables) {
                         table.keys.clear();
+                        table.captured_valid = false;
                     }
                 }
             }

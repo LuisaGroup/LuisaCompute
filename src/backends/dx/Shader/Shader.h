@@ -103,7 +103,10 @@ public:
 
     void bind_compute_resources(
         CommandBufferBuilder *cmd_list,
-        vstd::span<const BindProperty> resources) const;
+        vstd::span<const BindProperty> resources,
+        size_t captured_begin = 0u,
+        size_t captured_end = 0u,
+        vstd::span<const uint8_t> captured_is_dynamic = {}) const;
     void bind_raster_resources(
         CommandBufferBuilder *cmd_list,
         vstd::span<const BindProperty> resources) const;

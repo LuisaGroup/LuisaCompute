@@ -83,12 +83,14 @@ protected:
     bool _uses_push_descriptor_set{false};
     uint64_t _shader_instance_id{0u};
     bool _captured_has_uniforms{false};
+    bool _captured_has_ineligible_batch_arg{false};
     bool _captured_can_fast_skip_descriptors{false};
     bool _captured_can_fast_preprocess{false};
     uint32_t _captured_descriptor_end{0u};
     vstd::vector<BufferView> _captured_readonly_buffers;
     vstd::vector<BufferView> _captured_writable_buffers;
     vstd::vector<CapturedBufferMetadataEntry> _captured_buffer_metadata;
+    vstd::vector<StorageBufferMetadata> _captured_buffer_metadata_template;
     vstd::vector<CapturedValidationItem> _captured_validation_items;
     vstd::vector<CapturedBindlessInfo> _captured_dynamic_bindless;
     vstd::vector<CapturedAccelInfo> _captured_dynamic_accels;
@@ -172,6 +174,9 @@ public:
     [[nodiscard]] bool captured_has_uniforms() const noexcept {
         return _captured_has_uniforms;
     }
+    [[nodiscard]] bool captured_has_ineligible_batch_arg() const noexcept {
+        return _captured_has_ineligible_batch_arg;
+    }
     [[nodiscard]] bool captured_can_fast_skip_descriptors() const noexcept {
         return _captured_can_fast_skip_descriptors;
     }
@@ -189,6 +194,9 @@ public:
     }
     [[nodiscard]] vstd::span<CapturedBufferMetadataEntry const> captured_buffer_metadata() const noexcept {
         return _captured_buffer_metadata;
+    }
+    [[nodiscard]] vstd::span<StorageBufferMetadata const> captured_buffer_metadata_template() const noexcept {
+        return _captured_buffer_metadata_template;
     }
     [[nodiscard]] vstd::span<CapturedValidationItem const> captured_validation_items() const noexcept {
         return _captured_validation_items;

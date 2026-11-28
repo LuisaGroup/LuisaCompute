@@ -148,6 +148,14 @@ void ResourceBarrier::record(
         detail::TextureLayoutContract::GENERIC_USAGE);
 }
 
+void ResourceBarrier::_mark_non_pure_compute_read(
+    detail::NativeBufferIdentity identity, BufferStates &state) {
+    if (!state.in_non_pure_compute_read_list) {
+        state.in_non_pure_compute_read_list = true;
+        _non_pure_compute_read_buffers.emplace_back(identity, &state);
+    }
+}
+
 void ResourceBarrier::record_readonly_buffers_cached(
     uint64_t cache_key,
     vstd::span<BufferView const> buffers,
@@ -170,19 +178,13 @@ void ResourceBarrier::record_readonly_buffers_cached(
     }
     bool all_clean_readonly = allow_cache;
     for (auto const &bv : buffers) {
-        _record(
-            bv, stage, access, VK_IMAGE_LAYOUT_UNDEFINED,
-            detail::TextureLayoutContract::GENERIC_USAGE);
-        if (all_clean_readonly && !bv.buffer->flush_host()) {
-            auto identity = detail::native_buffer_identity(bv.buffer->vk_buffer());
-            if (auto iter = _buffer_frame_states.find(identity)) {
-                auto &state = iter.value();
-                state.referenced_by_readonly_cache = true;
-                if (state.before_state_supplied ||
-                    detail::has_write_access(state.range.before_access) ||
-                    detail::has_write_access(state.range.after_access)) {
-                    all_clean_readonly = false;
-                }
+        auto *state = _record_buffer(bv, stage, access);
+        if (all_clean_readonly && state != nullptr) {
+            state->referenced_by_readonly_cache = true;
+            if (state->before_state_supplied ||
+                detail::has_write_access(state->range.before_access) ||
+                detail::has_write_access(state->range.after_access)) {
+                all_clean_readonly = false;
             }
         }
     }
@@ -248,6 +250,7 @@ void ResourceBarrier::set_res(
                 VK_ACCESS_2_NONE};
             state.before_state_supplied = true;
         }
+        _mark_non_pure_compute_read(identity, state);
         return;
     }
 
@@ -308,6 +311,46 @@ void ResourceBarrier::record(
            (state.range.before_access & norm.access) == norm.access;
 }
 
+ResourceBarrier::BufferStates *ResourceBarrier::_record_buffer(
+    BufferView const &buffer_view,
+    VkPipelineStageFlagBits2 stage,
+    VkAccessFlagBits2 access) {
+    // If the buffer is host-visible, should not be recorded by resource-barrier
+    if (buffer_view.buffer->flush_host()) { return nullptr; }
+    auto buffer = buffer_view.buffer->vk_buffer();
+    auto identity = detail::native_buffer_identity(buffer);
+    auto try_res = _buffer_frame_states.try_emplace(identity, buffer);
+    auto &state = try_res.first.value();
+    LUISA_DEBUG_ASSERT(state.buffer == buffer);
+    if (!try_res.second) {
+        uint32_t const vendor_id =
+            device != nullptr ? device->properties().vendorID : 0u;
+        if (can_skip_readonly_buffer_record(
+                state, queue_type, vendor_id, stage, access)) {
+            return &state;
+        }
+    }
+    if (try_res.second &&
+        _bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
+        state.range.before_stage = _bindless_memory_state.before_stage;
+        state.range.before_access = _bindless_memory_state.before_access;
+    }
+    if (!state.require_update) {
+        _current_buffer_update_states.emplace_back(identity, &state);
+        state.require_update = true;
+    }
+    auto result = detail::combine_texture_access_layout(
+        {state.range.after_access, VK_IMAGE_LAYOUT_GENERAL},
+        {access, VK_IMAGE_LAYOUT_GENERAL});
+    state.range.after_access = result.access;
+    state.range.after_stage |= stage;
+    if (state.referenced_by_readonly_cache &&
+        detail::has_write_access(state.range.after_access)) {
+        ++_readonly_cache_epoch;
+    }
+    return &state;
+}
+
 void ResourceBarrier::_record(
     ResourceView const &res,
     VkPipelineStageFlagBits2 stage,
@@ -315,40 +358,7 @@ void ResourceBarrier::_record(
     VkImageLayout layout,
     detail::TextureLayoutContract layout_contract) {
     if (res.is_type_of<BufferView>()) {
-        auto &buffer_view = res.get<0>();
-        // If the buffer is host-visible, should not be recorded by resource-barrier
-        if (buffer_view.buffer->flush_host()) { return; }
-        auto buffer = buffer_view.buffer->vk_buffer();
-        auto identity = detail::native_buffer_identity(buffer);
-        auto try_res = _buffer_frame_states.try_emplace(identity, buffer);
-        auto &state = try_res.first.value();
-        LUISA_DEBUG_ASSERT(state.buffer == buffer);
-        if (!try_res.second) {
-            uint32_t const vendor_id =
-                device != nullptr ? device->properties().vendorID : 0u;
-            if (can_skip_readonly_buffer_record(
-                    state, queue_type, vendor_id, stage, access)) {
-                return;
-            }
-        }
-        if (try_res.second &&
-            _bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
-            state.range.before_stage = _bindless_memory_state.before_stage;
-            state.range.before_access = _bindless_memory_state.before_access;
-        }
-        if (!state.require_update) {
-            _current_buffer_update_states.emplace_back(identity, &state);
-            state.require_update = true;
-        }
-        auto result = detail::combine_texture_access_layout(
-            {state.range.after_access, VK_IMAGE_LAYOUT_GENERAL},
-            {access, VK_IMAGE_LAYOUT_GENERAL});
-        state.range.after_access = result.access;
-        state.range.after_stage |= stage;
-        if (state.referenced_by_readonly_cache &&
-            detail::has_write_access(state.range.after_access)) {
-            ++_readonly_cache_epoch;
-        }
+        static_cast<void>(_record_buffer(res.get<0>(), stage, access));
         return;
     }
 
@@ -431,6 +441,14 @@ void ResourceBarrier::remove_resource(Resource const *res) noexcept {
              it != _current_buffer_update_states.end();) {
             if (it->first == identity) {
                 it = _current_buffer_update_states.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto it = _non_pure_compute_read_buffers.begin();
+             it != _non_pure_compute_read_buffers.end();) {
+            if (it->first == identity) {
+                it = _non_pure_compute_read_buffers.erase(it);
             } else {
                 ++it;
             }
@@ -518,7 +536,7 @@ void ResourceBarrier::_resolve_texture_descriptor_layouts() {
     } while (changed);
 }
 
-void ResourceBarrier::_update_state(BufferStates &state) {
+void ResourceBarrier::_update_state(detail::NativeBufferIdentity identity, BufferStates &state) {
     state.require_update = false;
     auto &range = state.range;
     auto &barrier = _buffer_barriers.emplace_back();
@@ -584,6 +602,11 @@ void ResourceBarrier::_update_state(BufferStates &state) {
     range.before_access = tracked.access;
     range.after_stage = VK_PIPELINE_STAGE_2_NONE;
     range.after_access = VK_ACCESS_2_NONE;
+    if (state.before_state_supplied ||
+        range.before_stage != VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT ||
+        range.before_access != VK_ACCESS_2_SHADER_READ_BIT) {
+        _mark_non_pure_compute_read(identity, state);
+    }
 }
 
 void ResourceBarrier::_update_state(TextureStates &state) {
@@ -888,19 +911,47 @@ void ResourceBarrier::_flush_layer_bindless_accesses() {
 
         uint32_t const vendor_id =
             device != nullptr ? device->properties().vendorID : 0u;
+        auto const buf_norm =
+            detail::normalize_queue_scope(queue_type, buf_stage, buf_access);
+        bool const pure_compute_read_bindless =
+            !detail::needs_nvidia_transfer_read_widening(vendor_id, buf_access) &&
+            !detail::has_write_access(buf_norm.access) &&
+            (buf_norm.stages & ~VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT) == 0u &&
+            (buf_norm.access & ~VK_ACCESS_2_SHADER_READ_BIT) == 0u;
         {
             std::lock_guard lock{bdls_arr->mtx};
             has_buffers = bdls_arr->has_encoded_buffers();
             has_textures = bdls_arr->has_encoded_textures();
             if (has_buffers && !_buffer_frame_states.empty()) {
-                for (auto &entry : _buffer_frame_states) {
-                    if (can_skip_readonly_buffer_record(
-                            entry.second, queue_type, vendor_id,
-                            buf_stage, buf_access)) {
-                        continue;
+                if (pure_compute_read_bindless) {
+                    for (auto &entry : _current_buffer_update_states) {
+                        if (bdls_arr->contains_encoded_canonical_buffer(entry.first)) {
+                            matched_buffers.emplace_back(entry.first, entry.second);
+                        }
                     }
-                    if (bdls_arr->contains_encoded_canonical_buffer(entry.first)) {
-                        matched_buffers.emplace_back(entry.first, &entry.second);
+                    for (auto &entry : _non_pure_compute_read_buffers) {
+                        if (entry.second->require_update) {
+                            continue;
+                        }
+                        if (can_skip_readonly_buffer_record(
+                                *entry.second, queue_type, vendor_id,
+                                buf_stage, buf_access)) {
+                            continue;
+                        }
+                        if (bdls_arr->contains_encoded_canonical_buffer(entry.first)) {
+                            matched_buffers.emplace_back(entry.first, entry.second);
+                        }
+                    }
+                } else {
+                    for (auto &entry : _buffer_frame_states) {
+                        if (can_skip_readonly_buffer_record(
+                                entry.second, queue_type, vendor_id,
+                                buf_stage, buf_access)) {
+                            continue;
+                        }
+                        if (bdls_arr->contains_encoded_canonical_buffer(entry.first)) {
+                            matched_buffers.emplace_back(entry.first, &entry.second);
+                        }
                     }
                 }
             }
@@ -1138,7 +1189,7 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
     _flush_layer_bindless_accesses();
     _resolve_texture_descriptor_layouts();
     for (auto &i : _current_buffer_update_states) {
-        _update_state(*i.second);
+        _update_state(i.first, *i.second);
     }
     _current_buffer_update_states.clear();
     for (auto &i : _current_texture_update_states) {
@@ -1229,6 +1280,7 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
             tracked_texture_mips += entry.second.ranges.size();
         }
     }
+    bool const all_updates_flushed = _current_buffer_update_states.empty();
     _current_buffer_update_states.clear();
     _current_texture_update_states.clear();
     _current_texture_descriptor_views.clear();
@@ -1263,23 +1315,33 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
     // exactly one VkMemoryBarrier2.
     VkAccessFlags2 coalesced_src_access = VK_ACCESS_2_NONE;
     auto coalesced_buffers = size_t{0u};
-    for (auto &entry : _buffer_frame_states) {
-        auto identity = entry.first;
-        auto &state = entry.second;
-        if (auto iter = _saved_buffer_restore_states.find(identity)) {
-            auto &saved = iter.value();
-            auto &barrier = _buffer_barriers.emplace_back();
-            barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            barrier.dstStageMask = saved.after_stage;
-            barrier.srcAccessMask = state.range.before_access;
-            barrier.dstAccessMask = saved.after_access;
-            barrier.buffer = state.buffer;
-            barrier.offset = 0;
-            barrier.size = std::numeric_limits<uint64_t>::max();
-            continue;
+    if (_saved_buffer_restore_states.empty() && all_updates_flushed) {
+        coalesced_buffers = _buffer_frame_states.size();
+        if (_buffer_frame_states.size() > _non_pure_compute_read_buffers.size()) {
+            coalesced_src_access |= VK_ACCESS_2_SHADER_READ_BIT;
         }
-        coalesced_src_access |= state.range.before_access;
-        ++coalesced_buffers;
+        for (auto const &entry : _non_pure_compute_read_buffers) {
+            coalesced_src_access |= entry.second->range.before_access;
+        }
+    } else {
+        for (auto &entry : _buffer_frame_states) {
+            auto identity = entry.first;
+            auto &state = entry.second;
+            if (auto iter = _saved_buffer_restore_states.find(identity)) {
+                auto &saved = iter.value();
+                auto &barrier = _buffer_barriers.emplace_back();
+                barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                barrier.dstStageMask = saved.after_stage;
+                barrier.srcAccessMask = state.range.before_access;
+                barrier.dstAccessMask = saved.after_access;
+                barrier.buffer = state.buffer;
+                barrier.offset = 0;
+                barrier.size = std::numeric_limits<uint64_t>::max();
+                continue;
+            }
+            coalesced_src_access |= state.range.before_access;
+            ++coalesced_buffers;
+        }
     }
     // The coalesced struct is emitted only after the texture loop: the bindless
     // memory state is both a second source of that struct and an input of this
@@ -1375,6 +1437,7 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
         detail::cmd_pipeline_barrier(cmd_buffer, device, &info);
     }
     _buffer_frame_states.clear();
+    _non_pure_compute_read_buffers.clear();
     _texture_frame_states.clear();
     _verified_readonly_shader_epoch.clear();
     ++_readonly_cache_epoch;

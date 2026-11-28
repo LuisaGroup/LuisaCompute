@@ -41,8 +41,11 @@ CommandBuffer::CommandBuffer(
 }
 void CommandBufferBuilder::set_compute_resources(
     Shader const *s,
-    vstd::span<const BindProperty> resources) {
-    s->bind_compute_resources(this, resources);
+    vstd::span<const BindProperty> resources,
+    size_t captured_begin,
+    size_t captured_end,
+    vstd::span<const uint8_t> captured_is_dynamic) {
+    s->bind_compute_resources(this, resources, captured_begin, captured_end, captured_is_dynamic);
 }
 void CommandBufferBuilder::set_raster_resources(
     Shader const *s,
@@ -52,7 +55,10 @@ void CommandBufferBuilder::set_raster_resources(
 void CommandBufferBuilder::dispatch_compute(
     ComputeShader const *cs,
     uint3 dispatchId,
-    vstd::span<const BindProperty> resources) {
+    vstd::span<const BindProperty> resources,
+    size_t captured_begin,
+    size_t captured_end,
+    vstd::span<const uint8_t> captured_is_dynamic) {
     auto calc = [](uint disp, uint thd) {
         return (disp + thd - 1) / thd;
     };
@@ -71,20 +77,35 @@ void CommandBufferBuilder::dispatch_compute(
         LUISA_ERROR("Dispatch size Z {} out of range {}", dispId.z, D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
     }
     auto c = _cb->_cmd_list.Get();
-    c->SetComputeRootSignature(cs->root_sig());
-    set_compute_resources(cs, resources);
-    c->SetPipelineState(cs->pso());
+    if (cs->root_sig() != _bound_compute_root_sig) {
+        c->SetComputeRootSignature(cs->root_sig());
+        _bound_compute_root_sig = cs->root_sig();
+    }
+    set_compute_resources(cs, resources, captured_begin, captured_end, captured_is_dynamic);
+    if (cs->pso() != _bound_pso) {
+        c->SetPipelineState(cs->pso());
+        _bound_pso = cs->pso();
+    }
     c->Dispatch(dispId.x, dispId.y, dispId.z);
 }
 void CommandBufferBuilder::dispatch_compute(
     ComputeShader const *cs,
     vstd::span<const uint3> dispatchSizes,
     uint constBindPos,
-    vstd::span<const BindProperty> resources) {
+    vstd::span<const BindProperty> resources,
+    size_t captured_begin,
+    size_t captured_end,
+    vstd::span<const uint8_t> captured_is_dynamic) {
     auto c = _cb->_cmd_list.Get();
-    c->SetComputeRootSignature(cs->root_sig());
-    set_compute_resources(cs, resources);
-    c->SetPipelineState(cs->pso());
+    if (cs->root_sig() != _bound_compute_root_sig) {
+        c->SetComputeRootSignature(cs->root_sig());
+        _bound_compute_root_sig = cs->root_sig();
+    }
+    set_compute_resources(cs, resources, captured_begin, captured_end, captured_is_dynamic);
+    if (cs->pso() != _bound_pso) {
+        c->SetPipelineState(cs->pso());
+        _bound_pso = cs->pso();
+    }
     auto calc = [](uint disp, uint thd) {
         return (disp + thd - 1) / thd;
     };
@@ -117,6 +138,7 @@ void CommandBufferBuilder::set_raster_shader(
     auto c = _cb->cmd_list();
     c->SetGraphicsRootSignature(s->root_sig());
     c->SetPipelineState(state);
+    _bound_pso = state;
     set_raster_resources(s, resources);
 }
 void CommandBufferBuilder::dispatch_compute_indirect(
@@ -124,15 +146,24 @@ void CommandBufferBuilder::dispatch_compute_indirect(
     Buffer const &indirectBuffer,
     uint32_t indirectOffset,
     uint32_t maxIndirectCount,
-    vstd::span<const BindProperty> resources) {
+    vstd::span<const BindProperty> resources,
+    size_t captured_begin,
+    size_t captured_end,
+    vstd::span<const uint8_t> captured_is_dynamic) {
     auto c = _cb->_cmd_list.Get();
     auto res = indirectBuffer.GetResource();
     size_t byteSize = indirectBuffer.GetByteSize();
     size_t cmdSize = (byteSize - 4) / ComputeShader::kDispatchIndirectStride;
     LUISA_ASSUME(cmdSize >= 1);
-    c->SetComputeRootSignature(cs->root_sig());
-    set_compute_resources(cs, resources);
-    c->SetPipelineState(cs->pso());
+    if (cs->root_sig() != _bound_compute_root_sig) {
+        c->SetComputeRootSignature(cs->root_sig());
+        _bound_compute_root_sig = cs->root_sig();
+    }
+    set_compute_resources(cs, resources, captured_begin, captured_end, captured_is_dynamic);
+    if (cs->pso() != _bound_pso) {
+        c->SetPipelineState(cs->pso());
+        _bound_pso = cs->pso();
+    }
     maxIndirectCount = std::min<uint32_t>(maxIndirectCount, static_cast<uint32_t>(cmdSize - indirectOffset));
     // TODO
     c->ExecuteIndirect(
@@ -309,8 +340,12 @@ CommandBufferBuilder::~CommandBufferBuilder() {
         _cb->_close();
 }
 CommandBufferBuilder::CommandBufferBuilder(CommandBufferBuilder &&v)
-    : _cb(v._cb) {
+    : _cb(v._cb),
+      _bound_compute_root_sig(v._bound_compute_root_sig),
+      _bound_pso(v._bound_pso) {
     v._cb = nullptr;
+    v._bound_compute_root_sig = nullptr;
+    v._bound_pso = nullptr;
 }
 
 CommandBuffer::~CommandBuffer() {
