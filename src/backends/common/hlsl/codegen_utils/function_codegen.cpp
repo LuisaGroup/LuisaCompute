@@ -765,14 +765,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "round"sv;
             break;
         case CallOp::FMA:
-            // VK_KHR_shader_fma: only the 32-bit float forms have a fused implementation
-            // (`mad()`, which dxc lowers to OpFmaKHR), and only for a device that
-            // negotiated the extension.  Every other type - and a device without the
-            // capability - keeps the generic `_fma` template, which is an unfused
-            // multiply-add.
-            if (opt->isSpirv && opt->spirv_capabilities.fma &&
-                (expr->type()->is_float() ||
-                 (expr->type()->is_vector() && expr->type()->element()->is_float()))) {
+            // 32-bit float `mad()` lowers to FMad in DXIL and (with
+            // VK_KHR_shader_fma) OpFmaKHR in SPIR-V. Non-float32 types and
+            // SPIR-V devices without the extension keep `_fma`.
+            if ((!opt->isSpirv || opt->spirv_capabilities.fma) &&
+                (expr->type()->is_float32() ||
+                 expr->type()->is_float32_vector())) {
                 str << "mad"sv;
             } else {
                 str << "_fma"sv;

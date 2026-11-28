@@ -439,7 +439,7 @@ namespace {
         });
     }();
     uint64_t data[] = {
-        luisa::hash_value("luisa-dx-ast-cache-v2"sv),
+        luisa::hash_value("luisa-dx-ast-cache-v4"sv),
         hlsl_header_hash,
         kernel.hash(),
         kernel.body()->hash(),
