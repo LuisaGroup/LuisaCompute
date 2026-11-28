@@ -1816,7 +1816,7 @@ public:
         destroy_map(_texture_map);
         destroy_map(_no_range_resmap);
         destroy_map(_bindless_map);
-        _captured_shader_cache.~decltype(_captured_shader_cache)();
+        std::destroy_at(&_captured_shader_cache);
         _arena.clear();
         new (&_buffer_map) decltype(_buffer_map)(64, ArenaRef{_arena});
         new (&_texture_map) decltype(_texture_map)(64, ArenaRef{_arena});
