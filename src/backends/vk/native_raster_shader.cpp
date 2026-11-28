@@ -563,8 +563,12 @@ VkRenderPass NativeRasterShader::encode_draw_state(
             .descriptorPool = _descriptor_pool->pool,
             .descriptorSetCount = static_cast<uint32_t>(_set_layouts.size()),
             .pSetLayouts = _set_layouts.data()};
-        auto allocate_result = vkAllocateDescriptorSets(
-            logic_device, &allocate_info, sets.data());
+        VkResult allocate_result;
+        {
+            std::lock_guard lock{_descriptor_pool->mutex};
+            allocate_result = vkAllocateDescriptorSets(
+                logic_device, &allocate_info, sets.data());
+        }
         if (allocate_result != VK_SUCCESS) {
             LUISA_ERROR_WITH_LOCATION(
                 "Native raster shader draw could not allocate {} descriptor sets "

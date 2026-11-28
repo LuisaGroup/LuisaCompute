@@ -34,6 +34,10 @@ NativeShaderDescriptorPool::~NativeShaderDescriptorPool() noexcept {
 
 NativeShaderDescriptorDeferredRelease::~NativeShaderDescriptorDeferredRelease() noexcept {
     if (pool != nullptr && pool->pool != VK_NULL_HANDLE && !sets.empty()) {
+        // Retirement runs on the stream worker while another command buffer may
+        // be recording on the application thread. Vulkan descriptor pools are
+        // externally synchronized, so pair this free with every allocation.
+        std::lock_guard lock{pool->mutex};
         vkFreeDescriptorSets(pool->device, pool->pool,
                              static_cast<uint32_t>(sets.size()),
                              sets.data());
@@ -237,8 +241,12 @@ void NativeShader::encode(
             .descriptorPool = _descriptor_pool->pool,
             .descriptorSetCount = static_cast<uint32_t>(_set_layouts.size()),
             .pSetLayouts = _set_layouts.data()};
-        auto allocate_result = vkAllocateDescriptorSets(
-            logic_device, &allocate_info, sets.data());
+        VkResult allocate_result;
+        {
+            std::lock_guard lock{_descriptor_pool->mutex};
+            allocate_result = vkAllocateDescriptorSets(
+                logic_device, &allocate_info, sets.data());
+        }
         if (allocate_result != VK_SUCCESS) {
             LUISA_ERROR_WITH_LOCATION(
                 "Native shader dispatch could not allocate {} descriptor sets "

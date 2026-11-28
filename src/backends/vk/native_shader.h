@@ -6,6 +6,8 @@
 #include <luisa/runtime/rhi/argument.h>
 #include <volk.h>
 
+#include <mutex>
+
 namespace lc::vk {
 using namespace luisa;
 using namespace luisa::compute;
@@ -20,6 +22,9 @@ struct CommandBufferState;
 struct NativeShaderDescriptorPool {
     VkDevice device{VK_NULL_HANDLE};
     VkDescriptorPool pool{VK_NULL_HANDLE};
+    // Allocation happens during command recording; deferred release happens on
+    // the stream worker. The Vulkan descriptor-pool contract is external sync.
+    std::mutex mutex;
     NativeShaderDescriptorPool(VkDevice device, VkDescriptorPool pool) noexcept
         : device{device}, pool{pool} {}
     NativeShaderDescriptorPool(NativeShaderDescriptorPool const &) = delete;
